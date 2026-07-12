@@ -42,6 +42,8 @@ Built and maintained by Netbus IT Support.
   Slugged public content copies the `Event` pattern exactly: `slugify()` +
   `unique_slug()`, `published` boolean, detail route with
   `first_or_404()` filtered on `published=True`.
+- unique_slug(model, title, obj_id=None) in app.py is the shared slug
+  helper; do not create per-model copies.
 - IMPORTANT (learned the hard way): when creating a new row whose fields
   are set from form data, populate the object FIRST and only
   `db.session.add()` it just before `commit()`. Adding an empty object
@@ -83,8 +85,9 @@ No migration tool. Schema changes are additive:
 Smoke-test with Flask's test client (see README history): assert status
 codes for every new route, auth redirects (302) for anonymous access to
 admin, form create/edit/delete round-trips, and that unpublished content
-is absent from public pages and 404s by direct URL. Run against a
-throwaway `instance/ebwa.db`; delete it afterwards.
+is absent from public pages and 404s by direct URL. Smoke tests live in
+tests/; run them against a scratchpad DATABASE_URL, never
+instance/ebwa.db.
 
 ## Deploy (production pattern)
 
