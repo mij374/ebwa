@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Contact — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Contact us <span class="bn">· যোগাযোগ</span></p>
+    <h2>Visit us in Ponders End</h2>
+    <p class="lede">{{ c.get('contact_intro','') }}</p>
+    <div class="contact-grid">
+      <div class="contact-card">
+        <h3>Get in touch</h3>
+        <div class="contact-row">
+          <span class="ico">📍</span>
+          <div><b>Address</b>{{ site.get('site_address','') }}</div>
+        </div>
+        <div class="contact-row">
+          <span class="ico">☎</span>
+          <div><b>Telephone</b><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">{{ site.get('site_phone','') }}</a></div>
+        </div>
+        <div class="contact-row">
+          <span class="ico">🕐</span>
+          <div><b>Drop-in</b>{{ c.get('contact_hours','') }}</div>
+        </div>
+      </div>
+      <div class="map">
+        <iframe title="Map showing EBWA at {{ site.get('site_address','') }}" loading="lazy"
+          src="https://www.google.com/maps?q={{ site.get('site_address','')|urlencode }}&output=embed"></iframe>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

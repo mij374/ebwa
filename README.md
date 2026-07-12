@@ -1,0 +1,114 @@
+# EBWA Community Website + CMS
+
+Flask + SQLite site for the Enfield Bangladesh Welfare Association.
+Public site with editable content, plus an admin area for managing
+page text/images, events (each with its own page) and a photo gallery.
+
+## Features
+
+- **Public pages:** Home, About, Events (list + auto-generated detail pages), Gallery, Contact (with map)
+- **Admin area** (`/admin`, login required):
+  - **Page content** — edit text blocks and swap images per page, grouped by tab
+  - **Events** — create/edit/delete events with date, time, venue, summary, full description, photo, published/draft toggle. Past events auto-move to "Past events"
+  - **Gallery** — multi-file photo upload with captions, delete
+- SQLite database (single file: `instance/ebwa.db`) — backup = copy one file
+- Uploaded images stored in `static/uploads/` with UUID filenames
+- Follows CLAUDE.md conventions: `var` not `const/let`, naive UTC storage on timestamps
+
+## Local setup
+
+```bash
+cd ebwa-cms
+python3 -m venv venv && source venv/bin/activate    # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+flask --app app init-db
+flask --app app create-admin
+flask --app app run --debug
+```
+
+Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
+
+## Adding/changing editable content blocks
+
+Content blocks are seeded in `DEFAULT_BLOCKS` in `app.py`
+(group, key, label, kind, default). Add a row, run `flask --app app init-db`
+again (it only inserts missing keys), then reference it in a template with
+`{{ c.get('your_key','') }}` or, for images,
+`{{ url_for('static', filename='uploads/' + c['your_key']) }}`.
+
+## VPS deployment (Ubuntu, same pattern as Netsoft)
+
+```bash
+# on the VPS
+sudo mkdir -p /opt/ebwa && sudo chown $USER /opt/ebwa
+# upload project via FileZilla or git, then:
+cd /opt/ebwa
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+export SECRET_KEY=$(python3 -c "import secrets;print(secrets.token_hex(32))")
+flask --app app init-db
+flask --app app create-admin
+```
+
+`/etc/systemd/system/ebwa.service`:
+
+```ini
+[Unit]
+Description=EBWA website
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/ebwa
+Environment="SECRET_KEY=PUT-A-LONG-RANDOM-VALUE-HERE"
+ExecStart=/opt/ebwa/venv/bin/gunicorn -w 2 -b 127.0.0.1:8011 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo chown -R www-data:www-data /opt/ebwa/instance /opt/ebwa/static/uploads
+sudo systemctl enable --now ebwa
+```
+
+nginx server block (then certbot for HTTPS):
+
+```nginx
+server {
+    server_name ebwa.org.uk www.ebwa.org.uk;
+    client_max_body_size 10M;
+
+    location /static/ {
+        alias /opt/ebwa/static/;
+        expires 30d;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:8011;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+## Backups
+
+Everything lives in two places:
+
+- `instance/ebwa.db` — the database
+- `static/uploads/` — all images
+
+A nightly cron zipping both (and optionally sending to Telegram, same as the
+RustDesk server) covers full disaster recovery:
+
+```bash
+0 3 * * * cd /opt/ebwa && zip -qr /opt/backups/ebwa-$(date +\%F).zip instance static/uploads
+```
+
+## Notes / possible next steps
+
+- Donations/volunteer section, contact form with email, event RSVP,
+  multi-admin roles, and Bengali page translations are all easy additions.
+- To move to PostgreSQL later: set `DATABASE_URL` env var — no code changes.

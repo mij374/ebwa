@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}News &amp; Projects — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">News &amp; projects <span class="bn">· সাম্প্রতিক খবর</span></p>
+    <h2>Latest from EBWA</h2>
+    {% if posts %}
+    <div class="event-cards">
+      {% for post in posts %}
+      <a class="event-card" href="{{ url_for('news_detail', slug=post.slug) }}">
+        {% if post.image %}<img src="{{ url_for('static', filename='uploads/' + post.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ post.published_date.strftime('%a %d %b %Y') }}</span>
+          <h3>{{ post.title }}</h3>
+          {% if post.summary %}<p>{{ post.summary }}</p>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">No news just yet — check back soon for updates on our projects and programmes.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

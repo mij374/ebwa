@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ ev.title }} — EBWA Events{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap event-detail">
+    <p class="eyebrow"><a href="{{ url_for('events') }}" class="crumb">← All events</a></p>
+    <h1 class="event-title">{{ ev.title }}</h1>
+    <div class="event-meta">
+      <span>📅 {{ ev.event_date.strftime('%A %d %B %Y') }}</span>
+      {% if ev.start_time %}<span>🕐 {{ ev.start_time }}</span>{% endif %}
+      {% if ev.venue %}<span>📍 {{ ev.venue }}</span>{% endif %}
+      {% if ev.is_past %}<span class="badge-past">Past event</span>{% endif %}
+    </div>
+    {% if ev.image %}
+    <img class="event-hero" src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">
+    {% endif %}
+    <div class="event-body">
+      {% for para in ev.description.split('\n') if para.strip() %}
+      <p>{{ para }}</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

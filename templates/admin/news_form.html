@@ -1,0 +1,53 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit news post' if post else 'New news post' }}</h1>
+<p class="admin-sub">Each post gets its own page on the website automatically.</p>
+
+<form method="post" enctype="multipart/form-data" class="admin-form">
+  <div class="field">
+    <label for="title">Title *</label>
+    <input type="text" id="title" name="title" required value="{{ post.title if post else '' }}"
+           placeholder="e.g. Cricket project reaches 25 young people">
+  </div>
+
+  <div class="field">
+    <label for="published_date">Date *</label>
+    <input type="date" id="published_date" name="published_date" required
+           value="{{ post.published_date.isoformat() if post else '' }}">
+  </div>
+
+  <div class="field">
+    <label for="summary">Short summary</label>
+    <input type="text" id="summary" name="summary" maxlength="300"
+           value="{{ post.summary if post else '' }}"
+           placeholder="One line shown on the news list">
+  </div>
+
+  <div class="field">
+    <label for="body">Full article</label>
+    <textarea id="body" name="body" rows="9"
+              placeholder="Full article text. Blank lines create new paragraphs.">{{ post.body if post else '' }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="image">Photo</label>
+    {% if post and post.image %}
+    <img class="field-thumb" src="{{ url_for('static', filename='uploads/' + post.image) }}" alt="">
+    {% endif %}
+    <input type="file" id="image" name="image" accept="image/*">
+    <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>
+  </div>
+
+  <div class="field field-check">
+    <label>
+      <input type="checkbox" name="published" {{ 'checked' if not post or post.published }}>
+      Published (visible on the website)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save post</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_news') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

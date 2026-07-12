@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}EBWA — Enfield Bangladesh Welfare Association{% endblock %}</title>
+<meta name="description" content="{% block meta_description %}EBWA is a community-driven organisation enhancing the quality of life for the Bangladeshi and wider communities in the London Borough of Enfield.{% endblock %}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="{{ url_for('home') }}" aria-label="EBWA home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">EBWA<small>Enfield Bangladesh Welfare Association</small></span>
+    </a>
+    <nav aria-label="Main">
+      <ul class="nav-links" id="navLinks">
+        <li><a href="{{ url_for('about') }}">About us</a></li>
+        <li><a href="{{ url_for('events') }}">Events</a></li>
+        <li><a href="{{ url_for('news') }}">News</a></li>
+        <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
+        <li><a href="{{ url_for('contact') }}">Contact</a></li>
+        {% if current_user.is_authenticated %}
+        <li><a href="{{ url_for('admin_dashboard') }}">Admin</a></li>
+        {% endif %}
+      </ul>
+    </nav>
+    <a class="nav-phone" href="tel:{{ site.get('site_phone','')|replace(' ','') }}">☎ {{ site.get('site_phone','') }}</a>
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="wrap flashes">
+    {% for cat, msg in messages %}
+    <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+
+<main>{% block content %}{% endblock %}</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <h4>EBWA</h4>
+        <p class="foot-about">A community-driven organisation dedicated to enhancing the quality of life of Bangladeshi people and the wider Enfield community.</p>
+      </div>
+      <div>
+        <h4>Newsletter</h4>
+        <p class="foot-about" style="margin-bottom:12px">Monthly updates on our programmes and events.</p>
+        <form class="foot-subscribe" method="post" action="{{ url_for('subscribe') }}">
+          <input type="email" name="email" placeholder="Your email address" required aria-label="Email address">
+          <button type="submit">Subscribe</button>
+        </form>
+      </div>
+      <div>
+        <h4>Quick links</h4>
+        <ul>
+          <li><a href="{{ url_for('about') }}">About us</a></li>
+          <li><a href="{{ url_for('events') }}">Events</a></li>
+          <li><a href="{{ url_for('news') }}">News</a></li>
+          <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
+          <li><a href="{{ url_for('contact') }}">Contact</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Get in touch</h4>
+        <ul>
+          <li><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">{{ site.get('site_phone','') }}</a></li>
+          <li>{{ site.get('site_address','') }}</li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bar">
+      <span>© {{ current_year }} Enfield Bangladesh Welfare Association. All rights reserved.</span>
+      <span><a href="{{ url_for('admin_login') }}" class="foot-admin">Admin</a></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  var menuBtn = document.getElementById('menuBtn');
+  var navLinks = document.getElementById('navLinks');
+  if (menuBtn) {
+    menuBtn.addEventListener('click', function(){
+      var open = navLinks.classList.toggle('open');
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    navLinks.addEventListener('click', function(e){
+      if (e.target.tagName === 'A') {
+        navLinks.classList.remove('open');
+        menuBtn.setAttribute('aria-expanded','false');
+      }
+    });
+  }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

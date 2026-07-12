@@ -1,0 +1,33 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">Page content</h1>
+<p class="admin-sub">Edit the text and images shown on the public website.</p>
+
+<div class="tab-row">
+  {% for g in groups %}
+  <a class="tab {{ 'active' if g == group }}" href="{{ url_for('admin_content', group=g) }}">{{ g|capitalize }}</a>
+  {% endfor %}
+</div>
+
+<form method="post" enctype="multipart/form-data" class="admin-form">
+  {% for b in blocks %}
+  <div class="field">
+    <label for="block_{{ b.id }}">{{ b.label }}</label>
+    {% if b.kind == 'text' %}
+      {% if b.value|length > 90 %}
+      <textarea id="block_{{ b.id }}" name="block_{{ b.id }}" rows="5">{{ b.value }}</textarea>
+      {% else %}
+      <input type="text" id="block_{{ b.id }}" name="block_{{ b.id }}" value="{{ b.value }}">
+      {% endif %}
+    {% else %}
+      {% if b.value %}
+      <img class="field-thumb" src="{{ url_for('static', filename='uploads/' + b.value) }}" alt="">
+      {% endif %}
+      <input type="file" id="block_{{ b.id }}" name="block_{{ b.id }}" accept="image/*">
+      <small>Leave empty to keep the current image. JPG, PNG or WebP, max 8&nbsp;MB.</small>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <button class="btn btn-green" type="submit">Save changes</button>
+</form>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Gallery — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Community life <span class="bn">· ছবির গ্যালারি</span></p>
+    <h2>Moments from our centre</h2>
+    {% if images %}
+    <div class="gallery-grid">
+      {% for img in images %}
+      <figure>
+        <img src="{{ url_for('static', filename='uploads/' + img.filename) }}"
+             alt="{{ img.caption or 'EBWA community photo' }}" loading="lazy">
+        {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">No photos yet — they'll appear here once uploaded.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

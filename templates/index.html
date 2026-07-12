@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Serving Enfield <span class="bn">· কমিউনিটির পাশে</span></p>
+      <h1>{{ c.get('home_hero_title','') }}</h1>
+      <p class="lede">{{ c.get('home_hero_text','') }}</p>
+      <div class="hero-cta">
+        <a class="btn btn-green" href="{{ url_for('contact') }}">Get support today</a>
+        <a class="btn btn-ghost" href="{{ url_for('events') }}">See our events</a>
+      </div>
+    </div>
+    <div class="hero-photo">
+      {% if c.get('home_hero_image') %}
+      <img src="{{ url_for('static', filename='uploads/' + c['home_hero_image']) }}" alt="EBWA community members in Enfield">
+      {% else %}
+      <div class="img-placeholder">Upload a hero photo in Admin → Content</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<div class="stats" role="region" aria-label="Our impact in numbers">
+  <div class="wrap stats-grid">
+    <div class="stat"><b>{{ c.get('home_stat_1','') }}</b><span>elderly people supported</span></div>
+    <div class="stat"><b>{{ c.get('home_stat_2','') }}</b><span>women completed childcare courses</span></div>
+    <div class="stat"><b>{{ c.get('home_stat_3','') }}</b><span>young people in our cricket project</span></div>
+    <div class="stat"><b>{{ c.get('home_stat_4','') }}</b><span>trained in First Aid this year</span></div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">What we do <span class="bn">· আমাদের কাজ</span></p>
+    <h2>Support for every generation</h2>
+    <div class="cards">
+      <div class="card"><div class="card-icon">📚</div><h3>Education &amp; schools</h3><p>Weekend Arabic and Bengali schools, supplementary education and cultural activities.</p></div>
+      <div class="card"><div class="card-icon">🤝</div><h3>Elderly drop-in</h3><p>Regular recreational and fitness sessions tackling social isolation for older residents.</p></div>
+      <div class="card"><div class="card-icon">💼</div><h3>Training &amp; employment</h3><p>Employability, childcare and volunteering courses for women.</p></div>
+      <div class="card"><div class="card-icon">⚖️</div><h3>Legal advice &amp; translation</h3><p>Free advice and translation to navigate social services with confidence.</p></div>
+      <div class="card"><div class="card-icon">❤️</div><h3>Health &amp; wellbeing</h3><p>Health awareness campaigns, counselling and wellbeing initiatives for all ages.</p></div>
+      <div class="card"><div class="card-icon">🛡️</div><h3>Community safety</h3><p>Working with local authorities and the police on legal awareness and crime prevention.</p></div>
+    </div>
+  </div>
+</section>
+
+{% if upcoming %}
+<section class="tinted">
+  <div class="wrap">
+    <p class="eyebrow">Coming up <span class="bn">· আসন্ন অনুষ্ঠান</span></p>
+    <h2>Upcoming events</h2>
+    <div class="event-cards">
+      {% for ev in upcoming %}
+      <a class="event-card" href="{{ url_for('event_detail', slug=ev.slug) }}">
+        {% if ev.image %}<img src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}{% if ev.start_time %} · {{ ev.start_time }}{% endif %}</span>
+          <h3>{{ ev.title }}</h3>
+          {% if ev.summary %}<p>{{ ev.summary }}</p>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    <p style="margin-top:28px"><a class="btn btn-ghost" href="{{ url_for('events') }}">All events</a></p>
+  </div>
+</section>
+{% endif %}
+
+{% if latest_news %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Latest news <span class="bn">· সাম্প্রতিক খবর</span></p>
+    <h2>News &amp; projects</h2>
+    <div class="event-cards">
+      {% for post in latest_news %}
+      <a class="event-card" href="{{ url_for('news_detail', slug=post.slug) }}">
+        {% if post.image %}<img src="{{ url_for('static', filename='uploads/' + post.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ post.published_date.strftime('%a %d %b %Y') }}</span>
+          <h3>{{ post.title }}</h3>
+          {% if post.summary %}<p>{{ post.summary }}</p>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    <p style="margin-top:28px"><a class="btn btn-ghost" href="{{ url_for('news') }}">All news</a></p>
+  </div>
+</section>
+{% endif %}
+
+{% if testimonials %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Testimonials <span class="bn">· প্রশংসাপত্র</span></p>
+    <h2>What our community says</h2>
+    <div class="quote-grid">
+      {% for t in testimonials %}
+      <figure class="quote-card">
+        <blockquote>{{ t.quote }}</blockquote>
+        <figcaption><b>{{ t.name }}</b>{% if t.role %}<span>{{ t.role }}</span>{% endif %}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if partners %}
+<section class="tinted">
+  <div class="wrap">
+    <p class="eyebrow">Our partners <span class="bn">· সহযোগী সংস্থা</span></p>
+    <h2>Working together for Enfield</h2>
+    <div class="partner-grid">
+      {% for pt in partners %}
+      {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener">
+        <b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}
+      </a>
+      {% else %}<div class="partner-card"><b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}</div>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* Animated stat counters: count up when the stats band scrolls into view */
+  var statEls = document.querySelectorAll('.stat b');
+  function animateStat(el) {
+    var raw = el.getAttribute('data-final');
+    var match = raw.match(/^(\d+)(.*)$/);
+    if (!match) { el.textContent = raw; return; }
+    var target = parseInt(match[1], 10);
+    var suffix = match[2] || '';
+    var start = null;
+    function step(ts) {
+      if (!start) start = ts;
+      var progress = Math.min((ts - start) / 1200, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(target * eased) + suffix;
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  if ('IntersectionObserver' in window && statEls.length) {
+    for (var i = 0; i < statEls.length; i++) {
+      statEls[i].setAttribute('data-final', statEls[i].textContent.trim());
+      statEls[i].textContent = '0';
+    }
+    var seen = false;
+    var io = new IntersectionObserver(function(entries){
+      if (seen) return;
+      for (var j = 0; j < entries.length; j++) {
+        if (entries[j].isIntersecting) {
+          seen = true;
+          statEls.forEach(function(el){ animateStat(el); });
+          io.disconnect();
+          break;
+        }
+      }
+    }, { threshold: 0.4 });
+    io.observe(document.querySelector('.stats'));
+  }
+</script>
+{% endblock %}

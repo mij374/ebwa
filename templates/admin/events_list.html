@@ -1,0 +1,42 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Events</h1>
+    <p class="admin-sub">Create and manage events shown on the website.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_event_form') }}">+ New event</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Date</th><th>Title</th><th>Venue</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for ev in rows %}
+    <tr>
+      <td class="nowrap">{{ ev.event_date.strftime('%d %b %Y') }}</td>
+      <td><a href="{{ url_for('admin_event_form', event_id=ev.id) }}">{{ ev.title }}</a></td>
+      <td>{{ ev.venue }}</td>
+      <td>
+        {% if not ev.published %}<span class="pill pill-grey">Draft</span>
+        {% elif ev.is_past %}<span class="pill pill-grey">Past</span>
+        {% else %}<span class="pill pill-green">Upcoming</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('event_detail', slug=ev.slug) }}" target="_blank">View</a>
+        <a class="table-link" href="{{ url_for('admin_event_form', event_id=ev.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_event_delete', event_id=ev.id) }}"
+              style="display:inline" onsubmit="return confirm('Delete this event? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No events yet. Create your first one.</p>
+{% endif %}
+{% endblock %}

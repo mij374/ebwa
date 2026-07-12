@@ -1,0 +1,8 @@
+instance/
+static/uploads/*
+!static/uploads/.gitkeep
+__pycache__/
+tests/test_ebwa.db*
+*.pyc
+venv/
+.env

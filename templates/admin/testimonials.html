@@ -1,0 +1,50 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">Testimonials</h1>
+<p class="admin-sub">Quotes from community members shown on the homepage.</p>
+
+<form method="post" class="admin-form" style="margin-bottom:36px">
+  <div class="field-row">
+    <div class="field">
+      <label for="name">Name *</label>
+      <input type="text" id="name" name="name" required placeholder="e.g. Fatima Rahman">
+    </div>
+    <div class="field">
+      <label for="role">Role / context</label>
+      <input type="text" id="role" name="role" placeholder="e.g. Parent, Bengali school">
+    </div>
+  </div>
+  <div class="field">
+    <label for="quote">Quote *</label>
+    <textarea id="quote" name="quote" rows="3" required placeholder="What they said about EBWA"></textarea>
+  </div>
+  <div class="field field-check">
+    <label><input type="checkbox" name="published" checked> Published</label>
+  </div>
+  <button class="btn btn-green" type="submit">Add testimonial</button>
+</form>
+
+{% if rows %}
+<table class="admin-table">
+  <thead><tr><th>Name</th><th>Quote</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+    {% for t in rows %}
+    <tr>
+      <td class="nowrap"><b>{{ t.name }}</b>{% if t.role %}<br><small>{{ t.role }}</small>{% endif %}</td>
+      <td>{{ t.quote[:120] }}{% if t.quote|length > 120 %}…{% endif %}</td>
+      <td>{% if t.published %}<span class="pill pill-green">Published</span>{% else %}<span class="pill pill-grey">Hidden</span>{% endif %}</td>
+      <td class="nowrap">
+        <form method="post" action="{{ url_for('admin_testimonial_toggle', t_id=t.id) }}" style="display:inline">
+          <button class="table-link" type="submit">{{ 'Hide' if t.published else 'Publish' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_testimonial_delete', t_id=t.id) }}" style="display:inline"
+              onsubmit="return confirm('Delete this testimonial?');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

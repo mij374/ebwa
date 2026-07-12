@@ -1,0 +1,17 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">Dashboard</h1>
+<p class="admin-sub">Welcome back. Here's a quick overview of the site.</p>
+
+<div class="admin-stats">
+  <div class="admin-stat"><b>{{ counts.upcoming }}</b><span>upcoming events</span></div>
+  <div class="admin-stat"><b>{{ counts.events }}</b><span>events total</span></div>
+  <div class="admin-stat"><b>{{ counts.gallery }}</b><span>gallery photos</span></div>
+</div>
+
+<div class="admin-quick">
+  <a class="btn btn-green" href="{{ url_for('admin_event_form') }}">+ New event</a>
+  <a class="btn btn-ghost" href="{{ url_for('admin_content') }}">Edit page content</a>
+  <a class="btn btn-ghost" href="{{ url_for('admin_gallery') }}">Manage gallery</a>
+</div>
+{% endblock %}

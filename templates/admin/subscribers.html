@@ -1,0 +1,32 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Newsletter subscribers</h1>
+    <p class="admin-sub">{{ rows|length }} subscriber{{ 's' if rows|length != 1 }}. Export as CSV to import into your newsletter tool.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_subscribers_csv') }}">Download CSV</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead><tr><th>Email</th><th>Subscribed on</th><th></th></tr></thead>
+  <tbody>
+    {% for s in rows %}
+    <tr>
+      <td>{{ s.email }}</td>
+      <td class="nowrap">{{ s.created_at.strftime('%d %b %Y') }}</td>
+      <td class="nowrap">
+        <form method="post" action="{{ url_for('admin_subscriber_delete', s_id=s.id) }}" style="display:inline"
+              onsubmit="return confirm('Remove this subscriber?');">
+          <button class="table-link danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No subscribers yet — the signup form is in the website footer.</p>
+{% endif %}
+{% endblock %}

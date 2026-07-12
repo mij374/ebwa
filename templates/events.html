@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Events — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Events <span class="bn">· অনুষ্ঠানসমূহ</span></p>
+    <h2>Upcoming events</h2>
+    {% if upcoming %}
+    <div class="event-cards">
+      {% for ev in upcoming %}
+      <a class="event-card" href="{{ url_for('event_detail', slug=ev.slug) }}">
+        {% if ev.image %}<img src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}{% if ev.start_time %} · {{ ev.start_time }}{% endif %}</span>
+          <h3>{{ ev.title }}</h3>
+          {% if ev.summary %}<p>{{ ev.summary }}</p>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">No upcoming events at the moment — check back soon, or follow us for announcements.</p>
+    {% endif %}
+
+    {% if past %}
+    <h2 style="margin-top:72px">Past events</h2>
+    <div class="event-cards">
+      {% for ev in past %}
+      <a class="event-card is-past" href="{{ url_for('event_detail', slug=ev.slug) }}">
+        {% if ev.image %}<img src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}</span>
+          <h3>{{ ev.title }}</h3>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

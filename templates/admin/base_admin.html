@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Admin — EBWA{% endblock %}</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="admin-body">
+
+<div class="admin-shell">
+  <aside class="admin-side">
+    <a class="brand" href="{{ url_for('home') }}">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name" style="color:#fff">EBWA<small style="color:rgba(255,255,255,.6)">Admin</small></span>
+    </a>
+    <nav>
+      <a href="{{ url_for('admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'admin_dashboard' }}">Dashboard</a>
+      <a href="{{ url_for('admin_content') }}" class="{{ 'active' if request.endpoint == 'admin_content' }}">Page content</a>
+      <a href="{{ url_for('admin_events') }}" class="{{ 'active' if request.endpoint and 'event' in request.endpoint }}">Events</a>
+      <a href="{{ url_for('admin_news') }}" class="{{ 'active' if request.endpoint and 'news' in request.endpoint }}">News &amp; Projects</a>
+      <a href="{{ url_for('admin_gallery') }}" class="{{ 'active' if request.endpoint == 'admin_gallery' }}">Gallery</a>
+      <a href="{{ url_for('admin_testimonials') }}" class="{{ 'active' if request.endpoint and 'testimonial' in request.endpoint }}">Testimonials</a>
+      <a href="{{ url_for('admin_partners') }}" class="{{ 'active' if request.endpoint and 'partner' in request.endpoint }}">Partners</a>
+      <a href="{{ url_for('admin_subscribers') }}" class="{{ 'active' if request.endpoint and 'subscriber' in request.endpoint }}">Subscribers</a>
+    </nav>
+    <div class="admin-side-foot">
+      <a href="{{ url_for('home') }}">View site →</a>
+      <a href="{{ url_for('admin_logout') }}">Log out</a>
+    </div>
+  </aside>
+
+  <div class="admin-main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+</body>
+</html>

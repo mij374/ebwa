@@ -1,0 +1,66 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit event' if ev else 'New event' }}</h1>
+<p class="admin-sub">Each event gets its own page on the website automatically.</p>
+
+<form method="post" enctype="multipart/form-data" class="admin-form">
+  <div class="field">
+    <label for="title">Event title *</label>
+    <input type="text" id="title" name="title" required value="{{ ev.title if ev else '' }}"
+           placeholder="e.g. Eid in the Park 2026">
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="event_date">Date *</label>
+      <input type="date" id="event_date" name="event_date" required
+             value="{{ ev.event_date.isoformat() if ev else '' }}">
+    </div>
+    <div class="field">
+      <label for="start_time">Start time</label>
+      <input type="text" id="start_time" name="start_time"
+             value="{{ ev.start_time if ev else '' }}" placeholder="e.g. 6:30 PM">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="venue">Venue</label>
+    <input type="text" id="venue" name="venue" value="{{ ev.venue if ev else '' }}"
+           placeholder="e.g. Ponders End Recreation Ground">
+  </div>
+
+  <div class="field">
+    <label for="summary">Short summary</label>
+    <input type="text" id="summary" name="summary" maxlength="300"
+           value="{{ ev.summary if ev else '' }}"
+           placeholder="One line shown on the events list">
+  </div>
+
+  <div class="field">
+    <label for="description">Full details</label>
+    <textarea id="description" name="description" rows="9"
+              placeholder="Full event details. Blank lines create new paragraphs.">{{ ev.description if ev else '' }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="image">Event photo</label>
+    {% if ev and ev.image %}
+    <img class="field-thumb" src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">
+    {% endif %}
+    <input type="file" id="image" name="image" accept="image/*">
+    <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>
+  </div>
+
+  <div class="field field-check">
+    <label>
+      <input type="checkbox" name="published" {{ 'checked' if not ev or ev.published }}>
+      Published (visible on the website)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save event</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_events') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

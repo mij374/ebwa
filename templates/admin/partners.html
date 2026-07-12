@@ -1,0 +1,44 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">Partners</h1>
+<p class="admin-sub">Partner organisations shown on the homepage with links to their services.</p>
+
+<form method="post" class="admin-form" style="margin-bottom:36px">
+  <div class="field-row">
+    <div class="field">
+      <label for="name">Organisation name *</label>
+      <input type="text" id="name" name="name" required placeholder="e.g. Enfield Council">
+    </div>
+    <div class="field">
+      <label for="url">Website link</label>
+      <input type="text" id="url" name="url" placeholder="https://...">
+    </div>
+  </div>
+  <div class="field">
+    <label for="blurb">Short description</label>
+    <input type="text" id="blurb" name="blurb" maxlength="300" placeholder="One line about the partnership">
+  </div>
+  <button class="btn btn-green" type="submit">Add partner</button>
+</form>
+
+{% if rows %}
+<table class="admin-table">
+  <thead><tr><th>Name</th><th>Link</th><th>Description</th><th></th></tr></thead>
+  <tbody>
+    {% for pt in rows %}
+    <tr>
+      <td class="nowrap"><b>{{ pt.name }}</b></td>
+      <td>{% if pt.url %}<a href="{{ pt.url }}" target="_blank">{{ pt.url[:40] }}{% if pt.url|length > 40 %}…{% endif %}</a>{% endif %}</td>
+      <td>{{ pt.blurb }}</td>
+      <td class="nowrap">
+        <form method="post" action="{{ url_for('admin_partner_delete', p_id=pt.id) }}" style="display:inline"
+              onsubmit="return confirm('Delete this partner?');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
