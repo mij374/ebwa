@@ -37,6 +37,8 @@ Built and maintained by Netbus IT Support.
   attributes (see the stat counter in `index.html`).
 - Timestamps: naive UTC via `datetime.utcnow` defaults. Never store local
   time; format for display in templates.
+- Admin-facing date filters and exports use UK local dates
+  (Europe/London); storage remains naive UTC.
 - Dates that are calendar dates (events) use `db.Date`, not DateTime.
 - New models: integer PK `id`, follow the style of `Event` / `Testimonial`.
   Slugged public content copies the `Event` pattern exactly: `slugify()` +

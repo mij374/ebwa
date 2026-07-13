@@ -14,13 +14,14 @@ import sys
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_DB = os.path.join(HERE, "test_ebwa.db")
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
 
-from app import app, db, User, Campaign  # noqa: E402
+from app import app, db, User, Campaign, Payment  # noqa: E402
 
 app.config["TESTING"] = True
 
@@ -117,10 +118,10 @@ check("pending declaration absent from claims page",
 
 # ---- HMRC schedule CSV
 csv_data = client.get("/admin/gift-aid.csv").data.decode("utf-8")
-# Payments are stored in naive UTC, so date assertions must use UTC too —
-# local "today" is already tomorrow during the BST 11pm-midnight window.
-utc_today = datetime.utcnow().date()
-today = utc_today.strftime("%d/%m/%y")
+# Storage is naive UTC, but all admin-facing Gift Aid dates are UK local
+# (Europe/London) — so assertions and filter params use UK dates.
+uk_today = datetime.now(ZoneInfo("Europe/London")).date()
+today = uk_today.strftime("%d/%m/%y")
 check("HMRC header row", csv_data.splitlines()[0] ==
       "Title,First name,Last name,House name or number,Postcode,"
       "Aggregated donations,Donation date,Amount")
@@ -140,12 +141,12 @@ check("claim has exactly 3 rows",
       str(len(csv_data.splitlines())))
 
 # ---- date-range filter
-tomorrow = (utc_today + timedelta(days=1)).isoformat()
+tomorrow = (uk_today + timedelta(days=1)).isoformat()
 html = client.get("/admin/gift-aid?from=%s" % tomorrow).data.decode("utf-8")
 check("future-dated filter shows nothing claimable",
       "£0" in html and "Rahim Uddin" not in html)
 csv_data = client.get("/admin/gift-aid.csv?from=%s&to=%s"
-                      % (utc_today.isoformat(), utc_today.isoformat())
+                      % (uk_today.isoformat(), uk_today.isoformat())
                       ).data.decode("utf-8")
 check("today-to-today filter includes all 3 rows",
       len([l for l in csv_data.splitlines() if l.strip()]) == 4)
@@ -153,6 +154,30 @@ csv_data = client.get("/admin/gift-aid.csv?from=%s" % tomorrow
                       ).data.decode("utf-8")
 check("future-dated CSV is empty of rows",
       len([l for l in csv_data.splitlines() if l.strip()]) == 1)
+
+# ---- UK local dates at the BST boundary: 23:30 UTC on 31 March is
+# 00:30 BST on 1 April, so it belongs to the April claim period.
+pay("cs_boundary", "/collections/seaside-trip", dict(ga,
+    donation="7", name="Boundary Case", email="bc@example.org",
+    gift_aid_name="March Boundary", gift_aid_address="31",
+    gift_aid_postcode="EN4 4DD"))
+complete("cs_boundary")
+with app.app_context():
+    p = Payment.query.filter_by(stripe_session_id="cs_boundary").first()
+    p.created_at = datetime(2026, 3, 31, 23, 30)   # naive UTC
+    db.session.commit()
+
+april_csv = client.get("/admin/gift-aid.csv?from=2026-04-01&to=2026-04-30"
+                       ).data.decode("utf-8")
+check("23:30 UTC 31 March exports in the April range as 01/04/26",
+      ",March,Boundary,31,EN4 4DD,,01/04/26,7.00" in april_csv)
+march_csv = client.get("/admin/gift-aid.csv?from=2026-03-01&to=2026-03-31"
+                       ).data.decode("utf-8")
+check("...and is absent from the March range", "Boundary" not in march_csv)
+html = client.get("/admin/gift-aid?from=2026-04-01&to=2026-04-30"
+                  ).data.decode("utf-8")
+check("claims page shows the UK local date 01 Apr 2026",
+      "01 Apr 2026" in html and "March Boundary" in html)
 
 # ---- declarations record-keeping view
 html = client.get("/admin/gift-aid/declarations").data.decode("utf-8")

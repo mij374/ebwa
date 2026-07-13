@@ -40,7 +40,7 @@
   <tbody>
     {% for p in rows %}
     <tr>
-      <td class="nowrap">{{ p.created_at.strftime('%d %b %Y') }}</td>
+      <td class="nowrap">{{ p.created_at|uk_date }}</td>
       <td>{{ p.gift_aid_name }}</td>
       <td>{{ p.gift_aid_address }}</td>
       <td class="nowrap">{{ p.gift_aid_postcode }}</td>

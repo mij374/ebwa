@@ -12,8 +12,9 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 import stripe
 
@@ -1182,11 +1183,33 @@ def admin_campaign_contributors_csv(campaign_id):
 
 
 # ---------------------------------------------------------------- admin: gift aid
+UK_TZ = ZoneInfo("Europe/London")
+
+
+def uk_midnight_as_utc(d):
+    """Start of the given UK calendar date, as a naive-UTC datetime."""
+    return (datetime(d.year, d.month, d.day, tzinfo=UK_TZ)
+            .astimezone(timezone.utc).replace(tzinfo=None))
+
+
+def utc_as_uk(dt):
+    """Naive-UTC datetime -> aware UK local datetime."""
+    return dt.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
+
+
+@app.template_filter("uk_date")
+def uk_date_filter(dt):
+    """Display a naive-UTC timestamp as its UK local calendar date."""
+    return utc_as_uk(dt).strftime("%d %b %Y") if dt else ""
+
+
 def gift_aid_claimable_query(date_from=None, date_to=None):
     """Completed payments whose donation portion carries a valid declaration.
 
     Only donation_pence is ever claimable — fee_pence never appears here
     (CLAUDE.md HMRC rule; the Payment CHECK constraints back this up).
+    date_from/date_to are UK calendar dates (convention: admin-facing
+    filters work in Europe/London; storage stays naive UTC).
     """
     q = Payment.query.filter(
         Payment.status == "complete",
@@ -1196,12 +1219,10 @@ def gift_aid_claimable_query(date_from=None, date_to=None):
         Payment.gift_aid_address != "",
         Payment.gift_aid_postcode != "")
     if date_from:
-        q = q.filter(Payment.created_at
-                     >= datetime.combine(date_from, datetime.min.time()))
+        q = q.filter(Payment.created_at >= uk_midnight_as_utc(date_from))
     if date_to:
         q = q.filter(Payment.created_at
-                     < datetime.combine(date_to + timedelta(days=1),
-                                        datetime.min.time()))
+                     < uk_midnight_as_utc(date_to + timedelta(days=1)))
     return q.order_by(Payment.created_at)
 
 
@@ -1245,7 +1266,7 @@ def admin_gift_aid_csv():
         last = " ".join(parts[1:]) if len(parts) > 1 else p.gift_aid_name
         w.writerow(["", first, last, p.gift_aid_address,
                     p.gift_aid_postcode, "",
-                    p.created_at.strftime("%d/%m/%y"),
+                    utc_as_uk(p.created_at).strftime("%d/%m/%y"),
                     "%.2f" % (p.gift_aid_pence / 100.0)])
     resp = app.response_class(out.getvalue(), mimetype="text/csv")
     resp.headers["Content-Disposition"] = \
