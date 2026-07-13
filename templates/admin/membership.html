@@ -16,7 +16,7 @@
   <tbody>
     {% for m in rows %}
     <tr>
-      <td class="nowrap">{{ m.created_at.strftime('%d %b %Y') }}</td>
+      <td class="nowrap">{{ m.created_at|uk_date }}</td>
       <td>
         <b>{{ m.name }}</b>
         {% if m.address %}<br><small>{{ m.address }}</small>{% endif %}

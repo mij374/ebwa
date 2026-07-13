@@ -11,6 +11,7 @@ Run:  python tests/smoke_test_membership.py
 """
 import os
 import sys
+from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_DB = os.path.join(HERE, "test_ebwa.db")
@@ -117,6 +118,18 @@ check("csv has header row", csv_data.startswith(
 check("csv row quoted correctly",
       '"12 Test Road, Enfield EN3 4XX"' in csv_data
       and "approved" in csv_data)
+
+# ---- admin dates are UK local: 23:30 UTC on 31 March is 00:30 BST 1 April
+with app.app_context():
+    db.session.get(MembershipApplication, m_id).created_at = \
+        datetime(2026, 3, 31, 23, 30)   # naive UTC
+    db.session.commit()
+r = client.get("/admin/membership")
+check("membership list shows UK local date at the BST boundary",
+      b"01 Apr 2026" in r.data)
+csv_data = client.get("/admin/membership.csv").data.decode("utf-8")
+check("membership CSV shows UK local date at the BST boundary",
+      ",approved,2026-04-01" in csv_data)
 
 # ---- delete round-trip
 r = client.post("/admin/membership/%d/delete" % m_id)

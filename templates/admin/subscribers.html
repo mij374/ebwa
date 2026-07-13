@@ -15,7 +15,7 @@
     {% for s in rows %}
     <tr>
       <td>{{ s.email }}</td>
-      <td class="nowrap">{{ s.created_at.strftime('%d %b %Y') }}</td>
+      <td class="nowrap">{{ s.created_at|uk_date }}</td>
       <td class="nowrap">
         <form method="post" action="{{ url_for('admin_subscriber_delete', s_id=s.id) }}" style="display:inline"
               onsubmit="return confirm('Remove this subscriber?');">

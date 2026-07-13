@@ -1064,7 +1064,8 @@ def admin_subscribers():
 def admin_subscribers_csv():
     lines = ["email,subscribed_on"]
     for s in Subscriber.query.order_by(Subscriber.created_at).all():
-        lines.append("%s,%s" % (s.email, s.created_at.strftime("%Y-%m-%d")))
+        lines.append("%s,%s" % (s.email,
+                                utc_as_uk(s.created_at).strftime("%Y-%m-%d")))
     resp = app.response_class("\n".join(lines), mimetype="text/csv")
     resp.headers["Content-Disposition"] = "attachment; filename=ebwa-subscribers.csv"
     return resp
@@ -1305,7 +1306,8 @@ def admin_membership_csv():
     for m in (MembershipApplication.query
               .order_by(MembershipApplication.created_at).all()):
         w.writerow([m.name, m.email, m.phone, m.address, m.reason,
-                    m.status, m.created_at.strftime("%Y-%m-%d")])
+                    m.status,
+                    utc_as_uk(m.created_at).strftime("%Y-%m-%d")])
     resp = app.response_class(out.getvalue(), mimetype="text/csv")
     resp.headers["Content-Disposition"] = \
         "attachment; filename=ebwa-membership-applications.csv"
