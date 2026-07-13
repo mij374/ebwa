@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ camp.title }} — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap event-detail">
+    <p class="eyebrow"><a href="{{ url_for('home') }}" class="crumb">← Home</a></p>
+    <h1 class="event-title">{{ camp.title }}</h1>
+
+    {% if camp.image %}
+    <img class="event-hero" src="{{ url_for('static', filename='uploads/' + camp.image) }}" alt="">
+    {% endif %}
+
+    <div class="event-body">
+      {% for para in camp.description.split('\n') if para.strip() %}
+      <p>{{ para }}</p>
+      {% endfor %}
+    </div>
+
+    {% if camp.target_pence %}
+    <div class="collection-progress">
+      <p><b>{{ camp.raised_pence|pounds }}</b> raised of our {{ camp.target_pence|pounds }} target</p>
+      <div class="progress"><b style="width:{{ camp.target_percent }}%"></b></div>
+    </div>
+    {% elif camp.raised_pence %}
+    <div class="collection-progress">
+      <p><b>{{ camp.raised_pence|pounds }}</b> raised so far — thank you!</p>
+    </div>
+    {% endif %}
+
+    <form method="post" class="admin-form" style="margin-top:36px">
+      {% if camp.fee_pence %}
+      <div class="field field-check">
+        <label>
+          <input type="checkbox" name="include_fee" checked>
+          Pay for a place — {{ camp.fee_pence|pounds }}
+        </label>
+      </div>
+      {% endif %}
+
+      <div class="field">
+        <label for="donation">Optional extra donation (£)</label>
+        <input type="number" id="donation" name="donation"
+               min="0" max="10000" step="0.01" placeholder="e.g. 5">
+      </div>
+
+      <div class="field">
+        <label for="name">Your name *</label>
+        <input type="text" id="name" name="name" required maxlength="120">
+      </div>
+
+      <div class="field">
+        <label for="email">Email address *</label>
+        <input type="email" id="email" name="email" required maxlength="200">
+        <small>For your receipt — we never share your details.</small>
+      </div>
+
+      <div class="field field-check">
+        <label>
+          <input type="checkbox" name="gift_aid" id="giftAidToggle" disabled>
+          Add Gift Aid to my donation
+        </label>
+        <small class="gift-aid-note">Gift Aid applies to your optional donation only — by law it can never be claimed on the cost of a place.</small>
+      </div>
+
+      <div id="giftAidFields" hidden>
+        <div class="field">
+          <label for="gift_aid_name">Full name *</label>
+          <input type="text" id="gift_aid_name" name="gift_aid_name" maxlength="120">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="gift_aid_address">House name or number *</label>
+            <input type="text" id="gift_aid_address" name="gift_aid_address" maxlength="200">
+          </div>
+          <div class="field">
+            <label for="gift_aid_postcode">Postcode *</label>
+            <input type="text" id="gift_aid_postcode" name="gift_aid_postcode" maxlength="20">
+          </div>
+        </div>
+        <div class="field field-check">
+          <label>
+            <input type="checkbox" name="gift_aid_declaration">
+            I am a UK taxpayer and would like EBWA to claim Gift Aid on my optional donation. I understand that if I pay less Income Tax and/or Capital Gains Tax than the amount of Gift Aid claimed on all my donations in that tax year, it is my responsibility to pay any difference.
+          </label>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-green" type="submit">Pay securely</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* Gift Aid is only available once there is a donation amount — the fee
+     for a place can never carry it. The server enforces this too. */
+  var donationInput = document.getElementById('donation');
+  var giftAidToggle = document.getElementById('giftAidToggle');
+  var giftAidFields = document.getElementById('giftAidFields');
+  function syncGiftAid() {
+    var pounds = parseFloat(donationInput.value);
+    var hasDonation = !isNaN(pounds) && pounds > 0;
+    giftAidToggle.disabled = !hasDonation;
+    if (!hasDonation) { giftAidToggle.checked = false; }
+    giftAidFields.hidden = !giftAidToggle.checked;
+  }
+  donationInput.addEventListener('input', syncGiftAid);
+  giftAidToggle.addEventListener('change', syncGiftAid);
+  syncGiftAid();
+</script>
+{% endblock %}

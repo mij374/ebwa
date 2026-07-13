@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Donation cancelled — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap" style="max-width:720px;text-align:center">
+    <p class="eyebrow">No problem <span class="bn">· কোনো অসুবিধা নেই</span></p>
+    <h2>Your donation was cancelled</h2>
+    <p class="lede">Nothing has been taken from your account. If something went wrong or you'd rather donate another way, call the centre — we'd love to hear from you.</p>
+    <p style="margin-top:28px">
+      <a class="btn btn-green" href="{{ url_for('donate') }}">Try again</a>
+      <a class="btn btn-ghost" href="{{ url_for('home') }}">Back to the homepage</a>
+    </p>
+  </div>
+</section>
+{% endblock %}

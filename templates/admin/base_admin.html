@@ -23,7 +23,11 @@
       <a href="{{ url_for('admin_gallery') }}" class="{{ 'active' if request.endpoint == 'admin_gallery' }}">Gallery</a>
       <a href="{{ url_for('admin_testimonials') }}" class="{{ 'active' if request.endpoint and 'testimonial' in request.endpoint }}">Testimonials</a>
       <a href="{{ url_for('admin_partners') }}" class="{{ 'active' if request.endpoint and 'partner' in request.endpoint }}">Partners</a>
+      <a href="{{ url_for('admin_resources') }}" class="{{ 'active' if request.endpoint and 'resource' in request.endpoint }}">Resources</a>
       <a href="{{ url_for('admin_subscribers') }}" class="{{ 'active' if request.endpoint and 'subscriber' in request.endpoint }}">Subscribers</a>
+      <a href="{{ url_for('admin_membership') }}" class="{{ 'active' if request.endpoint and 'membership' in request.endpoint }}">Membership</a>
+      <a href="{{ url_for('admin_campaigns') }}" class="{{ 'active' if request.endpoint and 'campaign' in request.endpoint }}">Collections</a>
+      <a href="{{ url_for('admin_gift_aid') }}" class="{{ 'active' if request.endpoint and 'gift_aid' in request.endpoint }}">Gift Aid</a>
     </nav>
     <div class="admin-side-foot">
       <a href="{{ url_for('home') }}">View site →</a>
@@ -41,5 +45,6 @@
   </div>
 </div>
 
+{% block scripts %}{% endblock %}
 </body>
 </html>

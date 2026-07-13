@@ -1,0 +1,43 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Collections</h1>
+    <p class="admin-sub">Event collections and campaigns people can pay toward.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_campaign_form') }}">+ New collection</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Title</th><th>Place fee</th><th>Raised</th><th>Target</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for camp in rows %}
+    <tr>
+      <td><a href="{{ url_for('admin_campaign_form', campaign_id=camp.id) }}">{{ camp.title }}</a></td>
+      <td class="nowrap">{{ camp.fee_pence|pounds if camp.fee_pence else '—' }}</td>
+      <td class="nowrap">{{ camp.raised_pence|pounds }}</td>
+      <td class="nowrap">{{ camp.target_pence|pounds if camp.target_pence else '—' }}</td>
+      <td>
+        {% if camp.active %}<span class="pill pill-green">Active</span>
+        {% else %}<span class="pill pill-grey">Inactive</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        {% if camp.active %}<a class="table-link" href="{{ url_for('collection_detail', slug=camp.slug) }}" target="_blank">View</a>{% endif %}
+        <a class="table-link" href="{{ url_for('admin_campaign_contributors', campaign_id=camp.id) }}">Contributors</a>
+        <a class="table-link" href="{{ url_for('admin_campaign_form', campaign_id=camp.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_campaign_delete', campaign_id=camp.id) }}"
+              style="display:inline" onsubmit="return confirm('Delete this collection? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No collections yet. Create your first one.</p>
+{% endif %}
+{% endblock %}

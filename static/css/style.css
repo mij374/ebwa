@@ -322,6 +322,28 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}
 
+/* ---------- Community resources (reuses partner cards) ---------- */
+.resource-links{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+.resource-links a{font-size:14px;font-weight:600;color:var(--green);text-decoration:none}
+.resource-links a:hover{text-decoration:underline}
+
+/* ---------- Donate & collections ---------- */
+.amount-presets{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.gift-aid-note{display:block;margin-top:6px;font-weight:600;color:var(--green)}
+.collection-progress{margin-top:28px}
+.progress{height:10px;border-radius:999px;background:var(--green-tint);overflow:hidden;margin-top:10px}
+.progress b{display:block;height:100%;background:var(--green);border-radius:999px}
+
+/* ---------- Print (admin contributor lists) ---------- */
+.print-only{display:none}
+@media print{
+  .admin-side,.flash,.no-print{display:none !important}
+  .print-only{display:block}
+  .admin-shell{display:block}
+  .admin-main{padding:0}
+  body.admin-body{background:#fff}
+}
+
 /* ---------- Footer newsletter ---------- */
 .foot-subscribe{display:flex;gap:8px}
 .foot-subscribe input{

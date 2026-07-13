@@ -1,0 +1,36 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Community resources</h1>
+    <p class="admin-sub">Manage the directory of local support services shown on the website.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_resource_form') }}">+ New resource</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Category</th><th>Name</th><th>Phone</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td class="nowrap">{{ r.category }}</td>
+      <td><a href="{{ url_for('admin_resource_form', resource_id=r.id) }}">{{ r.name }}</a></td>
+      <td class="nowrap">{{ r.phone }}</td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('admin_resource_form', resource_id=r.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_resource_delete', resource_id=r.id) }}"
+              style="display:inline" onsubmit="return confirm('Delete this resource? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No resources yet. Create your first one.</p>
+{% endif %}
+{% endblock %}

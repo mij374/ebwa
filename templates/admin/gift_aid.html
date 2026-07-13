@@ -1,0 +1,56 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Gift Aid claims</h1>
+    <p class="admin-sub">Claimable donation portions of completed payments with valid declarations. Place fees are never claimable and never appear here.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('admin_gift_aid_declarations') }}">All declarations</a>
+</div>
+
+<form method="get" class="admin-form" style="max-width:none">
+  <div class="field-row">
+    <div class="field">
+      <label for="from">From</label>
+      <input type="date" id="from" name="from" value="{{ date_from.isoformat() if date_from else '' }}">
+    </div>
+    <div class="field">
+      <label for="to">To</label>
+      <input type="date" id="to" name="to" value="{{ date_to.isoformat() if date_to else '' }}">
+    </div>
+    <div class="field" style="align-self:end">
+      <button class="btn btn-green" type="submit">Filter</button>
+    </div>
+  </div>
+</form>
+
+<p class="admin-sub" style="margin-top:18px">
+  <b>Claimable donations: {{ claimable_pence|pounds }}</b>
+  &nbsp;·&nbsp; Gift Aid reclaim at 25%: <b>{{ reclaim_pence|pounds }}</b>
+</p>
+
+{% if rows %}
+<p style="margin:14px 0">
+  <a class="btn btn-green" href="{{ url_for('admin_gift_aid_csv') }}?from={{ date_from.isoformat() if date_from else '' }}&to={{ date_to.isoformat() if date_to else '' }}">Download HMRC schedule CSV</a>
+</p>
+<table class="admin-table">
+  <thead>
+    <tr><th>Date</th><th>Declaration name</th><th>House</th><th>Postcode</th><th>Source</th><th>Claimable amount</th></tr>
+  </thead>
+  <tbody>
+    {% for p in rows %}
+    <tr>
+      <td class="nowrap">{{ p.created_at.strftime('%d %b %Y') }}</td>
+      <td>{{ p.gift_aid_name }}</td>
+      <td>{{ p.gift_aid_address }}</td>
+      <td class="nowrap">{{ p.gift_aid_postcode }}</td>
+      <td>{{ p.campaign.title if p.campaign else 'General donation' }}</td>
+      <td class="nowrap"><b>{{ p.gift_aid_pence|pounds }}</b></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No claimable donations in this period.</p>
+{% endif %}
+{% endblock %}

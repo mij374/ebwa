@@ -1,0 +1,55 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit resource' if res else 'New resource' }}</h1>
+<p class="admin-sub">Resources appear on the public directory, grouped by category.</p>
+
+<form method="post" class="admin-form">
+  <div class="field">
+    <label for="name">Service name *</label>
+    <input type="text" id="name" name="name" required value="{{ res.name if res else '' }}"
+           placeholder="e.g. Citizens Advice Enfield">
+  </div>
+
+  <div class="field">
+    <label for="category">Category *</label>
+    <input type="text" id="category" name="category" required list="categoryList"
+           value="{{ res.category if res else '' }}"
+           placeholder="e.g. Legal &amp; advice">
+    <datalist id="categoryList">
+      {% for cat in categories %}<option value="{{ cat }}">{% endfor %}
+    </datalist>
+    <small>Start typing to reuse an existing category — matching spelling keeps services grouped together.</small>
+  </div>
+
+  <div class="field">
+    <label for="description">Short description</label>
+    <input type="text" id="description" name="description" maxlength="300"
+           value="{{ res.description if res else '' }}"
+           placeholder="One line about what this service offers">
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="phone">Phone number</label>
+      <input type="text" id="phone" name="phone" value="{{ res.phone if res else '' }}"
+             placeholder="e.g. 020 8379 1000">
+    </div>
+    <div class="field">
+      <label for="url">Website</label>
+      <input type="url" id="url" name="url" value="{{ res.url if res else '' }}"
+             placeholder="https://...">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="sort">Sort order</label>
+    <input type="number" id="sort" name="sort" value="{{ res.sort if res else 0 }}">
+    <small>Lower numbers appear first within the category.</small>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save resource</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_resources') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

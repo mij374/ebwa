@@ -1,0 +1,52 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row no-print">
+  <div>
+    <h1 class="admin-h1">Contributors — {{ camp.title }}</h1>
+    <p class="admin-sub">{{ camp.raised_pence|pounds }} raised{% if camp.target_pence %} of {{ camp.target_pence|pounds }} target{% endif %}. Personal data — handle with care.</p>
+  </div>
+  <div>
+    <button class="btn btn-ghost" type="button" id="printBtn">Print</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_campaign_contributors_csv', campaign_id=camp.id) }}">Export CSV</a>
+    <a class="btn btn-ghost" href="{{ url_for('admin_campaigns') }}">Back</a>
+  </div>
+</div>
+
+<h1 class="print-only">{{ camp.title }} — contributors</h1>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Date</th><th>Name</th><th>Email</th><th>Place fee</th><th>Donation</th><th>Gift Aid</th><th>Total</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    {% for p in rows %}
+    <tr>
+      <td class="nowrap">{{ p.created_at.strftime('%d %b %Y') }}</td>
+      <td>{{ p.name }}</td>
+      <td>{{ p.email }}</td>
+      <td class="nowrap">{{ p.fee_pence|pounds }}</td>
+      <td class="nowrap">{{ p.donation_pence|pounds }}</td>
+      <td>{% if p.gift_aid %}<span class="pill pill-green">Yes — on {{ p.gift_aid_pence|pounds }}</span>{% else %}—{% endif %}</td>
+      <td class="nowrap"><b>{{ p.total_pence|pounds }}</b></td>
+      <td>
+        {% if p.status == 'complete' %}<span class="pill pill-green">Complete</span>
+        {% else %}<span class="pill pill-grey">{{ p.status|capitalize }}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No contributions yet.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var printBtn = document.getElementById('printBtn');
+  if (printBtn) {
+    printBtn.addEventListener('click', function(){ window.print(); });
+  }
+</script>
+{% endblock %}

@@ -50,6 +50,21 @@ flask --app app init-db
 flask --app app create-admin
 ```
 
+### Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `SECRET_KEY` | yes | Flask session signing — long random value |
+| `STRIPE_SECRET_KEY` | for donations | Stripe secret key (`sk_live_...`), from the Stripe dashboard |
+| `STRIPE_WEBHOOK_SECRET` | for donations | Signing secret (`whsec_...`) for the webhook endpoint |
+| `DATABASE_URL` | no | Escape hatch only — the app is deliberately SQLite-only |
+
+Never commit keys. After deploying, register the webhook endpoint in the
+Stripe dashboard: `https://ebwa.org.uk/stripe/webhook`, listening for
+`checkout.session.completed` — the signing secret it shows you is
+`STRIPE_WEBHOOK_SECRET`. Payments stay "pending" until the webhook
+confirms them.
+
 `/etc/systemd/system/ebwa.service`:
 
 ```ini
@@ -61,6 +76,8 @@ After=network.target
 User=www-data
 WorkingDirectory=/opt/ebwa
 Environment="SECRET_KEY=PUT-A-LONG-RANDOM-VALUE-HERE"
+Environment="STRIPE_SECRET_KEY=sk_live_PUT-REAL-KEY-HERE"
+Environment="STRIPE_WEBHOOK_SECRET=whsec_PUT-REAL-SECRET-HERE"
 ExecStart=/opt/ebwa/venv/bin/gunicorn -w 2 -b 127.0.0.1:8011 app:app
 Restart=always
 

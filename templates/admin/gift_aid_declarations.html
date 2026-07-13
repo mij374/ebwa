@@ -1,0 +1,36 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Gift Aid declarations</h1>
+    <p class="admin-sub">Every declaration ever captured, including pending payments. HMRC requires these records to be kept for at least six years — they are never deleted automatically.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('admin_gift_aid') }}">Back to claims</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Date</th><th>Declaration name</th><th>House</th><th>Postcode</th><th>Source</th><th>Donation</th><th>Payment status</th></tr>
+  </thead>
+  <tbody>
+    {% for p in rows %}
+    <tr>
+      <td class="nowrap">{{ p.created_at.strftime('%d %b %Y') }}</td>
+      <td>{{ p.gift_aid_name }}</td>
+      <td>{{ p.gift_aid_address }}</td>
+      <td class="nowrap">{{ p.gift_aid_postcode }}</td>
+      <td>{{ p.campaign.title if p.campaign else 'General donation' }}</td>
+      <td class="nowrap">{{ p.donation_pence|pounds }}</td>
+      <td>
+        {% if p.status == 'complete' %}<span class="pill pill-green">Complete</span>
+        {% else %}<span class="pill pill-grey">{{ p.status|capitalize }}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No declarations recorded yet.</p>
+{% endif %}
+{% endblock %}

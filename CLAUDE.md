@@ -137,13 +137,29 @@ Built: pages + Block CMS, events (slug pages, upcoming/past), gallery,
 testimonials, partners, newsletter subscribers (+ CSV export),
 sitemap.xml/robots.txt, animated stat counters, WAL mode.
 
-Confirmed Phase 1 (contract JUL112601, £3,000): News & Projects module
-(follow Event pattern; homepage "Latest news" limited to 3); donations &
-event collections with Gift Aid (rules above); community resources
-directory (pending final client confirmation — directory of local support
-services with contact details, admin-managed); possible "Become a member"
-application form (pending client answer — public form + admin list, same
-pattern as subscribers).
+Built (Phase 1, contract JUL112601, £3,000 — all client-confirmed):
+
+- News & Projects module (Event pattern; homepage "Latest news" max 3).
+- Community resources directory (/resources grouped by category; admin
+  CRUD with category suggestions).
+- "Become a member" form (/membership with honeypot; admin list with
+  status workflow new/contacted/approved/declined + CSV export).
+- Donations & event collections (rules above): /donate general
+  donations; /collections/<slug> campaign pages with place fee +
+  optional donation, running totals/targets; verified idempotent Stripe
+  webhook; admin campaign CRUD + contributor lists (print/CSV); Gift
+  Aid claims page with HMRC Charities Online CSV export and
+  declarations record-keeping view. Gift Aid rules enforced in UI,
+  server AND Payment CHECK constraints.
+- Pre-launch hardening: security headers (CSP/nosniff/Referrer-Policy),
+  in-memory rate limiting (login/subscribe/donation POSTs), /healthz,
+  URL-map test asserting every /admin route requires login.
+
+Each module has a smoke test in tests/ (smoke_test_<module>.py, run
+directly with python); seed_demo.py fills a fresh db with demo content.
+Phase 1 is code-complete but NOT yet deployed: deploy needs init-db
+(new tables), pip install (stripe), Stripe env vars + webhook
+registration (see README).
 
 Phase 2 (separately quoted — DO NOT build under Phase 1): Board
 Transparency Hub (board-member `role` on User, private minutes stored

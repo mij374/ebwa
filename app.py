@@ -10,8 +10,12 @@ First run:
 """
 import os
 import re
+import time
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from decimal import Decimal, InvalidOperation
+
+import stripe
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, abort, send_from_directory)
@@ -31,6 +35,10 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-in-production
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "instance", "ebwa.db"))
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+
+# Stripe keys from env vars only — never committed (CLAUDE.md donations rules)
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -134,10 +142,106 @@ class Partner(db.Model):
     sort = db.Column(db.Integer, default=0)
 
 
+class Resource(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False)
+    category = db.Column(db.String(80), nullable=False)   # e.g. "Council services"
+    description = db.Column(db.String(300), default="")
+    phone = db.Column(db.String(40), default="")
+    url = db.Column(db.String(300), default="")
+    sort = db.Column(db.Integer, default=0)
+
+
 class Subscriber(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(200), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+MEMBERSHIP_STATUSES = ("new", "contacted", "approved", "declined")
+
+
+class MembershipApplication(db.Model):
+    """Personal data — admin-only, never shown in public templates."""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(200), nullable=False)
+    phone = db.Column(db.String(40), default="")
+    address = db.Column(db.String(300), default="")
+    reason = db.Column(db.Text, default="")           # why they want to join
+    status = db.Column(db.String(20), default="new")  # see MEMBERSHIP_STATUSES
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Campaign(db.Model):
+    """An event collection (e.g. seaside trip) donors/attendees pay toward."""
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    slug = db.Column(db.String(220), unique=True, nullable=False)
+    description = db.Column(db.Text, default="")
+    image = db.Column(db.String(255), default="")          # uploads filename
+    target_pence = db.Column(db.Integer)                   # optional target amount
+    fee_pence = db.Column(db.Integer)                      # fixed price per place, if any
+    active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+    @property
+    def raised_pence(self):
+        """Running total of completed payments (fee + donation)."""
+        return db.session.query(
+            db.func.coalesce(db.func.sum(Payment.fee_pence
+                                         + Payment.donation_pence), 0)
+        ).filter(Payment.campaign_id == self.id,
+                 Payment.status == "complete").scalar()
+
+    @property
+    def target_percent(self):
+        if not self.target_pence:
+            return None
+        return min(100, self.raised_pence * 100 // self.target_pence)
+
+
+class Payment(db.Model):
+    """A Stripe payment. campaign_id NULL = general donation to the charity.
+
+    HMRC Gift Aid rule, modelled structurally (CLAUDE.md — do not relax):
+    fee_pence pays for a benefit and can NEVER carry Gift Aid; only
+    donation_pence (a genuine gift) may. General donations are 100%
+    donation_pence. The CHECK constraints make violating rows impossible.
+    Payer/declaration data is personal data — admin-only, never public.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey("campaign.id"))
+    campaign = db.relationship("Campaign")
+    name = db.Column(db.String(120), default="")
+    email = db.Column(db.String(200), default="")
+    fee_pence = db.Column(db.Integer, nullable=False, default=0)
+    donation_pence = db.Column(db.Integer, nullable=False, default=0)
+    gift_aid = db.Column(db.Boolean, nullable=False, default=False)
+    gift_aid_name = db.Column(db.String(120), default="")
+    gift_aid_address = db.Column(db.String(200), default="")   # house name/number
+    gift_aid_postcode = db.Column(db.String(20), default="")
+    stripe_session_id = db.Column(db.String(255), unique=True)
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending | complete
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+    __table_args__ = (
+        # Gift Aid only ever on a real donation portion, never a fee alone
+        db.CheckConstraint("NOT (gift_aid = 1 AND donation_pence <= 0)",
+                           name="gift_aid_requires_donation"),
+        # General donations (no campaign) are 100% donation
+        db.CheckConstraint("campaign_id IS NOT NULL OR fee_pence = 0",
+                           name="general_donation_no_fee"),
+    )
+
+    @property
+    def total_pence(self):
+        return self.fee_pence + self.donation_pence
+
+    @property
+    def gift_aid_pence(self):
+        """The only amount Gift Aid may be claimed on — never the fee."""
+        return self.donation_pence if self.gift_aid else 0
 
 
 @login_manager.user_loader
@@ -185,6 +289,28 @@ def delete_upload(filename):
         os.remove(path)
 
 
+@app.template_filter("pounds")
+def pounds_filter(pence):
+    """Render pence as £: 1500 -> £15, 1250 -> £12.50."""
+    if pence is None:
+        return ""
+    if pence % 100 == 0:
+        return "£%d" % (pence // 100)
+    return "£%.2f" % (pence / 100.0)
+
+
+def parse_pounds(raw):
+    """Parse a pounds amount like '10' or '10.50' into pence, else None."""
+    try:
+        pounds = Decimal(raw.strip())
+    except (InvalidOperation, AttributeError):
+        return None
+    pence = pounds * 100
+    if pence != int(pence):        # more than two decimal places
+        return None
+    return int(pence)
+
+
 def blocks_for(group):
     rows = Block.query.filter_by(group=group).order_by(Block.sort).all()
     return {b.key: b.value for b in rows}
@@ -194,6 +320,51 @@ def blocks_for(group):
 def inject_globals():
     site = blocks_for("site")
     return {"site": site, "current_year": datetime.utcnow().year}
+
+
+# Security headers on every response. CSP allows exactly what the
+# templates use: inline scripts/styles, Google Fonts, and the Google
+# Maps embed on the contact page.
+CSP = ("default-src 'self'; "
+       "script-src 'self' 'unsafe-inline'; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "font-src 'self' https://fonts.gstatic.com; "
+       "img-src 'self' data:; "
+       "frame-src https://www.google.com; "
+       "form-action 'self'; "
+       "frame-ancestors 'self'; "
+       "base-uri 'self'")
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers.setdefault("Content-Security-Policy", CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return resp
+
+
+# Simple in-memory rate limiter (per worker process — enough to blunt
+# brute force and form spam without new dependencies).
+RATE_LIMITS = {          # scope -> (max attempts, window seconds)
+    "login": (5, 600),
+    "subscribe": (5, 3600),
+    "donate": (10, 3600),
+}
+_rate_buckets = {}       # (scope, ip) -> [attempt timestamps]
+
+
+def rate_limited(scope):
+    limit, window = RATE_LIMITS[scope]
+    now = time.time()
+    key = (scope, request.remote_addr or "?")
+    hits = [t for t in _rate_buckets.get(key, []) if now - t < window]
+    if len(hits) >= limit:
+        _rate_buckets[key] = hits
+        return True
+    hits.append(now)
+    _rate_buckets[key] = hits
+    return False
 
 
 # ---------------------------------------------------------------- public
@@ -209,19 +380,23 @@ def home():
                    .order_by(NewsPost.published_date.desc(),
                              NewsPost.created_at.desc())
                    .limit(3).all())
+    campaigns = (Campaign.query.filter_by(active=True)
+                 .order_by(Campaign.created_at.desc()).all())
     testimonials = (Testimonial.query.filter_by(published=True)
                     .order_by(Testimonial.sort, Testimonial.created_at.desc())
                     .limit(6).all())
     partners = Partner.query.order_by(Partner.sort, Partner.name).all()
     return render_template("index.html", c=content, upcoming=upcoming,
-                           latest_news=latest_news,
+                           latest_news=latest_news, campaigns=campaigns,
                            testimonials=testimonials, partners=partners)
 
 
 @app.route("/subscribe", methods=["POST"])
 def subscribe():
     email = request.form.get("email", "").lower().strip()
-    if not email or "@" not in email or len(email) > 200:
+    if rate_limited("subscribe"):
+        flash("Too many attempts — please try again a little later.", "error")
+    elif not email or "@" not in email or len(email) > 200:
         flash("Please enter a valid email address.", "error")
     elif Subscriber.query.filter_by(email=email).first():
         flash("You're already subscribed — thank you!", "ok")
@@ -236,17 +411,26 @@ def subscribe():
 def sitemap():
     base = request.url_root.rstrip("/")
     urls = [url_for(e) for e in
-            ("home", "about", "events", "news", "gallery", "contact")]
+            ("home", "about", "events", "news", "resources", "gallery",
+             "membership", "contact")]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
              Event.query.filter_by(published=True).all()]
     urls += [url_for("news_detail", slug=p.slug) for p in
              NewsPost.query.filter_by(published=True).all()]
+    urls += [url_for("collection_detail", slug=c.slug) for c in
+             Campaign.query.filter_by(active=True).all()]
     xml = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for u in urls:
         xml.append("<url><loc>%s%s</loc></url>" % (base, u))
     xml.append("</urlset>")
     return app.response_class("\n".join(xml), mimetype="application/xml")
+
+
+@app.route("/healthz")
+def healthz():
+    db.session.execute(db.text("SELECT 1"))   # confirms the db is reachable
+    return "ok"
 
 
 @app.route("/robots.txt")
@@ -300,6 +484,224 @@ def gallery():
     return render_template("gallery.html", images=images)
 
 
+@app.route("/resources")
+def resources():
+    rows = Resource.query.order_by(Resource.category, Resource.sort,
+                                   Resource.name).all()
+    grouped = []   # [(category, [resources])], in query order
+    for r in rows:
+        if grouped and grouped[-1][0] == r.category:
+            grouped[-1][1].append(r)
+        else:
+            grouped.append((r.category, [r]))
+    return render_template("resources.html", grouped=grouped)
+
+
+@app.route("/donate", methods=["GET", "POST"])
+def donate():
+    if request.method == "POST":
+        if rate_limited("donate"):
+            flash("Too many attempts — please try again a little later.",
+                  "error")
+            return render_template("donate.html")
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").lower().strip()
+        pence = parse_pounds(request.form.get("amount", ""))
+        wants_gift_aid = request.form.get("gift_aid") == "on"
+        ga_name = request.form.get("gift_aid_name", "").strip()
+        ga_address = request.form.get("gift_aid_address", "").strip()
+        ga_postcode = request.form.get("gift_aid_postcode", "").upper().strip()
+        ga_declared = request.form.get("gift_aid_declaration") == "on"
+
+        if not name or not email or "@" not in email or len(email) > 200:
+            flash("Please give us your name and a valid email address.", "error")
+        elif pence is None or pence < 100 or pence > 1000000:
+            flash("Please enter an amount between £1 and £10,000.", "error")
+        elif wants_gift_aid and not (ga_name and ga_address and ga_postcode
+                                     and ga_declared):
+            flash("To add Gift Aid we need your full name, house name or "
+                  "number, postcode and the taxpayer declaration tick-box.",
+                  "error")
+        else:
+            try:
+                session = stripe.checkout.Session.create(
+                    mode="payment",
+                    line_items=[{"price_data": {
+                        "currency": "gbp",
+                        "unit_amount": pence,
+                        "product_data": {"name": "Donation to EBWA"},
+                    }, "quantity": 1}],
+                    customer_email=email,
+                    success_url=url_for("donate_success", _external=True),
+                    cancel_url=url_for("donate_cancelled", _external=True),
+                )
+            except Exception:
+                flash("Sorry — we couldn't start the payment. Please try "
+                      "again, or call the centre to donate.", "error")
+            else:
+                # General donation: 100% donation_pence, no fee (CLAUDE.md)
+                p = Payment()
+                p.campaign_id = None
+                p.name = name
+                p.email = email
+                p.fee_pence = 0
+                p.donation_pence = pence
+                p.gift_aid = wants_gift_aid
+                p.gift_aid_name = ga_name if wants_gift_aid else ""
+                p.gift_aid_address = ga_address if wants_gift_aid else ""
+                p.gift_aid_postcode = ga_postcode if wants_gift_aid else ""
+                p.stripe_session_id = session.id
+                p.status = "pending"
+                db.session.add(p)
+                db.session.commit()
+                return redirect(session.url, code=303)
+    return render_template("donate.html")
+
+
+@app.route("/collections/<slug>", methods=["GET", "POST"])
+def collection_detail(slug):
+    camp = Campaign.query.filter_by(slug=slug, active=True).first_or_404()
+    if request.method == "POST":
+        if rate_limited("donate"):
+            flash("Too many attempts — please try again a little later.",
+                  "error")
+            return render_template("collection_detail.html", camp=camp)
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").lower().strip()
+        include_fee = bool(camp.fee_pence) and \
+            request.form.get("include_fee") == "on"
+        fee_pence = camp.fee_pence if include_fee else 0
+        donation_raw = request.form.get("donation", "").strip()
+        donation_pence = parse_pounds(donation_raw) if donation_raw else 0
+        wants_gift_aid = request.form.get("gift_aid") == "on"
+        ga_name = request.form.get("gift_aid_name", "").strip()
+        ga_address = request.form.get("gift_aid_address", "").strip()
+        ga_postcode = request.form.get("gift_aid_postcode", "").upper().strip()
+        ga_declared = request.form.get("gift_aid_declaration") == "on"
+
+        # HMRC rule (CLAUDE.md): the fee pays for a benefit and can NEVER
+        # carry Gift Aid. No donation portion means no Gift Aid, whatever
+        # the submitted form claims.
+        if not donation_pence or donation_pence <= 0:
+            wants_gift_aid = False
+
+        if not name or not email or "@" not in email or len(email) > 200:
+            flash("Please give us your name and a valid email address.", "error")
+        elif donation_pence is None or donation_pence < 0 \
+                or donation_pence > 1000000:
+            flash("Please enter a valid donation amount (up to £10,000).",
+                  "error")
+        elif fee_pence + donation_pence < 100:
+            flash("Please choose a place or enter a donation of at least £1.",
+                  "error")
+        elif wants_gift_aid and not (ga_name and ga_address and ga_postcode
+                                     and ga_declared):
+            flash("To add Gift Aid we need your full name, house name or "
+                  "number, postcode and the taxpayer declaration tick-box.",
+                  "error")
+        else:
+            line_items = []
+            if fee_pence:
+                line_items.append({"price_data": {
+                    "currency": "gbp",
+                    "unit_amount": fee_pence,
+                    "product_data": {"name": "%s — place" % camp.title},
+                }, "quantity": 1})
+            if donation_pence:
+                line_items.append({"price_data": {
+                    "currency": "gbp",
+                    "unit_amount": donation_pence,
+                    "product_data": {"name": "Donation — %s" % camp.title},
+                }, "quantity": 1})
+            try:
+                session = stripe.checkout.Session.create(
+                    mode="payment",
+                    line_items=line_items,
+                    customer_email=email,
+                    success_url=url_for("donate_success", _external=True),
+                    cancel_url=url_for("collection_detail", slug=camp.slug,
+                                       _external=True),
+                )
+            except Exception:
+                flash("Sorry — we couldn't start the payment. Please try "
+                      "again, or call the centre.", "error")
+            else:
+                p = Payment()
+                p.campaign_id = camp.id
+                p.name = name
+                p.email = email
+                p.fee_pence = fee_pence
+                p.donation_pence = donation_pence
+                p.gift_aid = wants_gift_aid
+                p.gift_aid_name = ga_name if wants_gift_aid else ""
+                p.gift_aid_address = ga_address if wants_gift_aid else ""
+                p.gift_aid_postcode = ga_postcode if wants_gift_aid else ""
+                p.stripe_session_id = session.id
+                p.status = "pending"
+                db.session.add(p)
+                db.session.commit()
+                return redirect(session.url, code=303)
+    return render_template("collection_detail.html", camp=camp)
+
+
+@app.route("/donate/success")
+def donate_success():
+    return render_template("donate_success.html")
+
+
+@app.route("/donate/cancelled")
+def donate_cancelled():
+    return render_template("donate_cancelled.html")
+
+
+@app.route("/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    # Signature-verified and idempotent (CLAUDE.md donations rules)
+    try:
+        event = stripe.Webhook.construct_event(
+            request.get_data(),
+            request.headers.get("Stripe-Signature", ""),
+            STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        abort(400)
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        p = Payment.query.filter_by(stripe_session_id=session["id"]).first()
+        if p and p.status != "complete":   # replays are a no-op
+            p.status = "complete"
+            db.session.commit()
+    return "", 200
+
+
+@app.route("/membership", methods=["GET", "POST"])
+def membership():
+    if request.method == "POST":
+        # Honeypot: real visitors never see this field. Pretend success so
+        # bots get no signal, but store nothing.
+        if request.form.get("website", ""):
+            flash("Thank you — we've received your application and will "
+                  "be in touch soon.", "ok")
+            return redirect(url_for("membership"))
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").lower().strip()
+        if not name or not email or "@" not in email or len(email) > 200:
+            flash("Please give us your name and a valid email address.",
+                  "error")
+        else:
+            application = MembershipApplication()
+            application.name = name
+            application.email = email
+            application.phone = request.form.get("phone", "").strip()
+            application.address = request.form.get("address", "").strip()
+            application.reason = request.form.get("reason", "").strip()
+            db.session.add(application)
+            db.session.commit()
+            flash("Thank you — we've received your application and will "
+                  "be in touch soon.", "ok")
+            return redirect(url_for("membership"))
+    return render_template("membership.html")
+
+
 @app.route("/contact")
 def contact():
     return render_template("contact.html", c=blocks_for("contact"))
@@ -311,6 +713,10 @@ def admin_login():
     if current_user.is_authenticated:
         return redirect(url_for("admin_dashboard"))
     if request.method == "POST":
+        if rate_limited("login"):
+            flash("Too many login attempts — please wait ten minutes and "
+                  "try again.", "error")
+            return render_template("admin/login.html")
         user = User.query.filter_by(email=request.form.get("email", "").lower().strip()).first()
         if user and user.check_password(request.form.get("password", "")):
             login_user(user)
@@ -587,6 +993,63 @@ def admin_partner_delete(p_id):
     return redirect(url_for("admin_partners"))
 
 
+# ---------------------------------------------------------------- admin: resources
+@app.route("/admin/resources")
+@login_required
+def admin_resources():
+    rows = Resource.query.order_by(Resource.category, Resource.sort,
+                                   Resource.name).all()
+    return render_template("admin/resources_list.html", rows=rows)
+
+
+@app.route("/admin/resources/new", methods=["GET", "POST"])
+@app.route("/admin/resources/<int:resource_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_resource_form(resource_id=None):
+    res = db.session.get(Resource, resource_id) if resource_id else None
+    if resource_id and not res:
+        abort(404)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        category = request.form.get("category", "").strip()
+        if not name or not category:
+            flash("Name and category are required.", "error")
+        else:
+            is_new = res is None
+            if is_new:
+                res = Resource()
+            res.name = name
+            res.category = category
+            res.description = request.form.get("description", "").strip()
+            res.phone = request.form.get("phone", "").strip()
+            res.url = request.form.get("url", "").strip()
+            try:
+                res.sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                res.sort = 0
+            if is_new:
+                db.session.add(res)
+            db.session.commit()
+            flash("Resource saved.", "ok")
+            return redirect(url_for("admin_resources"))
+
+    categories = [c[0] for c in db.session.query(Resource.category)
+                  .distinct().order_by(Resource.category)]
+    return render_template("admin/resource_form.html", res=res,
+                           categories=categories)
+
+
+@app.route("/admin/resources/<int:resource_id>/delete", methods=["POST"])
+@login_required
+def admin_resource_delete(resource_id):
+    res = db.session.get(Resource, resource_id) or abort(404)
+    db.session.delete(res)
+    db.session.commit()
+    flash("Resource deleted.", "ok")
+    return redirect(url_for("admin_resources"))
+
+
 # ---------------------------------------------------------------- admin: subscribers
 @app.route("/admin/subscribers")
 @login_required
@@ -614,6 +1077,241 @@ def admin_subscriber_delete(s_id):
     db.session.commit()
     flash("Subscriber removed.", "ok")
     return redirect(url_for("admin_subscribers"))
+
+
+# ---------------------------------------------------------------- admin: collections
+@app.route("/admin/campaigns")
+@login_required
+def admin_campaigns():
+    rows = Campaign.query.order_by(Campaign.created_at.desc()).all()
+    return render_template("admin/campaigns_list.html", rows=rows)
+
+
+@app.route("/admin/campaigns/new", methods=["GET", "POST"])
+@app.route("/admin/campaigns/<int:campaign_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_campaign_form(campaign_id=None):
+    camp = db.session.get(Campaign, campaign_id) if campaign_id else None
+    if campaign_id and not camp:
+        abort(404)
+
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        target_raw = request.form.get("target", "").strip()
+        fee_raw = request.form.get("fee", "").strip()
+        target_pence = parse_pounds(target_raw) if target_raw else None
+        fee_pence = parse_pounds(fee_raw) if fee_raw else None
+        if not title:
+            flash("Title is required.", "error")
+        elif target_raw and (target_pence is None or target_pence <= 0):
+            flash("Target must be a valid amount in pounds.", "error")
+        elif fee_raw and (fee_pence is None or fee_pence <= 0):
+            flash("Place fee must be a valid amount in pounds.", "error")
+        else:
+            is_new = camp is None
+            if is_new:
+                camp = Campaign()
+            camp.title = title
+            camp.slug = unique_slug(Campaign, title, camp.id)
+            camp.description = request.form.get("description", "").strip()
+            camp.target_pence = target_pence
+            camp.fee_pence = fee_pence
+            camp.active = request.form.get("active") == "on"
+            f = request.files.get("image")
+            if f and f.filename:
+                new_name = save_upload(f)
+                if new_name:
+                    delete_upload(camp.image)
+                    camp.image = new_name
+            if is_new:
+                db.session.add(camp)
+            db.session.commit()
+            flash("Collection saved.", "ok")
+            return redirect(url_for("admin_campaigns"))
+
+    return render_template("admin/campaign_form.html", camp=camp)
+
+
+@app.route("/admin/campaigns/<int:campaign_id>/delete", methods=["POST"])
+@login_required
+def admin_campaign_delete(campaign_id):
+    camp = db.session.get(Campaign, campaign_id) or abort(404)
+    # Payments are financial records — never orphan or delete them.
+    if Payment.query.filter_by(campaign_id=camp.id).count():
+        flash("This collection has payments recorded against it, so it "
+              "can't be deleted. Untick 'active' to take it off the "
+              "website instead.", "error")
+        return redirect(url_for("admin_campaigns"))
+    delete_upload(camp.image)
+    db.session.delete(camp)
+    db.session.commit()
+    flash("Collection deleted.", "ok")
+    return redirect(url_for("admin_campaigns"))
+
+
+@app.route("/admin/campaigns/<int:campaign_id>/contributors")
+@login_required
+def admin_campaign_contributors(campaign_id):
+    camp = db.session.get(Campaign, campaign_id) or abort(404)
+    rows = (Payment.query.filter_by(campaign_id=camp.id)
+            .order_by(Payment.created_at.desc()).all())
+    return render_template("admin/contributors.html", camp=camp, rows=rows)
+
+
+@app.route("/admin/campaigns/<int:campaign_id>/contributors.csv")
+@login_required
+def admin_campaign_contributors_csv(campaign_id):
+    import csv
+    import io
+    camp = db.session.get(Campaign, campaign_id) or abort(404)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["date", "name", "email", "fee_gbp", "donation_gbp",
+                "total_gbp", "gift_aid", "status"])
+    for p in (Payment.query.filter_by(campaign_id=camp.id)
+              .order_by(Payment.created_at).all()):
+        w.writerow([p.created_at.strftime("%Y-%m-%d"), p.name, p.email,
+                    "%.2f" % (p.fee_pence / 100.0),
+                    "%.2f" % (p.donation_pence / 100.0),
+                    "%.2f" % (p.total_pence / 100.0),
+                    "yes" if p.gift_aid else "no", p.status])
+    resp = app.response_class(out.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = \
+        "attachment; filename=ebwa-%s-contributors.csv" % camp.slug
+    return resp
+
+
+# ---------------------------------------------------------------- admin: gift aid
+def gift_aid_claimable_query(date_from=None, date_to=None):
+    """Completed payments whose donation portion carries a valid declaration.
+
+    Only donation_pence is ever claimable — fee_pence never appears here
+    (CLAUDE.md HMRC rule; the Payment CHECK constraints back this up).
+    """
+    q = Payment.query.filter(
+        Payment.status == "complete",
+        Payment.gift_aid == True,          # noqa: E712
+        Payment.donation_pence > 0,
+        Payment.gift_aid_name != "",
+        Payment.gift_aid_address != "",
+        Payment.gift_aid_postcode != "")
+    if date_from:
+        q = q.filter(Payment.created_at
+                     >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        q = q.filter(Payment.created_at
+                     < datetime.combine(date_to + timedelta(days=1),
+                                        datetime.min.time()))
+    return q.order_by(Payment.created_at)
+
+
+def _parse_date_arg(name):
+    try:
+        return datetime.strptime(request.args.get(name, ""),
+                                 "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+@app.route("/admin/gift-aid")
+@login_required
+def admin_gift_aid():
+    date_from, date_to = _parse_date_arg("from"), _parse_date_arg("to")
+    rows = gift_aid_claimable_query(date_from, date_to).all()
+    claimable_pence = sum(p.gift_aid_pence for p in rows)
+    # 25p per £1, rounded half-up to the penny (integer maths, no floats)
+    reclaim_pence = (claimable_pence * 25 + 50) // 100
+    return render_template("admin/gift_aid.html", rows=rows,
+                           claimable_pence=claimable_pence,
+                           reclaim_pence=reclaim_pence,
+                           date_from=date_from, date_to=date_to)
+
+
+@app.route("/admin/gift-aid.csv")
+@login_required
+def admin_gift_aid_csv():
+    """CSV in the HMRC Charities Online Gift Aid schedule column layout."""
+    import csv
+    import io
+    date_from, date_to = _parse_date_arg("from"), _parse_date_arg("to")
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Title", "First name", "Last name",
+                "House name or number", "Postcode",
+                "Aggregated donations", "Donation date", "Amount"])
+    for p in gift_aid_claimable_query(date_from, date_to).all():
+        parts = p.gift_aid_name.split()
+        first = parts[0] if len(parts) > 1 else ""
+        last = " ".join(parts[1:]) if len(parts) > 1 else p.gift_aid_name
+        w.writerow(["", first, last, p.gift_aid_address,
+                    p.gift_aid_postcode, "",
+                    p.created_at.strftime("%d/%m/%y"),
+                    "%.2f" % (p.gift_aid_pence / 100.0)])
+    resp = app.response_class(out.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = \
+        "attachment; filename=ebwa-gift-aid-claim.csv"
+    return resp
+
+
+@app.route("/admin/gift-aid/declarations")
+@login_required
+def admin_gift_aid_declarations():
+    rows = (Payment.query.filter(Payment.gift_aid == True)  # noqa: E712
+            .order_by(Payment.created_at.desc()).all())
+    return render_template("admin/gift_aid_declarations.html", rows=rows)
+
+
+# ---------------------------------------------------------------- admin: membership
+@app.route("/admin/membership")
+@login_required
+def admin_membership():
+    rows = (MembershipApplication.query
+            .order_by(MembershipApplication.created_at.desc()).all())
+    return render_template("admin/membership.html", rows=rows,
+                           statuses=MEMBERSHIP_STATUSES)
+
+
+@app.route("/admin/membership.csv")
+@login_required
+def admin_membership_csv():
+    import csv
+    import io
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["name", "email", "phone", "address", "reason", "status",
+                "applied_on"])
+    for m in (MembershipApplication.query
+              .order_by(MembershipApplication.created_at).all()):
+        w.writerow([m.name, m.email, m.phone, m.address, m.reason,
+                    m.status, m.created_at.strftime("%Y-%m-%d")])
+    resp = app.response_class(out.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = \
+        "attachment; filename=ebwa-membership-applications.csv"
+    return resp
+
+
+@app.route("/admin/membership/<int:m_id>/status", methods=["POST"])
+@login_required
+def admin_membership_status(m_id):
+    m = db.session.get(MembershipApplication, m_id) or abort(404)
+    status = request.form.get("status", "")
+    if status in MEMBERSHIP_STATUSES:
+        m.status = status
+        db.session.commit()
+        flash("Status updated.", "ok")
+    else:
+        flash("Unknown status.", "error")
+    return redirect(url_for("admin_membership"))
+
+
+@app.route("/admin/membership/<int:m_id>/delete", methods=["POST"])
+@login_required
+def admin_membership_delete(m_id):
+    m = db.session.get(MembershipApplication, m_id) or abort(404)
+    db.session.delete(m)
+    db.session.commit()
+    flash("Application removed.", "ok")
+    return redirect(url_for("admin_membership"))
 
 
 # ---------------------------------------------------------------- CLI

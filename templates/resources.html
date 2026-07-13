@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Community resources — EBWA{% endblock %}
+{% block meta_description %}A directory of local support services for the Enfield community — council services, health, legal advice and more, compiled by EBWA.{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Community resources <span class="bn">· সহায়তার ঠিকানা</span></p>
+    <h2>Local support at your fingertips</h2>
+    <p class="lede">Trusted local services we signpost our community to every week. If you are not sure who to turn to, call the centre and we will point you the right way.</p>
+
+    {% for category, items in grouped %}
+    <h2 {% if not loop.first %}style="margin-top:56px"{% else %}style="margin-top:40px"{% endif %}>{{ category }}</h2>
+    <div class="partner-grid">
+      {% for r in items %}
+      <div class="partner-card">
+        <b>{{ r.name }}</b>
+        {% if r.description %}<span>{{ r.description }}</span>{% endif %}
+        {% if r.phone or r.url %}
+        <div class="resource-links">
+          {% if r.phone %}<a href="tel:{{ r.phone|replace(' ','') }}">☎ {{ r.phone }}</a>{% endif %}
+          {% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">Visit website →</a>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">The directory is being compiled — check back soon.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

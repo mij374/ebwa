@@ -1,0 +1,52 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Membership applications</h1>
+    <p class="admin-sub">Applications from the "Become a member" form. Personal data — handle with care.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('admin_membership_csv') }}">Export CSV</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Applied</th><th>Name</th><th>Contact</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for m in rows %}
+    <tr>
+      <td class="nowrap">{{ m.created_at.strftime('%d %b %Y') }}</td>
+      <td>
+        <b>{{ m.name }}</b>
+        {% if m.address %}<br><small>{{ m.address }}</small>{% endif %}
+        {% if m.reason %}<br><small>“{{ m.reason }}”</small>{% endif %}
+      </td>
+      <td>
+        {{ m.email }}
+        {% if m.phone %}<br><small>{{ m.phone }}</small>{% endif %}
+      </td>
+      <td class="nowrap">
+        <form method="post" action="{{ url_for('admin_membership_status', m_id=m.id) }}" style="display:inline">
+          <select name="status">
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if m.status == s }}>{{ s|capitalize }}</option>
+            {% endfor %}
+          </select>
+          <button class="table-link" type="submit">Save</button>
+        </form>
+      </td>
+      <td class="nowrap">
+        <form method="post" action="{{ url_for('admin_membership_delete', m_id=m.id) }}"
+              style="display:inline" onsubmit="return confirm('Remove this application? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No applications yet.</p>
+{% endif %}
+{% endblock %}
