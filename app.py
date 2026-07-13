@@ -1171,7 +1171,8 @@ def admin_campaign_contributors_csv(campaign_id):
                 "total_gbp", "gift_aid", "status"])
     for p in (Payment.query.filter_by(campaign_id=camp.id)
               .order_by(Payment.created_at).all()):
-        w.writerow([p.created_at.strftime("%Y-%m-%d"), p.name, p.email,
+        w.writerow([utc_as_uk(p.created_at).strftime("%Y-%m-%d"),
+                    p.name, p.email,
                     "%.2f" % (p.fee_pence / 100.0),
                     "%.2f" % (p.donation_pence / 100.0),
                     "%.2f" % (p.total_pence / 100.0),

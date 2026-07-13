@@ -11,6 +11,7 @@ Run:  python tests/smoke_test_collections.py
 """
 import os
 import sys
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -202,6 +203,20 @@ check("csv fee+donation row correct",
       "Both Payer,b@example.org,15.00,5.00,20.00,yes,complete" in csv_data)
 check("csv fee-only row has gift_aid no",
       "Tamper Test,t@example.org,15.00,0.00,15.00,no,complete" in csv_data)
+
+# ---- contributor dates are UK local: 23:30 UTC on 31 March is
+# 00:30 BST on 1 April
+with app.app_context():
+    p = Payment.query.filter_by(stripe_session_id="cs_fee_only").first()
+    p.created_at = datetime(2026, 3, 31, 23, 30)   # naive UTC
+    db.session.commit()
+r = client.get("/admin/campaigns/%d/contributors" % camp_id)
+check("contributor list shows UK local date at the BST boundary",
+      b"01 Apr 2026" in r.data)
+csv_data = client.get("/admin/campaigns/%d/contributors.csv"
+                      % camp_id).data.decode("utf-8")
+check("contributor CSV shows UK local date at the BST boundary",
+      "2026-04-01,Tamper Test" in csv_data)
 
 # ---- campaign edit keeps slug; delete rules
 client.post("/admin/campaigns/%d/edit" % camp_id, data={
