@@ -163,13 +163,23 @@ MEMBERSHIP_STATUSES = ("new", "contacted", "approved", "declined")
 
 
 class MembershipApplication(db.Model):
-    """Personal data — admin-only, never shown in public templates."""
+    """Personal data — admin-only, never shown in public templates.
+
+    bangladeshi_origin is SPECIAL-CATEGORY data (ethnic origin): admin-only,
+    excluded from any CSV export unless explicitly needed, covered by the
+    privacy notice on the form.
+    """
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(200), nullable=False)
     phone = db.Column(db.String(40), default="")
     address = db.Column(db.String(300), default="")
     reason = db.Column(db.Text, default="")           # why they want to join
+    # Eligibility declarations — all four must be ticked to apply
+    over_18 = db.Column(db.Boolean, nullable=False, default=False)
+    bangladeshi_origin = db.Column(db.Boolean, nullable=False, default=False)
+    lives_works_enfield = db.Column(db.Boolean, nullable=False, default=False)
+    fee_confirmed = db.Column(db.Boolean, nullable=False, default=False)
     status = db.Column(db.String(20), default="new")  # see MEMBERSHIP_STATUSES
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -685,9 +695,15 @@ def membership():
             return redirect(url_for("membership"))
         name = request.form.get("name", "").strip()
         email = request.form.get("email", "").lower().strip()
+        all_ticked = all(request.form.get(f) == "on" for f in
+                         ("over_18", "bangladeshi_origin",
+                          "lives_works_enfield", "fee_confirmed"))
         if not name or not email or "@" not in email or len(email) > 200:
             flash("Please give us your name and a valid email address.",
                   "error")
+        elif not all_ticked:
+            flash("Please confirm all four membership declarations — they "
+                  "are required by the EBWA constitution.", "error")
         else:
             application = MembershipApplication()
             application.name = name
@@ -695,6 +711,10 @@ def membership():
             application.phone = request.form.get("phone", "").strip()
             application.address = request.form.get("address", "").strip()
             application.reason = request.form.get("reason", "").strip()
+            application.over_18 = True
+            application.bangladeshi_origin = True
+            application.lives_works_enfield = True
+            application.fee_confirmed = True
             db.session.add(application)
             db.session.commit()
             flash("Thank you — we've received your application and will "

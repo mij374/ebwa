@@ -55,13 +55,15 @@ for path in ("/admin/membership", "/admin/membership.csv"):
 r = client.post("/admin/membership/1/status", data={"status": "approved"})
 check("anon status update -> 302", r.status_code == 302, str(r.status_code))
 
-# ---- submit an application
-r = client.post("/membership", data={
-    "name": "Shirin Akhter", "email": "Shirin@Example.org",
-    "phone": "07700 900123", "address": "12 Test Road, Enfield EN3 4XX",
-    "reason": "I volunteer locally, and I love the drop-in."},
+# ---- submit an application (all four eligibility ticks required)
+TICKS = {"over_18": "on", "bangladeshi_origin": "on",
+         "lives_works_enfield": "on", "fee_confirmed": "on"}
+r = client.post("/membership", data=dict(TICKS,
+    name="Shirin Akhter", email="Shirin@Example.org",
+    phone="07700 900123", address="12 Test Road, Enfield EN3 4XX",
+    reason="I volunteer locally, and I love the drop-in."),
     follow_redirects=True)
-check("submit -> confirmation flash",
+check("submit with all four ticks -> confirmation flash",
       b"received your application" in r.data)
 with app.app_context():
     m = MembershipApplication.query.filter_by(name="Shirin Akhter").first()
@@ -69,6 +71,22 @@ with app.app_context():
     check("application stored", m is not None)
     check("email lowercased", m.email == "shirin@example.org", m.email)
     check("status defaults to new", m.status == "new", m.status)
+    check("all four eligibility booleans stored True",
+          m.over_18 and m.bangladeshi_origin and m.lives_works_enfield
+          and m.fee_confirmed)
+
+# ---- each missing tick rejects the submission server-side
+for missing in TICKS:
+    partial = {k: v for k, v in TICKS.items() if k != missing}
+    r = client.post("/membership", data=dict(partial,
+        name="Missing Tick", email="mt@example.org"),
+        follow_redirects=True)
+    check("submission without %s rejected" % missing,
+          b"all four membership declarations" in r.data)
+with app.app_context():
+    check("no partial-tick application stored",
+          MembershipApplication.query.filter_by(name="Missing Tick")
+          .count() == 0)
 
 # ---- honeypot: pretend success, store nothing
 r = client.post("/membership", data={
@@ -118,6 +136,8 @@ check("csv has header row", csv_data.startswith(
 check("csv row quoted correctly",
       '"12 Test Road, Enfield EN3 4XX"' in csv_data
       and "approved" in csv_data)
+check("special-category origin data excluded from CSV",
+      "bangladeshi" not in csv_data.lower())
 
 # ---- admin dates are UK local: 23:30 UTC on 31 March is 00:30 BST 1 April
 with app.app_context():

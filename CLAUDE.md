@@ -146,6 +146,12 @@ Built (Phase 1, contract JUL112601, £3,000 — all client-confirmed):
   CRUD with category suggestions).
 - "Become a member" form (/membership with honeypot; admin list with
   status workflow new/contacted/approved/declined + CSV export).
+  Client-confirmed eligibility (per EBWA constitution): four required
+  tick-boxes — 18+, Bangladeshi origin, lives/works in Enfield, fee
+  paid/will pay — stored as booleans, all enforced server-side.
+  IMPORTANT: Bangladeshi origin is SPECIAL-CATEGORY data (ethnic
+  origin): admin-only, excluded from any CSV export unless explicitly
+  needed, and covered by the privacy notice on the form.
 - Donations & event collections (rules above): /donate general
   donations; /collections/<slug> campaign pages with place fee +
   optional donation, running totals/targets; verified idempotent Stripe
