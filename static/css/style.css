@@ -67,7 +67,7 @@ header{
 .brand-mark{display:inline-flex;align-items:center;flex:none}
 .brand-mark img{height:40px;width:auto;display:block}
 .login-card .brand-mark img{height:52px}
-.foot-logo{height:52px;width:auto;display:block;margin-bottom:12px}
+.foot-logo{height:80px;width:auto;display:block;margin-bottom:12px}
 .brand-name{font-family:var(--font-display);font-weight:800;font-size:20px;line-height:1.05}
 .brand-name small{display:block;font-family:var(--font-body);font-weight:600;font-size:11px;color:var(--ink-soft);letter-spacing:.06em}
 .nav-links{display:flex;gap:28px;list-style:none}
