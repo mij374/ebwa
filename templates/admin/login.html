@@ -9,7 +9,7 @@
 </head>
 <body class="login-body">
   <form class="login-card" method="post">
-    <span class="brand-mark" style="margin:0 auto 16px"></span>
+    <span class="brand-mark" style="margin:0 auto 16px"><img src="{{ url_for('static', filename='img/ebwa-logo.png') }}" alt="EBWA logo"></span>
     <h1>EBWA Admin</h1>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}

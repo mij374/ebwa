@@ -9,13 +9,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='img/ebwa-logo.png') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='img/ebwa-logo.png') }}">
+<meta property="og:image" content="{{ url_for('static', filename='img/ebwa-logo.png', _external=True) }}">
 </head>
 <body>
 
 <header>
   <div class="wrap nav">
     <a class="brand" href="{{ url_for('home') }}" aria-label="EBWA home">
-      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-mark"><img src="{{ url_for('static', filename='img/ebwa-logo.png') }}" alt="EBWA logo"></span>
       <span class="brand-name">EBWA<small>Enfield Bangladesh Welfare Association</small></span>
     </a>
     <nav aria-label="Main">
@@ -55,6 +58,7 @@
   <div class="wrap">
     <div class="foot-grid">
       <div>
+        <img class="foot-logo" src="{{ url_for('static', filename='img/ebwa-logo.png') }}" alt="EBWA logo">
         <h4>EBWA</h4>
         <p class="foot-about">A community-driven organisation dedicated to enhancing the quality of life of Bangladeshi people and the wider Enfield community.</p>
       </div>
