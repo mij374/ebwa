@@ -1,0 +1,42 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Track record</h1>
+    <p class="admin-sub">Grants and funding shown on the public track record page. Institutional funders only — never list individual donors here without documented consent.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_funding_form') }}">+ New record</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Year</th><th>Project</th><th>Funder</th><th>Amount</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for rec in rows %}
+    <tr>
+      <td class="nowrap">{{ rec.year }}</td>
+      <td><a href="{{ url_for('admin_funding_form', record_id=rec.id) }}">{{ rec.project_title }}</a></td>
+      <td>{{ rec.funder_name }}</td>
+      <td class="nowrap">{{ rec.amount_pence|pounds if rec.amount_pence else '—' }}</td>
+      <td>
+        {% if rec.published %}<span class="pill pill-green">Published</span>
+        {% else %}<span class="pill pill-grey">Draft</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('track_record') }}" target="_blank">View</a>
+        <a class="table-link" href="{{ url_for('admin_funding_form', record_id=rec.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_funding_delete', record_id=rec.id) }}"
+              style="display:inline" onsubmit="return confirm('Delete this funding record? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No funding records yet. Create your first one.</p>
+{% endif %}
+{% endblock %}

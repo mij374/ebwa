@@ -163,6 +163,18 @@ Built (Phase 1, contract JUL112601, £3,000 — all client-confirmed):
   in-memory rate limiting (login/subscribe/donation POSTs), /healthz,
   URL-map test asserting every /admin route requires login.
 
+Built (Variation 1 — first post-signing variation, Jul 2026):
+
+- Funding Track Record module: `FundingRecord` model (funder, project,
+  year, nullable amount_pence for undisclosed amounts, summary, outcome,
+  optional funder_url); public /track-record grouped by year descending
+  with intro editable via Block group `track_record`; admin CRUD at
+  /admin/track-record matching the events admin; nav links + sitemap
+  entry. Deploy: new table only — `flask --app app init-db`.
+  IMPORTANT: institutional funders only (councils, trusts, foundations)
+  on this page; individual donors must NEVER be published here without
+  documented consent.
+
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
 Phase 1 is code-complete but NOT yet deployed: deploy needs init-db
