@@ -4,15 +4,15 @@ Seed realistic EBWA demo content into a fresh database.
 Usage:
     python seed_demo.py
 
-Creates events, news posts, testimonials, partners and fills the
-home/about content blocks. Images are left blank — upload real photos
-via the admin. Refuses to run if any events already exist.
+Creates events, news posts, testimonials, partners, milestones and fills
+the home/about content blocks. Images are left blank — upload real
+photos via the admin. Refuses to run if any events already exist.
 """
 import sys
 from datetime import date, timedelta
 
-from app import (app, db, DEFAULT_BLOCKS, Block, Event, NewsPost,
-                 Partner, Testimonial, unique_slug)
+from app import (app, db, DEFAULT_BLOCKS, Block, Event, Milestone,
+                 NewsPost, Partner, Testimonial, unique_slug)
 
 TODAY = date.today()
 
@@ -188,6 +188,43 @@ PARTNERS = [
 ]
 
 
+MILESTONES = [
+    # (year, title, summary, outcome, funder_name, amount_pence, funder_url)
+    # Funder fields: institutional funders only — never individual donors
+    # without documented consent (CLAUDE.md).
+    (2026, "Weekend schools reach eighty pupils",
+     "Our Bengali and Arabic supplementary schools hit a new record.",
+     "Eighty children now spend their Saturday mornings learning the "
+     "language of their grandparents — our biggest cohort yet, taught by "
+     "a growing team of volunteer tutors.",
+     "", None, ""),
+    (2025, "Elderly lunch club goes twice weekly",
+     "Funding let us double our most-loved session for older residents.",
+     "More than a hundred older people now share hot food, gentle "
+     "exercise and good company twice a week instead of once — and the "
+     "waiting list is finally gone.",
+     "Enfield Council", 300000, "https://www.enfield.gov.uk"),
+    (2024, "Community cricket project launched",
+     "Twenty-five young people picked up a bat with us for the first time.",
+     "Qualified coaches, free kit and a summer of fixtures gave local "
+     "young people fitness, discipline and friendships that reach well "
+     "beyond the boundary rope.",
+     "The National Lottery Community Fund", 950000,
+     "https://www.tnlcommunityfund.org.uk"),
+    (2023, "First childcare and employability course for women",
+     "Our first accredited course welcomed learners back into education.",
+     "Local women — many returning to study after years away — gained "
+     "childcare qualifications, CV support and the confidence to step "
+     "into work placements at local nurseries.",
+     "", None, ""),
+    (2021, "Moved into our High Street centre",
+     "A permanent home for EBWA on Ponders End High Street.",
+     "After years of borrowed halls, our own front door gave every "
+     "programme — schools, drop-ins, advice sessions — a place to grow.",
+     "", None, ""),
+]
+
+
 def seed():
     db.create_all()
 
@@ -238,6 +275,20 @@ def seed():
     for i, (name, url, blurb) in enumerate(PARTNERS):
         db.session.add(Partner(name=name, url=url, blurb=blurb, sort=i))
 
+    for i, (year, title, summary, outcome, funder_name, amount_pence,
+            funder_url) in enumerate(MILESTONES):
+        m = Milestone()
+        m.year = year
+        m.title = title
+        m.summary = summary
+        m.outcome = outcome
+        m.funder_name = funder_name
+        m.amount_pence = amount_pence
+        m.funder_url = funder_url
+        m.sort = i
+        m.published = True
+        db.session.add(m)
+
     db.session.commit()
 
     upcoming = sum(1 for e in EVENTS if e[0] >= 0)
@@ -247,6 +298,7 @@ def seed():
     print("  %d news posts" % len(NEWS))
     print("  %d testimonials" % len(TESTIMONIALS))
     print("  %d partners" % len(PARTNERS))
+    print("  %d milestones" % len(MILESTONES))
     print("  %d content blocks filled" % blocks_filled)
     print("Images were left blank - upload photos via the admin.")
 
