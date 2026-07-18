@@ -163,32 +163,22 @@ Built (Phase 1, contract JUL112601, £3,000 — all client-confirmed):
   in-memory rate limiting (login/subscribe/donation POSTs), /healthz,
   URL-map test asserting every /admin route requires login.
 
-Built (Variation 1 — first post-signing variation, Jul 2026):
+Built (post-signing variation, Jul 2026):
 
-- Funding Track Record module: `FundingRecord` model (funder, project,
-  year, nullable amount_pence for undisclosed amounts, summary, outcome,
-  optional funder_url); public /track-record grouped by year descending
-  with intro editable via Block group `track_record`; admin CRUD at
-  /admin/track-record matching the events admin; nav links + sitemap
-  entry. Deploy: new table only — `flask --app app init-db`.
-  IMPORTANT: institutional funders only (councils, trusts, foundations)
-  on this page; individual donors must NEVER be published here without
-  documented consent.
-
-Built (Variation 2 — post-signing, Jul 2026):
-
-- Milestones & Track Record module: `Milestone` model (year, title,
-  summary, outcome, optional funder_name/amount_pence/funder_url,
-  optional image via save_upload); public /our-journey grouped by year
-  descending with a "Funded by [name], £X,XXX" line where funder fields
-  are set, intro editable via Block group `journey`; admin CRUD at
-  /admin/journey matching the events admin; nav links + sitemap entry.
-  Deploy: new table only — `flask --app app init-db`.
+- Our Journey module (milestones + funding track record, consolidated):
+  `Milestone` model (year, title, summary, outcome, optional
+  funder_name/amount_pence/funder_url, optional image via save_upload);
+  public /our-journey grouped by year descending with a "Funded by
+  [name], £X,XXX" line where funder fields are set, intro editable via
+  Block group `journey`; admin CRUD at /admin/journey matching the
+  events admin; nav links + sitemap entry. Deploy: new table only —
+  `flask --app app init-db`.
   IMPORTANT: institutional funders only (councils, trusts, foundations)
   in funder fields; individual donors must NEVER be published here
   without documented consent.
-  NOTE: overlaps with Variation 1's /track-record — if the client wants
-  one page, consolidate rather than maintaining both.
+  (An earlier /track-record module (`FundingRecord`) was superseded by
+  this and removed; dbs that ran init-db while it existed retain a
+  harmless orphan `funding_record` table and `track_record` Block row.)
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.

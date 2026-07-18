@@ -153,25 +153,6 @@ class Resource(db.Model):
     sort = db.Column(db.Integer, default=0)
 
 
-class FundingRecord(db.Model):
-    """A grant/funding award shown on the public track record page.
-
-    Institutional funders only (councils, trusts, foundations) — individual
-    donors must NEVER be published here without documented consent.
-    """
-    id = db.Column(db.Integer, primary_key=True)
-    funder_name = db.Column(db.String(160), nullable=False)
-    project_title = db.Column(db.String(200), nullable=False)
-    year = db.Column(db.Integer, nullable=False)
-    amount_pence = db.Column(db.Integer)              # NULL = amount not disclosed
-    summary = db.Column(db.String(300), default="")   # what the project was
-    outcome = db.Column(db.Text, default="")          # what it achieved
-    funder_url = db.Column(db.String(300), default="")
-    sort = db.Column(db.Integer, default=0)
-    published = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
-
-
 class Milestone(db.Model):
     """An entry on the public Our Journey page (milestones + funded work).
 
@@ -462,8 +443,8 @@ def subscribe():
 def sitemap():
     base = request.url_root.rstrip("/")
     urls = [url_for(e) for e in
-            ("home", "about", "events", "news", "resources", "track_record",
-             "journey", "gallery", "membership", "contact")]
+            ("home", "about", "events", "news", "resources", "journey",
+             "gallery", "membership", "contact")]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
              Event.query.filter_by(published=True).all()]
     urls += [url_for("news_detail", slug=p.slug) for p in
@@ -546,21 +527,6 @@ def resources():
         else:
             grouped.append((r.category, [r]))
     return render_template("resources.html", grouped=grouped)
-
-
-@app.route("/track-record")
-def track_record():
-    rows = (FundingRecord.query.filter_by(published=True)
-            .order_by(FundingRecord.year.desc(), FundingRecord.sort,
-                      FundingRecord.funder_name).all())
-    grouped = []   # [(year, [records])], in query order
-    for r in rows:
-        if grouped and grouped[-1][0] == r.year:
-            grouped[-1][1].append(r)
-        else:
-            grouped.append((r.year, [r]))
-    return render_template("track_record.html", c=blocks_for("track_record"),
-                           grouped=grouped)
 
 
 @app.route("/our-journey")
@@ -1141,75 +1107,6 @@ def admin_resource_delete(resource_id):
     return redirect(url_for("admin_resources"))
 
 
-# ---------------------------------------------------------------- admin: track record
-@app.route("/admin/track-record")
-@login_required
-def admin_funding():
-    rows = FundingRecord.query.order_by(FundingRecord.year.desc(),
-                                        FundingRecord.sort,
-                                        FundingRecord.funder_name).all()
-    return render_template("admin/funding_list.html", rows=rows)
-
-
-@app.route("/admin/track-record/new", methods=["GET", "POST"])
-@app.route("/admin/track-record/<int:record_id>/edit", methods=["GET", "POST"])
-@login_required
-def admin_funding_form(record_id=None):
-    rec = db.session.get(FundingRecord, record_id) if record_id else None
-    if record_id and not rec:
-        abort(404)
-
-    if request.method == "POST":
-        funder_name = request.form.get("funder_name", "").strip()
-        project_title = request.form.get("project_title", "").strip()
-        try:
-            year = int(request.form.get("year", ""))
-        except ValueError:
-            year = None
-        amount_raw = request.form.get("amount", "").strip()
-        amount_pence = parse_pounds(amount_raw) if amount_raw else None
-        if not funder_name or not project_title:
-            flash("Funder and project title are required.", "error")
-        elif year is None or year < 1900 or year > 2100:
-            flash("Please enter a valid four-digit year.", "error")
-        elif amount_raw and (amount_pence is None or amount_pence <= 0):
-            flash("Amount must be a valid amount in pounds, or left blank "
-                  "if not disclosed.", "error")
-        else:
-            is_new = rec is None
-            if is_new:
-                rec = FundingRecord()
-            rec.funder_name = funder_name
-            rec.project_title = project_title
-            rec.year = year
-            rec.amount_pence = amount_pence
-            rec.summary = request.form.get("summary", "").strip()
-            rec.outcome = request.form.get("outcome", "").strip()
-            rec.funder_url = request.form.get("funder_url", "").strip()
-            try:
-                rec.sort = int(request.form.get("sort", "0"))
-            except ValueError:
-                rec.sort = 0
-            rec.published = request.form.get("published") == "on"
-            if is_new:
-                db.session.add(rec)
-            db.session.commit()
-            flash("Funding record saved.", "ok")
-            return redirect(url_for("admin_funding"))
-
-    return render_template("admin/funding_form.html", rec=rec)
-
-
-@app.route("/admin/track-record/<int:record_id>/delete", methods=["POST"])
-@login_required
-def admin_funding_delete(record_id):
-    rec = db.session.get(FundingRecord, record_id) or abort(404)
-    db.session.delete(rec)
-    db.session.commit()
-    flash("Funding record deleted.", "ok")
-    return redirect(url_for("admin_funding"))
-
-
 # ---------------------------------------------------------------- admin: milestones
 @app.route("/admin/journey")
 @login_required
@@ -1591,10 +1488,6 @@ DEFAULT_BLOCKS = [
      "Founded by Choudhury Mohammed Anwar MBE, former Mayor of Enfield, EBWA provides "
      "education, welfare and social support to the whole community."),
     ("about", "about_image", "Founder / about photo", "image", ""),
-    ("track_record", "track_record_intro", "Intro text", "text",
-     "Our work is made possible by the councils, trusts and foundations that "
-     "fund our projects. This page records the grants we have received and "
-     "what they helped us achieve for the community."),
     ("journey", "journey_intro", "Intro text", "text",
      "From our earliest gatherings to the projects we run today, this is "
      "the story of EBWA's work in Enfield — the milestones we have reached "
