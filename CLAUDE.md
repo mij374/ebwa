@@ -175,6 +175,21 @@ Built (Variation 1 — first post-signing variation, Jul 2026):
   on this page; individual donors must NEVER be published here without
   documented consent.
 
+Built (Variation 2 — post-signing, Jul 2026):
+
+- Milestones & Track Record module: `Milestone` model (year, title,
+  summary, outcome, optional funder_name/amount_pence/funder_url,
+  optional image via save_upload); public /our-journey grouped by year
+  descending with a "Funded by [name], £X,XXX" line where funder fields
+  are set, intro editable via Block group `journey`; admin CRUD at
+  /admin/journey matching the events admin; nav links + sitemap entry.
+  Deploy: new table only — `flask --app app init-db`.
+  IMPORTANT: institutional funders only (councils, trusts, foundations)
+  in funder fields; individual donors must NEVER be published here
+  without documented consent.
+  NOTE: overlaps with Variation 1's /track-record — if the client wants
+  one page, consolidate rather than maintaining both.
+
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
 Phase 1 is code-complete but NOT yet deployed: deploy needs init-db

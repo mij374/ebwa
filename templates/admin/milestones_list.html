@@ -1,0 +1,42 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Our Journey</h1>
+    <p class="admin-sub">Milestones shown on the public Our Journey page. Funder fields are for institutional funders only — never list individual donors without documented consent.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_milestone_form') }}">+ New milestone</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Year</th><th>Title</th><th>Funder</th><th>Amount</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for m in rows %}
+    <tr>
+      <td class="nowrap">{{ m.year }}</td>
+      <td><a href="{{ url_for('admin_milestone_form', milestone_id=m.id) }}">{{ m.title }}</a></td>
+      <td>{{ m.funder_name or '—' }}</td>
+      <td class="nowrap">{{ m.amount_pence|pounds if m.amount_pence else '—' }}</td>
+      <td>
+        {% if m.published %}<span class="pill pill-green">Published</span>
+        {% else %}<span class="pill pill-grey">Draft</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('journey') }}" target="_blank">View</a>
+        <a class="table-link" href="{{ url_for('admin_milestone_form', milestone_id=m.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_milestone_delete', milestone_id=m.id) }}"
+              style="display:inline" onsubmit="return confirm('Delete this milestone? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No milestones yet. Create your first one.</p>
+{% endif %}
+{% endblock %}

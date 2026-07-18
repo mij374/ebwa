@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Our journey — EBWA{% endblock %}
+{% block meta_description %}Milestones from EBWA's work in Enfield, year by year — the projects we have delivered, what they achieved, and the funders who made them possible.{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Our journey <span class="bn">· আমাদের পথচলা</span></p>
+    <h2>Milestones along the way</h2>
+    <p class="lede">{{ c.get('journey_intro','') }}</p>
+
+    {% for year, items in grouped %}
+    <h2 {% if not loop.first %}style="margin-top:56px"{% else %}style="margin-top:40px"{% endif %}>{{ year }}</h2>
+    <div class="event-cards">
+      {% for m in items %}
+      <div class="event-card">
+        {% if m.image %}<img src="{{ url_for('static', filename='uploads/' + m.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          {% if m.funder_name %}
+          <span class="event-date">Funded by
+            {%- if m.funder_url %} <a href="{{ m.funder_url }}" target="_blank" rel="noopener">{{ m.funder_name }}</a>
+            {%- else %} {{ m.funder_name }}
+            {%- endif %}{% if m.amount_pence %}, {{ m.amount_pence|pounds }}{% endif %}</span>
+          {% endif %}
+          <h3>{{ m.title }}</h3>
+          {% if m.summary %}<p>{{ m.summary }}</p>{% endif %}
+          {% if m.outcome %}<p>{{ m.outcome }}</p>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">Our story is being written up — check back soon.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

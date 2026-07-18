@@ -1,0 +1,82 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit milestone' if m else 'New milestone' }}</h1>
+<p class="admin-sub">Shown on the public Our Journey page, grouped by year. Funder fields are optional — institutional funders only, never an individual donor without documented consent.</p>
+
+<form method="post" enctype="multipart/form-data" class="admin-form">
+  <div class="field">
+    <label for="title">Title *</label>
+    <input type="text" id="title" name="title" required value="{{ m.title if m else '' }}"
+           placeholder="e.g. Opened our High Street centre">
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="year">Year *</label>
+      <input type="number" id="year" name="year" required min="1900" max="2100"
+             value="{{ m.year if m else '' }}" placeholder="e.g. 2025">
+    </div>
+    <div class="field">
+      <label for="sort">Sort order</label>
+      <input type="number" id="sort" name="sort" value="{{ m.sort if m else 0 }}">
+      <small>Lower numbers appear first within the year.</small>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="summary">Short summary</label>
+    <input type="text" id="summary" name="summary" maxlength="300"
+           value="{{ m.summary if m else '' }}"
+           placeholder="One line describing the milestone">
+  </div>
+
+  <div class="field">
+    <label for="outcome">Outcome</label>
+    <textarea id="outcome" name="outcome" rows="5"
+              placeholder="What it achieved for the community.">{{ m.outcome if m else '' }}</textarea>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="funder_name">Funder (optional)</label>
+      <input type="text" id="funder_name" name="funder_name"
+             value="{{ m.funder_name if m else '' }}"
+             placeholder="e.g. Enfield Council">
+    </div>
+    <div class="field">
+      <label for="amount">Amount (£)</label>
+      <input type="text" id="amount" name="amount"
+             value="{{ '%.2f'|format(m.amount_pence / 100) if m and m.amount_pence else '' }}"
+             placeholder="e.g. 3000 — leave blank if none or not disclosed">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="funder_url">Funder website</label>
+    <input type="text" id="funder_url" name="funder_url"
+           value="{{ m.funder_url if m else '' }}"
+           placeholder="https://... (optional)">
+  </div>
+
+  <div class="field">
+    <label for="image">Photo</label>
+    {% if m and m.image %}
+    <img class="field-thumb" src="{{ url_for('static', filename='uploads/' + m.image) }}" alt="">
+    {% endif %}
+    <input type="file" id="image" name="image" accept="image/*">
+    <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>
+  </div>
+
+  <div class="field field-check">
+    <label>
+      <input type="checkbox" name="published" {{ 'checked' if not m or m.published }}>
+      Published (visible on the website)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save milestone</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_milestones') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

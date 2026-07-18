@@ -172,6 +172,27 @@ class FundingRecord(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
+class Milestone(db.Model):
+    """An entry on the public Our Journey page (milestones + funded work).
+
+    Funder fields are optional. Institutional funders only (councils,
+    trusts, foundations) — individual donors must NEVER be published
+    here without documented consent.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    summary = db.Column(db.String(300), default="")   # short line for the card
+    outcome = db.Column(db.Text, default="")          # what it achieved
+    funder_name = db.Column(db.String(160), default="")
+    amount_pence = db.Column(db.Integer)              # NULL = none / not disclosed
+    funder_url = db.Column(db.String(300), default="")
+    image = db.Column(db.String(255), default="")     # uploads filename
+    sort = db.Column(db.Integer, default=0)
+    published = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+
 class Subscriber(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(200), unique=True, nullable=False)
@@ -442,7 +463,7 @@ def sitemap():
     base = request.url_root.rstrip("/")
     urls = [url_for(e) for e in
             ("home", "about", "events", "news", "resources", "track_record",
-             "gallery", "membership", "contact")]
+             "journey", "gallery", "membership", "contact")]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
              Event.query.filter_by(published=True).all()]
     urls += [url_for("news_detail", slug=p.slug) for p in
@@ -539,6 +560,21 @@ def track_record():
         else:
             grouped.append((r.year, [r]))
     return render_template("track_record.html", c=blocks_for("track_record"),
+                           grouped=grouped)
+
+
+@app.route("/our-journey")
+def journey():
+    rows = (Milestone.query.filter_by(published=True)
+            .order_by(Milestone.year.desc(), Milestone.sort,
+                      Milestone.title).all())
+    grouped = []   # [(year, [milestones])], in query order
+    for m in rows:
+        if grouped and grouped[-1][0] == m.year:
+            grouped[-1][1].append(m)
+        else:
+            grouped.append((m.year, [m]))
+    return render_template("journey.html", c=blocks_for("journey"),
                            grouped=grouped)
 
 
@@ -1174,6 +1210,80 @@ def admin_funding_delete(record_id):
     return redirect(url_for("admin_funding"))
 
 
+# ---------------------------------------------------------------- admin: milestones
+@app.route("/admin/journey")
+@login_required
+def admin_milestones():
+    rows = Milestone.query.order_by(Milestone.year.desc(), Milestone.sort,
+                                    Milestone.title).all()
+    return render_template("admin/milestones_list.html", rows=rows)
+
+
+@app.route("/admin/journey/new", methods=["GET", "POST"])
+@app.route("/admin/journey/<int:milestone_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_milestone_form(milestone_id=None):
+    m = db.session.get(Milestone, milestone_id) if milestone_id else None
+    if milestone_id and not m:
+        abort(404)
+
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        try:
+            year = int(request.form.get("year", ""))
+        except ValueError:
+            year = None
+        amount_raw = request.form.get("amount", "").strip()
+        amount_pence = parse_pounds(amount_raw) if amount_raw else None
+        if not title:
+            flash("Title is required.", "error")
+        elif year is None or year < 1900 or year > 2100:
+            flash("Please enter a valid four-digit year.", "error")
+        elif amount_raw and (amount_pence is None or amount_pence <= 0):
+            flash("Amount must be a valid amount in pounds, or left blank.",
+                  "error")
+        else:
+            is_new = m is None
+            if is_new:
+                m = Milestone()
+            m.title = title
+            m.year = year
+            m.summary = request.form.get("summary", "").strip()
+            m.outcome = request.form.get("outcome", "").strip()
+            m.funder_name = request.form.get("funder_name", "").strip()
+            m.amount_pence = amount_pence
+            m.funder_url = request.form.get("funder_url", "").strip()
+            try:
+                m.sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                m.sort = 0
+            m.published = request.form.get("published") == "on"
+            f = request.files.get("image")
+            if f and f.filename:
+                new_name = save_upload(f)
+                if new_name:
+                    delete_upload(m.image)
+                    m.image = new_name
+            if is_new:
+                db.session.add(m)
+            db.session.commit()
+            flash("Milestone saved.", "ok")
+            return redirect(url_for("admin_milestones"))
+
+    return render_template("admin/milestone_form.html", m=m)
+
+
+@app.route("/admin/journey/<int:milestone_id>/delete", methods=["POST"])
+@login_required
+def admin_milestone_delete(milestone_id):
+    m = db.session.get(Milestone, milestone_id) or abort(404)
+    delete_upload(m.image)
+    db.session.delete(m)
+    db.session.commit()
+    flash("Milestone deleted.", "ok")
+    return redirect(url_for("admin_milestones"))
+
+
 # ---------------------------------------------------------------- admin: subscribers
 @app.route("/admin/subscribers")
 @login_required
@@ -1485,6 +1595,10 @@ DEFAULT_BLOCKS = [
      "Our work is made possible by the councils, trusts and foundations that "
      "fund our projects. This page records the grants we have received and "
      "what they helped us achieve for the community."),
+    ("journey", "journey_intro", "Intro text", "text",
+     "From our earliest gatherings to the projects we run today, this is "
+     "the story of EBWA's work in Enfield — the milestones we have reached "
+     "and the funders who helped us get there."),
     ("contact", "contact_intro", "Intro text", "text",
      "Our centre welcomes visitors for support every week. Drop in, call, or find us on the High Street."),
     ("contact", "contact_hours", "Opening / drop-in times", "text",
