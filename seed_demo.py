@@ -6,9 +6,14 @@ Usage:
 
 Creates events, news posts, testimonials, partners, milestones and fills
 the home/about content blocks. Images are left blank — upload real
-photos via the admin. Refuses to run if any events already exist.
+photos via the admin.
+
+Each section is guarded separately: if a section's table already has
+rows (or, for blocks, any block has been edited away from its default),
+that section is skipped and everything missing is still seeded — so
+re-running against an existing demo database only inserts newly added
+sections, and never overwrites real content.
 """
-import sys
 from datetime import date, timedelta
 
 from app import (app, db, DEFAULT_BLOCKS, Block, Event, Milestone,
@@ -228,78 +233,106 @@ MILESTONES = [
 def seed():
     db.create_all()
 
-    if Event.query.count():
-        print("Refusing to seed: the database already contains "
-              "%d event(s). Use a fresh database." % Event.query.count())
-        sys.exit(1)
+    results = []   # (section, message), in seeding order
 
-    # Content blocks: insert any missing defaults, then fill demo copy.
+    # Content blocks: insert any missing defaults (idempotent, mirrors
+    # init-db), then fill demo copy — skipped if any block has been
+    # edited away from its default, so real content is never overwritten.
     for group, key, label, kind, value in DEFAULT_BLOCKS:
         if not Block.query.filter_by(key=key).first():
             db.session.add(Block(group=group, key=key, label=label,
                                  kind=kind, value=value))
     db.session.flush()
-    blocks_filled = 0
-    for key, value in BLOCK_VALUES.items():
-        b = Block.query.filter_by(key=key).first()
-        if b:
-            b.value = value
-            blocks_filled += 1
+    defaults = {key: value for _, key, _, _, value in DEFAULT_BLOCKS}
+    customised = sum(1 for b in Block.query.all()
+                     if b.key in defaults and b.value != defaults[b.key])
+    if customised:
+        results.append(("content blocks", "skipped (%d already edited)"
+                        % customised))
+    else:
+        filled = 0
+        for key, value in BLOCK_VALUES.items():
+            b = Block.query.filter_by(key=key).first()
+            if b:
+                b.value = value
+                filled += 1
+        results.append(("content blocks", "%d filled" % filled))
 
-    for days, title, start_time, venue, summary, description in EVENTS:
-        ev = Event()
-        ev.title = title
-        ev.slug = unique_slug(Event, title)
-        ev.event_date = TODAY + timedelta(days=days)
-        ev.start_time = start_time
-        ev.venue = venue
-        ev.summary = summary
-        ev.description = description
-        ev.published = True
-        db.session.add(ev)
+    existing = Event.query.count()
+    if existing:
+        results.append(("events", "skipped (%d existing)" % existing))
+    else:
+        for days, title, start_time, venue, summary, description in EVENTS:
+            ev = Event()
+            ev.title = title
+            ev.slug = unique_slug(Event, title)
+            ev.event_date = TODAY + timedelta(days=days)
+            ev.start_time = start_time
+            ev.venue = venue
+            ev.summary = summary
+            ev.description = description
+            ev.published = True
+            db.session.add(ev)
+        upcoming = sum(1 for e in EVENTS if e[0] >= 0)
+        results.append(("events", "%d seeded (%d upcoming, %d past)"
+                        % (len(EVENTS), upcoming, len(EVENTS) - upcoming)))
 
-    for days_ago, title, summary, body in NEWS:
-        post = NewsPost()
-        post.title = title
-        post.slug = unique_slug(NewsPost, title)
-        post.published_date = TODAY - timedelta(days=days_ago)
-        post.summary = summary
-        post.body = body
-        post.published = True
-        db.session.add(post)
+    existing = NewsPost.query.count()
+    if existing:
+        results.append(("news posts", "skipped (%d existing)" % existing))
+    else:
+        for days_ago, title, summary, body in NEWS:
+            post = NewsPost()
+            post.title = title
+            post.slug = unique_slug(NewsPost, title)
+            post.published_date = TODAY - timedelta(days=days_ago)
+            post.summary = summary
+            post.body = body
+            post.published = True
+            db.session.add(post)
+        results.append(("news posts", "%d seeded" % len(NEWS)))
 
-    for i, (name, role, quote) in enumerate(TESTIMONIALS):
-        db.session.add(Testimonial(name=name, role=role, quote=quote,
-                                   published=True, sort=i))
+    existing = Testimonial.query.count()
+    if existing:
+        results.append(("testimonials", "skipped (%d existing)" % existing))
+    else:
+        for i, (name, role, quote) in enumerate(TESTIMONIALS):
+            db.session.add(Testimonial(name=name, role=role, quote=quote,
+                                       published=True, sort=i))
+        results.append(("testimonials", "%d seeded" % len(TESTIMONIALS)))
 
-    for i, (name, url, blurb) in enumerate(PARTNERS):
-        db.session.add(Partner(name=name, url=url, blurb=blurb, sort=i))
+    existing = Partner.query.count()
+    if existing:
+        results.append(("partners", "skipped (%d existing)" % existing))
+    else:
+        for i, (name, url, blurb) in enumerate(PARTNERS):
+            db.session.add(Partner(name=name, url=url, blurb=blurb, sort=i))
+        results.append(("partners", "%d seeded" % len(PARTNERS)))
 
-    for i, (year, title, summary, outcome, funder_name, amount_pence,
-            funder_url) in enumerate(MILESTONES):
-        m = Milestone()
-        m.year = year
-        m.title = title
-        m.summary = summary
-        m.outcome = outcome
-        m.funder_name = funder_name
-        m.amount_pence = amount_pence
-        m.funder_url = funder_url
-        m.sort = i
-        m.published = True
-        db.session.add(m)
+    existing = Milestone.query.count()
+    if existing:
+        results.append(("milestones", "skipped (%d existing)" % existing))
+    else:
+        for i, (year, title, summary, outcome, funder_name, amount_pence,
+                funder_url) in enumerate(MILESTONES):
+            m = Milestone()
+            m.year = year
+            m.title = title
+            m.summary = summary
+            m.outcome = outcome
+            m.funder_name = funder_name
+            m.amount_pence = amount_pence
+            m.funder_url = funder_url
+            m.sort = i
+            m.published = True
+            db.session.add(m)
+        results.append(("milestones", "%d seeded" % len(MILESTONES)))
 
     db.session.commit()
 
-    upcoming = sum(1 for e in EVENTS if e[0] >= 0)
-    print("Demo content created:")
-    print("  %d events (%d upcoming, %d past)"
-          % (len(EVENTS), upcoming, len(EVENTS) - upcoming))
-    print("  %d news posts" % len(NEWS))
-    print("  %d testimonials" % len(TESTIMONIALS))
-    print("  %d partners" % len(PARTNERS))
-    print("  %d milestones" % len(MILESTONES))
-    print("  %d content blocks filled" % blocks_filled)
+    print("Demo content:")
+    for section, message in results:
+        print("  %s: %s" % (section, message))
     print("Images were left blank - upload photos via the admin.")
 
 
