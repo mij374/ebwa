@@ -33,6 +33,7 @@
       {% endif %}
       <a href="{{ url_for('admin_account') }}" class="{{ 'active' if request.endpoint == 'admin_account' }}">Account</a>
       {% if current_user.is_super_admin %}
+      <a href="{{ url_for('admin_users') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('admin_user') }}">Users</a>
       <a href="{{ url_for('admin_features') }}" class="{{ 'active' if request.endpoint and 'feature' in request.endpoint }}">Settings</a>
       {% endif %}
     </nav>

@@ -278,6 +278,16 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .login-note{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0}
 .login-back{font-size:14px;color:var(--ink-soft);text-decoration:none}
 
+/* ---------- User management ---------- */
+.admin-table details summary{cursor:pointer;display:inline-block;list-style:none}
+.admin-table details summary::-webkit-details-marker{display:none}
+.user-actions{
+  display:grid;gap:16px;background:var(--paper);border:1px solid var(--line);
+  border-radius:10px;padding:16px;margin-top:10px;min-width:260px;
+}
+.user-actions form{display:grid;gap:8px;justify-items:start}
+.user-actions .field{margin:0}
+
 /* ---------- Two-factor authentication ---------- */
 .tfa-qr{
   display:grid;place-items:center;background:var(--white);border:1px solid var(--line);

@@ -42,18 +42,9 @@ Enrolment hands out **ten recovery codes**, shown once and never again
 lost phone isn't a lockout. If someone runs out, they turn 2FA off from
 the Account page and set it up again for a fresh set.
 
-If an admin loses both their phone and their recovery codes, Netbus
-clears 2FA on the server:
-
-```bash
-cd /opt/ebwa && source venv/bin/activate
-python3 -c "from app import app, db, User, RecoveryCode; \
-app.app_context().push(); \
-u = User.query.filter_by(email='them@ebwa.org.uk').first(); \
-RecoveryCode.query.filter_by(user_id=u.id).delete(); \
-u.totp_enabled = False; u.totp_secret = ''; u.totp_last_counter = None; \
-db.session.commit()"
-```
+If an admin loses both their phone and their recovery codes, a super
+admin clears 2FA for them from **Users** (below), or Netbus does it on
+the server with `flask --app app disable-2fa`.
 
 ## Changing your admin password
 
@@ -61,15 +52,8 @@ Log in, then **Account** in the sidebar (`/admin/account`). You need your
 current password, and the new one must be at least 10 characters.
 
 There is deliberately no "forgotten password" link on the login page. If
-someone is locked out, Netbus resets it on the server:
-
-```bash
-cd /opt/ebwa && source venv/bin/activate
-python3 -c "from app import app, db, User; \
-app.app_context().push(); \
-u = User.query.filter_by(email='them@ebwa.org.uk').first(); \
-u.set_password('a-long-temporary-password'); db.session.commit()"
-```
+someone is locked out, a super admin resets it from **Users** (below), or
+Netbus does it on the server with `flask --app app reset-admin-password`.
 
 ## Admin roles and feature flags
 
@@ -78,6 +62,27 @@ staff are `role = 'super_admin'`, promoted after the account exists:
 
 ```bash
 flask --app app promote-super-admin      # prompts for the user's email
+```
+
+Super admins also get a **Users** page at `/admin/users` listing every
+account with its role, whether two-factor authentication is on, and when
+it was created. Passwords and 2FA secrets are never shown — only reset.
+From there you can create an account, reset someone's password, clear
+their 2FA, change their role, or delete them. Two rules are enforced by
+the server, not just hidden in the UI: **the last super admin can't be
+deleted or demoted**, and **you can't delete or demote yourself** —
+otherwise nobody would be left who could put it right.
+
+If everything goes wrong and nobody can log in at all, Netbus has the
+same actions on the server (each prompts for the details):
+
+```bash
+cd /opt/ebwa && source venv/bin/activate
+flask --app app create-admin              # new account
+flask --app app promote-super-admin       # make one a super admin
+flask --app app reset-admin-password      # set a new password
+flask --app app disable-2fa               # clear someone's 2FA
+flask --app app delete-admin              # remove an account
 ```
 
 Super admins get a **Settings** page at `/admin/features` listing the
@@ -192,9 +197,14 @@ sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL 
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_secret VARCHAR(64) DEFAULT '';"
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;"
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_last_counter INTEGER;"
+sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN created_at DATETIME;"
 flask --app app init-db      # creates feature_flag + recovery_code
 sudo systemctl restart ebwa
 ```
+
+`created_at` has to be nullable — SQLite won't accept a
+`CURRENT_TIMESTAMP` default on an added column — so accounts that
+predate it show "—" in the Users list. New accounts are stamped.
 
 Each `ALTER TABLE` is a one-off — re-running one errors with "duplicate
 column name", which is harmless. Existing admins keep working: they all

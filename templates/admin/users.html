@@ -1,0 +1,111 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Users — EBWA Admin{% endblock %}
+{% block content %}
+<h1 class="admin-h1">Users</h1>
+<p class="admin-sub">Netbus only. Admin accounts for this site — who can log
+  in, what they can reach, and whether they use two-factor authentication.
+  Passwords and 2FA secrets are never shown here; they can only be reset.</p>
+
+<form method="post" action="{{ url_for('admin_user_create') }}" class="admin-form"
+      style="margin-bottom:36px"
+      onsubmit="return confirm('Create this account?');">
+  <div class="field-row">
+    <div class="field">
+      <label for="email">Email *</label>
+      <input type="email" id="email" name="email" required
+             autocomplete="off" placeholder="name@ebwa.org.uk">
+    </div>
+    <div class="field">
+      <label for="password">Password *</label>
+      <input type="text" id="password" name="password" required
+             minlength="{{ min_length }}" autocomplete="off">
+      <small>At least {{ min_length }} characters. Shown as you type so you
+        can pass it on, then ask them to change it from their Account page.</small>
+    </div>
+    <div class="field">
+      <label for="role">Role *</label>
+      <select id="role" name="role">
+        {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <button class="btn btn-green" type="submit">Create account</button>
+</form>
+
+<table class="admin-table">
+  <thead>
+    <tr><th>Email</th><th>Role</th><th>Two-factor</th><th>Created</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for u in rows %}
+    <tr>
+      <td>
+        <b>{{ u.email }}</b>
+        {% if u.id == current_user.id %}<br><small>this is you</small>{% endif %}
+      </td>
+      <td class="nowrap">
+        {% if u.role == 'super_admin' %}<span class="pill pill-green">super admin</span>
+        {% else %}<span class="pill pill-grey">admin</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        {% if u.totp_enabled %}<span class="pill pill-green">On</span>
+        {% else %}<span class="pill pill-grey">Off</span>{% endif %}
+      </td>
+      <td class="nowrap">{{ u.created_at|uk_date if u.created_at else '—' }}</td>
+      <td>
+        <details>
+          <summary class="table-link">Manage</summary>
+          <div class="user-actions">
+
+            <form method="post" action="{{ url_for('admin_user_password', user_id=u.id) }}"
+                  onsubmit="return confirm('Set a new password for {{ u.email }}?');">
+              <div class="field">
+                <label for="pw{{ u.id }}">New password</label>
+                <input type="text" id="pw{{ u.id }}" name="password" required
+                       minlength="{{ min_length }}" autocomplete="off">
+              </div>
+              <div class="field">
+                <label for="pw2{{ u.id }}">Repeat new password</label>
+                <input type="text" id="pw2{{ u.id }}" name="confirm_password"
+                       required minlength="{{ min_length }}" autocomplete="off">
+              </div>
+              <button class="table-link" type="submit">Reset password</button>
+            </form>
+
+            <form method="post" action="{{ url_for('admin_user_role', user_id=u.id) }}"
+                  onsubmit="return confirm('Change the role for {{ u.email }}?');">
+              <div class="field">
+                <label for="role{{ u.id }}">Role</label>
+                <select id="role{{ u.id }}" name="role">
+                  {% for r in roles %}
+                  <option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ r }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <button class="table-link" type="submit">Change role</button>
+            </form>
+
+            <form method="post" action="{{ url_for('admin_user_reset_2fa', user_id=u.id) }}"
+                  onsubmit="return confirm('Clear two-factor authentication for {{ u.email }}? They will be able to log in with their password alone until they set it up again.');">
+              <button class="table-link" type="submit">Reset two-factor</button>
+            </form>
+
+            <form method="post" action="{{ url_for('admin_user_delete', user_id=u.id) }}"
+                  onsubmit="return confirm('Delete {{ u.email }} permanently?');">
+              <button class="table-link danger" type="submit">Delete account</button>
+            </form>
+
+          </div>
+        </details>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="admin-sub" style="margin-top:24px">The last super admin can't be
+  deleted or demoted, and you can't delete or demote yourself — otherwise
+  nobody would be left who could put it right. If everyone is locked out,
+  Netbus can still use the <code>flask --app app</code> commands on the
+  server (see the README).</p>
+{% endblock %}

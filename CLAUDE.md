@@ -67,11 +67,23 @@ Built and maintained by Netbus IT Support.
   - `admin` (default) — EBWA's own admins. Everything they need to run
     the site.
   - `super_admin` — **Netbus only**, never a client login. Adds the
-    Settings page (feature flags) and nothing else so far. Gate those
-    routes with `@super_admin_required` (anonymous → login redirect,
-    client admin → 403) and hide the nav link behind
+    Users page (accounts) and the Settings page (feature flags). Gate
+    those routes with `@super_admin_required` (anonymous → login
+    redirect, client admin → 403) and hide the nav link behind
     `{% if current_user.is_super_admin %}`. Promote with
     `flask --app app promote-super-admin`.
+  - Account safety rails, enforced in the ROUTE and not just the UI:
+    the last super admin can be neither deleted nor demoted, and nobody
+    can delete or demote their own account. `is_last_super_admin()` is
+    the shared check; it runs BEFORE the self check so the sole super
+    admin gets the more useful message. Every action refuses with a
+    flash rather than raising. Keep these rails on anything new that
+    can change a role or remove an account.
+  - Break-glass CLI, for when nobody can log in:
+    `reset-admin-password`, `disable-2fa`, `delete-admin` (same
+    last-super-admin protection), `promote-super-admin`. Prefer adding
+    a CLI command over documenting raw SQL — the README should never
+    tell anyone to hand-edit the database.
 - Feature flags: optional/phased modules are listed in `FEATURES` in
   `app.py` (name, label, description, default) and stored one row per
   name in `FeatureFlag` — `init-db` is idempotent and inserts only
@@ -244,6 +256,13 @@ Built (post-signing variation, Jul 2026):
     redisplay them — a user who runs out turns 2FA off and re-enrols.
   - The code step is rate limited (`totp` scope) because six digits is
     guessable. Do not remove it.
+- Super-admin user management at /admin/users (conventions above):
+  lists every account with role, 2FA status and created date — never a
+  password hash or TOTP secret — with create, reset password, reset
+  2FA, change role and delete, each a POST form with a JS `confirm()`.
+  Deploy: `ALTER TABLE user ADD COLUMN created_at DATETIME;` (nullable
+  by necessity — SQLite refuses a CURRENT_TIMESTAMP default on ADD
+  COLUMN, so accounts predating it show "—").
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.

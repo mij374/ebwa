@@ -91,6 +91,9 @@ class User(UserMixin, db.Model):
     totp_secret = db.Column(db.String(64), default="")     # base32
     totp_enabled = db.Column(db.Boolean, nullable=False, default=False)
     totp_last_counter = db.Column(db.Integer)   # replay guard, see verify_totp
+    # Nullable, unlike the created_at on content models: accounts that
+    # predate this column keep NULL and show as "—" in the admin list.
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
@@ -574,6 +577,21 @@ def super_admin_required(fn):
             abort(403)
         return fn(*args, **kwargs)
     return login_required(wrapper)
+
+
+def is_last_super_admin(user):
+    """True if demoting or deleting this account would leave the site
+    with no super admin at all — i.e. nobody who can undo it."""
+    return (user.role == "super_admin"
+            and User.query.filter_by(role="super_admin").count() <= 1)
+
+
+def clear_user_2fa(user):
+    """Wipe every trace of a user's 2FA so they can enrol from scratch."""
+    RecoveryCode.query.filter_by(user_id=user.id).delete()
+    user.totp_secret = ""
+    user.totp_enabled = False
+    user.totp_last_counter = None
 
 
 @app.context_processor
@@ -1850,6 +1868,122 @@ def admin_membership_delete(m_id):
     return redirect(url_for("admin_membership"))
 
 
+# ---------------------------------------------------------------- admin: users
+# Super admin (Netbus) only. Every guard here is enforced server-side —
+# the UI hides impossible actions, but the route is what refuses them.
+@app.route("/admin/users")
+@super_admin_required
+def admin_users():
+    rows = User.query.order_by(User.email).all()
+    return render_template("admin/users.html", rows=rows, roles=ROLES,
+                           min_length=MIN_PASSWORD_LEN)
+
+
+@app.route("/admin/users/new", methods=["POST"])
+@super_admin_required
+def admin_user_create():
+    email = request.form.get("email", "").lower().strip()
+    password = request.form.get("password", "")
+    role = request.form.get("role", "admin")
+    if not email or "@" not in email or len(email) > 120:
+        flash("Please enter a valid email address.", "error")
+    elif role not in ROLES:
+        flash("Unknown role.", "error")
+    elif len(password) < MIN_PASSWORD_LEN:
+        flash("The password must be at least %d characters long."
+              % MIN_PASSWORD_LEN, "error")
+    elif User.query.filter_by(email=email).first():
+        flash("There is already an account for %s." % email, "error")
+    else:
+        u = User(email=email)
+        u.role = role
+        u.set_password(password)
+        db.session.add(u)
+        db.session.commit()
+        flash("Account created for %s." % email, "ok")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/password", methods=["POST"])
+@super_admin_required
+def admin_user_password(user_id):
+    u = db.session.get(User, user_id) or abort(404)
+    password = request.form.get("password", "")
+    confirm = request.form.get("confirm_password", "")
+    if len(password) < MIN_PASSWORD_LEN:
+        flash("The password must be at least %d characters long."
+              % MIN_PASSWORD_LEN, "error")
+    elif password != confirm:
+        flash("The two passwords do not match — please retype them.", "error")
+    else:
+        u.set_password(password)
+        db.session.commit()
+        flash("Password reset for %s. Tell them to change it once they are "
+              "in, from their own Account page." % u.email, "ok")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/reset-2fa", methods=["POST"])
+@super_admin_required
+def admin_user_reset_2fa(user_id):
+    u = db.session.get(User, user_id) or abort(404)
+    if not u.totp_enabled and not u.totp_secret:
+        flash("%s does not have two-factor authentication set up." % u.email,
+              "error")
+    else:
+        clear_user_2fa(u)
+        db.session.commit()
+        flash("Two-factor authentication cleared for %s — they can log in "
+              "with their password and set it up again." % u.email, "ok")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/role", methods=["POST"])
+@super_admin_required
+def admin_user_role(user_id):
+    u = db.session.get(User, user_id) or abort(404)
+    role = request.form.get("role", "")
+    # The last-super-admin rail is checked before the self rail because it
+    # is the stronger invariant, and because on the web it is only ever
+    # reachable by the sole super admin targeting themselves — anyone else
+    # who could ask would themselves be a second super admin. The CLI can
+    # hit it for any user, which is where it does the real work.
+    if role not in ROLES:
+        flash("Unknown role.", "error")
+    elif role != u.role and is_last_super_admin(u):
+        flash("%s is the only super admin left, so they can't be demoted. "
+              "Promote someone else first." % u.email, "error")
+    elif u.id == current_user.id:
+        flash("You can't change your own role — ask another super admin to "
+              "do it.", "error")
+    elif role == u.role:
+        flash("%s already has that role." % u.email, "error")
+    else:
+        u.role = role
+        db.session.commit()
+        flash("%s is now %s." % (u.email, role), "ok")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@super_admin_required
+def admin_user_delete(user_id):
+    u = db.session.get(User, user_id) or abort(404)
+    if is_last_super_admin(u):      # checked first — see admin_user_role
+        flash("%s is the only super admin left, so this account can't be "
+              "deleted. Promote someone else first." % u.email, "error")
+    elif u.id == current_user.id:
+        flash("You can't delete your own account — ask another super admin "
+              "to do it.", "error")
+    else:
+        RecoveryCode.query.filter_by(user_id=u.id).delete()
+        email = u.email
+        db.session.delete(u)
+        db.session.commit()
+        flash("Account deleted: %s." % email, "ok")
+    return redirect(url_for("admin_users"))
+
+
 # ---------------------------------------------------------------- admin: settings
 # Super admin (Netbus) only — client admins never see the nav link and
 # get a 403 if they find the URL.
@@ -1937,6 +2071,64 @@ def create_admin():
     db.session.add(u)
     db.session.commit()
     print("Admin created:", email)
+
+
+@app.cli.command("reset-admin-password")
+def reset_admin_password():
+    """Set a new password for a user who is locked out:
+    flask --app app reset-admin-password"""
+    import click
+    email = click.prompt("User email").lower().strip()
+    u = User.query.filter_by(email=email).first()
+    if not u:
+        print("No such user.")
+        return
+    password = click.prompt("New password", hide_input=True,
+                            confirmation_prompt=True)
+    if len(password) < MIN_PASSWORD_LEN:
+        print("Password must be at least %d characters." % MIN_PASSWORD_LEN)
+        return
+    u.set_password(password)
+    db.session.commit()
+    print("Password reset for", email)
+
+
+@app.cli.command("disable-2fa")
+def disable_2fa():
+    """Clear two-factor authentication for a user who has lost both their
+    authenticator and their recovery codes:
+    flask --app app disable-2fa"""
+    import click
+    email = click.prompt("User email").lower().strip()
+    u = User.query.filter_by(email=email).first()
+    if not u:
+        print("No such user.")
+        return
+    clear_user_2fa(u)
+    db.session.commit()
+    print("Two-factor authentication cleared for", email)
+
+
+@app.cli.command("delete-admin")
+def delete_admin():
+    """Delete a user: flask --app app delete-admin"""
+    import click
+    email = click.prompt("User email").lower().strip()
+    u = User.query.filter_by(email=email).first()
+    if not u:
+        print("No such user.")
+        return
+    if is_last_super_admin(u):
+        print("Refusing: %s is the only super admin left. Promote someone "
+              "else first." % email)
+        return
+    if not click.confirm("Delete %s permanently?" % email):
+        print("Cancelled.")
+        return
+    RecoveryCode.query.filter_by(user_id=u.id).delete()
+    db.session.delete(u)
+    db.session.commit()
+    print("Deleted", email)
 
 
 @app.cli.command("promote-super-admin")
