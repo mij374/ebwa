@@ -28,6 +28,31 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+## Admin roles and feature flags
+
+Admins are `role = 'admin'` by default — that's the EBWA team. Netbus
+staff are `role = 'super_admin'`, promoted after the account exists:
+
+```bash
+flask --app app promote-super-admin      # prompts for the user's email
+```
+
+Super admins get a **Settings** page at `/admin/features` listing the
+optional modules (News & projects, Community resources, Our Journey,
+Become a member, Donations & collections) with an on/off toggle each.
+Normal admins never see the link and get a 403 if they try the URL.
+
+Switching a module off hides its public pages (they 404), its menu links
+and its admin section — **nothing is deleted**, and switching it back on
+restores everything exactly as it was. Core pages (home, about, events,
+gallery, contact) have no flag and are always on.
+
+To add a flag, append to `FEATURES` in `app.py` (name, label,
+description, default), guard the public route with
+`@feature_required("name")`, wrap the nav link in
+`{% if features.name %}`, and run `flask --app app init-db` again (it
+only inserts missing names).
+
 ## Adding/changing editable content blocks
 
 Content blocks are seeded in `DEFAULT_BLOCKS` in `app.py`
@@ -109,6 +134,22 @@ server {
     }
 }
 ```
+
+## Upgrading an existing deployment
+
+Schema changes are additive and always run **before** the restart:
+
+```bash
+cd /opt/ebwa
+git pull
+# super-admin tier — one-off, on databases created before it existed:
+sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin';"
+flask --app app init-db      # creates the feature_flag table and seeds it
+sudo systemctl restart ebwa
+```
+
+Existing admins keep working — they all become `role = 'admin'`. Promote
+the Netbus account afterwards with `flask --app app promote-super-admin`.
 
 ## Backups
 

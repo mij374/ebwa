@@ -1,0 +1,31 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Settings — EBWA Admin{% endblock %}
+{% block content %}
+<h1 class="admin-h1">Settings</h1>
+<p class="admin-sub">Netbus only. Switch optional modules on or off for this
+  site. Switching a module off hides its pages and menu links — nothing is
+  deleted, and switching it back on restores everything exactly as it was.
+  The core pages (home, about us, events, gallery, contact) are always on.</p>
+
+<table class="admin-table">
+  <thead><tr><th>Feature</th><th>What it covers</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+    {% for name, label, description, default in rows %}
+    <tr>
+      <td class="nowrap"><b>{{ label }}</b><br><small>{{ name }}</small></td>
+      <td>{{ description }}</td>
+      <td>
+        {% if flags[name] %}<span class="pill pill-green">On</span>
+        {% else %}<span class="pill pill-grey">Off</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <form method="post" action="{{ url_for('admin_feature_toggle', name=name) }}" style="display:inline"
+              onsubmit="return confirm('{{ 'Switch off' if flags[name] else 'Switch on' }} {{ label }} for this site?');">
+          <button class="table-link" type="submit">{{ 'Switch off' if flags[name] else 'Switch on' }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

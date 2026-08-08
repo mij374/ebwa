@@ -61,8 +61,33 @@ Built and maintained by Netbus IT Support.
 - Admin forms: plain POST + redirect + `flash(msg, "ok"|"error")`.
   Destructive actions are POST forms with a JS `confirm()`. No AJAX.
 - Auth: single `User` model via Flask-Login, `@login_required` on every
-  admin route. A future board-member tier will be a `role` column on
-  `User` — do not create a second user table.
+  admin route. Tiers live in `User.role` (see `ROLES`) — do not create a
+  second user table. A future board-member tier is another value here.
+  - `admin` (default) — EBWA's own admins. Everything they need to run
+    the site.
+  - `super_admin` — **Netbus only**, never a client login. Adds the
+    Settings page (feature flags) and nothing else so far. Gate those
+    routes with `@super_admin_required` (anonymous → login redirect,
+    client admin → 403) and hide the nav link behind
+    `{% if current_user.is_super_admin %}`. Promote with
+    `flask --app app promote-super-admin`.
+- Feature flags: optional/phased modules are listed in `FEATURES` in
+  `app.py` (name, label, description, default) and stored one row per
+  name in `FeatureFlag` — `init-db` is idempotent and inserts only
+  missing names, exactly like `DEFAULT_BLOCKS`. Guard public routes with
+  `@feature_required("name")` (404 when off), pick up the flags in
+  templates via the `features` dict from the context processor, and read
+  them in route code with `feature_enabled("name")`.
+  - Switching a feature off ONLY hides it. Never delete, archive or skip
+    writing data because a flag is off; switching it back on must restore
+    the pages exactly as they were. The Stripe webhook is deliberately
+    NOT flagged, so a payment already in flight still completes.
+  - Core features (home, about, events, gallery, contact) are always on
+    and must never gain a flag.
+  - Admin routes stay reachable when a feature is off (only the nav link
+    hides), so content is never stranded. It is a tidiness feature, not
+    a security boundary — anything that must actually be protected needs
+    an auth check of its own.
 - CSS: extend `static/css/style.css` using the existing custom properties
   (`--green`, `--red`, `--paper`, etc.) and class naming style. Design
   identity: Bangladeshi flag bottle green + red circle motif, Bengali
@@ -179,6 +204,13 @@ Built (post-signing variation, Jul 2026):
   (An earlier /track-record module (`FundingRecord`) was superseded by
   this and removed; dbs that ran init-db while it existed retain a
   harmless orphan `funding_record` table and `track_record` Block row.)
+- Super-admin tier + feature flags (conventions above): `User.role`
+  ('admin' | 'super_admin'), `flask --app app promote-super-admin`;
+  `FeatureFlag` table seeded from `FEATURES` (news, resources,
+  our_journey, membership_form, donations); super-admin-only Settings
+  page at /admin/features with per-feature on/off toggles. Deploy:
+  `ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT
+  'admin';` then `flask --app app init-db` for the new table.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
@@ -187,8 +219,9 @@ Phase 1 is code-complete but NOT yet deployed: deploy needs init-db
 registration (see README).
 
 Phase 2 (separately quoted — DO NOT build under Phase 1): Board
-Transparency Hub (board-member `role` on User, private minutes stored
-outside static/ and served via authenticated route, public AGM minutes),
+Transparency Hub (board-member tier as a third `User.role` value — the
+column already exists, private minutes stored outside static/ and served
+via authenticated route, public AGM minutes),
 Bengali page translations (Bengali twin values for Blocks + small chrome
 translation dict, EN | বাংলা toggle), booking system (not specced — do
 not build).

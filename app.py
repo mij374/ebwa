@@ -14,6 +14,7 @@ import time
 import uuid
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from functools import wraps
 from zoneinfo import ZoneInfo
 
 import stripe
@@ -64,16 +65,39 @@ def _sqlite_pragmas(dbapi_conn, _):
 
 
 # ---------------------------------------------------------------- models
+ROLES = ("admin", "super_admin")
+
+
 class User(UserMixin, db.Model):
+    """Site admin. role 'admin' is the client's own admins; 'super_admin'
+    is Netbus only (feature flags / settings). A future board-member tier
+    becomes another value here — never a second user table.
+    """
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="admin")
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
 
     def check_password(self, pw):
         return check_password_hash(self.password_hash, pw)
+
+    @property
+    def is_super_admin(self):
+        return self.role == "super_admin"
+
+
+class FeatureFlag(db.Model):
+    """On/off switch for one optional module, seeded from FEATURES.
+
+    Switching a feature off only hides it: no content is deleted, and
+    switching it back on restores the pages exactly as they were.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(60), unique=True, nullable=False)   # FEATURES name
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
 
 
 class Block(db.Model):
@@ -348,10 +372,77 @@ def blocks_for(group):
     return {b.key: b.value for b in rows}
 
 
+# ------------------------------------------------------- feature flags
+# The optional/phased modules Netbus can switch on or off per site. Core
+# pages (home, about, events, gallery, contact) are deliberately NOT
+# listed and are never flaggable. To add a flag, append here — init-db is
+# idempotent and inserts only missing names, exactly like DEFAULT_BLOCKS.
+FEATURES = [
+    # name, label, what switching it off hides, default
+    ("news", "News & projects",
+     "The news listing and article pages, and the homepage "
+     "‘Latest news’ strip.", True),
+    ("resources", "Community resources",
+     "The /resources directory of local services.", True),
+    ("our_journey", "Our Journey",
+     "The /our-journey milestones and funding track record page.", True),
+    ("membership_form", "Become a member",
+     "The public membership application form at /membership.", True),
+    ("donations", "Donations & collections",
+     "The /donate page, collection campaign pages and the homepage "
+     "collections strip.", True),
+]
+
+FEATURE_DEFAULTS = {name: default for name, _l, _d, default in FEATURES}
+FEATURE_LABELS = {name: label for name, label, _d, _de in FEATURES}
+
+
+def feature_flags():
+    """All flags as {name: enabled}. A name with no row yet falls back to
+    its FEATURES default, so a newly added flag works before init-db."""
+    flags = dict(FEATURE_DEFAULTS)
+    for row in FeatureFlag.query.all():
+        if row.name in flags:
+            flags[row.name] = row.enabled
+    return flags
+
+
+def feature_enabled(name):
+    """A name that is not in FEATURES is a core feature: always on."""
+    if name not in FEATURE_DEFAULTS:
+        return True
+    row = FeatureFlag.query.filter_by(name=name).first()
+    return row.enabled if row else FEATURE_DEFAULTS[name]
+
+
+def feature_required(name):
+    """Public route guard: a disabled feature 404s. Data is untouched."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not feature_enabled(name):
+                abort(404)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def super_admin_required(fn):
+    """Netbus-only admin route: anonymous users are sent to the login
+    page as usual, logged-in client admins get a flat 403."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_super_admin:
+            abort(403)
+        return fn(*args, **kwargs)
+    return login_required(wrapper)
+
+
 @app.context_processor
 def inject_globals():
     site = blocks_for("site")
-    return {"site": site, "current_year": datetime.utcnow().year}
+    return {"site": site, "current_year": datetime.utcnow().year,
+            "features": feature_flags()}
 
 
 # Security headers on every response. CSP allows exactly what the
@@ -408,12 +499,16 @@ def home():
                 .filter(Event.event_date >= date.today())
                 .order_by(Event.event_date.asc())
                 .limit(3).all())
-    latest_news = (NewsPost.query.filter_by(published=True)
-                   .order_by(NewsPost.published_date.desc(),
-                             NewsPost.created_at.desc())
-                   .limit(3).all())
-    campaigns = (Campaign.query.filter_by(active=True)
-                 .order_by(Campaign.created_at.desc()).all())
+    latest_news = []
+    if feature_enabled("news"):
+        latest_news = (NewsPost.query.filter_by(published=True)
+                       .order_by(NewsPost.published_date.desc(),
+                                 NewsPost.created_at.desc())
+                       .limit(3).all())
+    campaigns = []
+    if feature_enabled("donations"):
+        campaigns = (Campaign.query.filter_by(active=True)
+                     .order_by(Campaign.created_at.desc()).all())
     testimonials = (Testimonial.query.filter_by(published=True)
                     .order_by(Testimonial.sort, Testimonial.created_at.desc())
                     .limit(6).all())
@@ -442,15 +537,21 @@ def subscribe():
 @app.route("/sitemap.xml")
 def sitemap():
     base = request.url_root.rstrip("/")
-    urls = [url_for(e) for e in
-            ("home", "about", "events", "news", "resources", "journey",
-             "gallery", "membership", "contact")]
+    flags = feature_flags()
+    pages = [   # endpoint, feature flag (None = core page, always listed)
+        ("home", None), ("about", None), ("events", None),
+        ("news", "news"), ("resources", "resources"),
+        ("journey", "our_journey"), ("gallery", None),
+        ("membership", "membership_form"), ("contact", None)]
+    urls = [url_for(e) for e, f in pages if f is None or flags[f]]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
              Event.query.filter_by(published=True).all()]
-    urls += [url_for("news_detail", slug=p.slug) for p in
-             NewsPost.query.filter_by(published=True).all()]
-    urls += [url_for("collection_detail", slug=c.slug) for c in
-             Campaign.query.filter_by(active=True).all()]
+    if flags["news"]:
+        urls += [url_for("news_detail", slug=p.slug) for p in
+                 NewsPost.query.filter_by(published=True).all()]
+    if flags["donations"]:
+        urls += [url_for("collection_detail", slug=c.slug) for c in
+                 Campaign.query.filter_by(active=True).all()]
     xml = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for u in urls:
@@ -496,6 +597,7 @@ def event_detail(slug):
 
 
 @app.route("/news")
+@feature_required("news")
 def news():
     posts = (NewsPost.query.filter_by(published=True)
              .order_by(NewsPost.published_date.desc(),
@@ -504,6 +606,7 @@ def news():
 
 
 @app.route("/news/<slug>")
+@feature_required("news")
 def news_detail(slug):
     post = NewsPost.query.filter_by(slug=slug, published=True).first_or_404()
     return render_template("news_detail.html", post=post)
@@ -517,6 +620,7 @@ def gallery():
 
 
 @app.route("/resources")
+@feature_required("resources")
 def resources():
     rows = Resource.query.order_by(Resource.category, Resource.sort,
                                    Resource.name).all()
@@ -530,6 +634,7 @@ def resources():
 
 
 @app.route("/our-journey")
+@feature_required("our_journey")
 def journey():
     rows = (Milestone.query.filter_by(published=True)
             .order_by(Milestone.year.desc(), Milestone.sort,
@@ -545,6 +650,7 @@ def journey():
 
 
 @app.route("/donate", methods=["GET", "POST"])
+@feature_required("donations")
 def donate():
     if request.method == "POST":
         if rate_limited("donate"):
@@ -606,6 +712,7 @@ def donate():
 
 
 @app.route("/collections/<slug>", methods=["GET", "POST"])
+@feature_required("donations")
 def collection_detail(slug):
     camp = Campaign.query.filter_by(slug=slug, active=True).first_or_404()
     if request.method == "POST":
@@ -692,11 +799,13 @@ def collection_detail(slug):
 
 
 @app.route("/donate/success")
+@feature_required("donations")
 def donate_success():
     return render_template("donate_success.html")
 
 
 @app.route("/donate/cancelled")
+@feature_required("donations")
 def donate_cancelled():
     return render_template("donate_cancelled.html")
 
@@ -721,6 +830,7 @@ def stripe_webhook():
 
 
 @app.route("/membership", methods=["GET", "POST"])
+@feature_required("membership_form")
 def membership():
     if request.method == "POST":
         # Honeypot: real visitors never see this field. Pretend success so
@@ -1468,6 +1578,33 @@ def admin_membership_delete(m_id):
     return redirect(url_for("admin_membership"))
 
 
+# ---------------------------------------------------------------- admin: settings
+# Super admin (Netbus) only — client admins never see the nav link and
+# get a 403 if they find the URL.
+@app.route("/admin/features")
+@super_admin_required
+def admin_features():
+    return render_template("admin/features.html", rows=FEATURES,
+                           flags=feature_flags())
+
+
+@app.route("/admin/features/<name>/toggle", methods=["POST"])
+@super_admin_required
+def admin_feature_toggle(name):
+    if name not in FEATURE_DEFAULTS:
+        abort(404)
+    flag = FeatureFlag.query.filter_by(name=name).first()
+    if not flag:
+        flag = FeatureFlag(name=name, enabled=FEATURE_DEFAULTS[name])
+        db.session.add(flag)
+    flag.enabled = not flag.enabled
+    db.session.commit()
+    flash("%s is now %s. Nothing was deleted — switching it back on "
+          "restores the pages as they were."
+          % (FEATURE_LABELS[name], "on" if flag.enabled else "off"), "ok")
+    return redirect(url_for("admin_features"))
+
+
 # ---------------------------------------------------------------- CLI
 DEFAULT_BLOCKS = [
     # group, key, label, kind, default value
@@ -1501,12 +1638,15 @@ DEFAULT_BLOCKS = [
 
 @app.cli.command("init-db")
 def init_db():
-    """Create tables and seed default content blocks."""
+    """Create tables and seed default content blocks and feature flags."""
     db.create_all()
     for group, key, label, kind, value in DEFAULT_BLOCKS:
         if not Block.query.filter_by(key=key).first():
             db.session.add(Block(group=group, key=key, label=label,
                                  kind=kind, value=value))
+    for name, _label, _desc, default in FEATURES:
+        if not FeatureFlag.query.filter_by(name=name).first():
+            db.session.add(FeatureFlag(name=name, enabled=default))
     db.session.commit()
     print("Database initialised.")
 
@@ -1525,6 +1665,21 @@ def create_admin():
     db.session.add(u)
     db.session.commit()
     print("Admin created:", email)
+
+
+@app.cli.command("promote-super-admin")
+def promote_super_admin():
+    """Promote an existing admin to super_admin (Netbus only — grants the
+    feature-flag settings page): flask --app app promote-super-admin"""
+    import click
+    email = click.prompt("User email").lower().strip()
+    u = User.query.filter_by(email=email).first()
+    if not u:
+        print("No such user.")
+        return
+    u.role = "super_admin"
+    db.session.commit()
+    print("Promoted to super_admin:", email)
 
 
 if __name__ == "__main__":

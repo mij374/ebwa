@@ -25,11 +25,11 @@
       <ul class="nav-links" id="navLinks">
         <li><a href="{{ url_for('about') }}">About us</a></li>
         <li><a href="{{ url_for('events') }}">Events</a></li>
-        <li><a href="{{ url_for('news') }}">News</a></li>
-        <li><a href="{{ url_for('resources') }}">Resources</a></li>
-        <li><a href="{{ url_for('journey') }}">Our Journey</a></li>
+        {% if features.news %}<li><a href="{{ url_for('news') }}">News</a></li>{% endif %}
+        {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
+        {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
         <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
-        <li><a href="{{ url_for('membership') }}">Join us</a></li>
+        {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join us</a></li>{% endif %}
         <li><a href="{{ url_for('contact') }}">Contact</a></li>
         {% if current_user.is_authenticated %}
         <li><a href="{{ url_for('admin_dashboard') }}">Admin</a></li>
@@ -76,11 +76,11 @@
         <ul>
           <li><a href="{{ url_for('about') }}">About us</a></li>
           <li><a href="{{ url_for('events') }}">Events</a></li>
-          <li><a href="{{ url_for('news') }}">News</a></li>
-          <li><a href="{{ url_for('resources') }}">Resources</a></li>
-          <li><a href="{{ url_for('journey') }}">Our Journey</a></li>
+          {% if features.news %}<li><a href="{{ url_for('news') }}">News</a></li>{% endif %}
+          {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
+          {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
           <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
-          <li><a href="{{ url_for('membership') }}">Join us</a></li>
+          {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join us</a></li>{% endif %}
           <li><a href="{{ url_for('contact') }}">Contact</a></li>
         </ul>
       </div>

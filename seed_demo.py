@@ -16,8 +16,8 @@ sections, and never overwrites real content.
 """
 from datetime import date, timedelta
 
-from app import (app, db, DEFAULT_BLOCKS, Block, Event, Milestone,
-                 NewsPost, Partner, Testimonial, unique_slug)
+from app import (app, db, DEFAULT_BLOCKS, FEATURES, Block, Event, FeatureFlag,
+                 Milestone, NewsPost, Partner, Testimonial, unique_slug)
 
 TODAY = date.today()
 
@@ -234,6 +234,17 @@ def seed():
     db.create_all()
 
     results = []   # (section, message), in seeding order
+
+    # Feature flags: insert any missing names at their default (idempotent,
+    # mirrors init-db). Existing rows are left alone — a demo re-run must
+    # never switch a module back on behind someone's back.
+    added = 0
+    for name, _label, _desc, default in FEATURES:
+        if not FeatureFlag.query.filter_by(name=name).first():
+            db.session.add(FeatureFlag(name=name, enabled=default))
+            added += 1
+    results.append(("feature flags", "%d seeded" % added if added
+                    else "skipped (all present)"))
 
     # Content blocks: insert any missing defaults (idempotent, mirrors
     # init-db), then fill demo copy — skipped if any block has been
