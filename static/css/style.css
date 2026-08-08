@@ -55,6 +55,7 @@ h2{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:16px}
 .btn:focus-visible{outline:3px solid var(--red);outline-offset:3px}
 .btn-green{background:var(--green);color:#fff;box-shadow:0 6px 18px rgba(0,86,63,.28)}
 .btn-ghost{border:2px solid var(--green);color:var(--green);background:transparent}
+.btn-red{background:var(--red);color:#fff;box-shadow:0 6px 18px rgba(232,51,63,.26)}
 
 /* ---------- Header ---------- */
 header{
@@ -274,7 +275,26 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
   padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:var(--paper);
 }
 .login-card input:focus{outline:none;border-color:var(--green)}
+.login-note{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0}
 .login-back{font-size:14px;color:var(--ink-soft);text-decoration:none}
+
+/* ---------- Two-factor authentication ---------- */
+.tfa-qr{
+  display:grid;place-items:center;background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:18px;width:max-content;margin-bottom:8px;
+}
+.tfa-qr img{width:200px;height:200px}
+.tfa-secret{
+  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;letter-spacing:1px;
+  background:var(--paper);border:1px solid var(--line);border-radius:8px;
+  padding:10px 14px;display:inline-block;word-break:break-all;
+}
+.tfa-codes{
+  list-style:none;display:grid;grid-template-columns:repeat(2,max-content);gap:10px 40px;
+  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:17px;letter-spacing:1px;
+  background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px 28px;margin:18px 0;
+}
 
 /* ---------- Responsive ---------- */
 @media (max-width: 920px){

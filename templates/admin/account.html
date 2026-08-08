@@ -27,4 +27,34 @@
   </div>
   <button class="btn btn-green" type="submit">Change password</button>
 </form>
+
+<h1 class="admin-h1" style="margin-top:44px">Two-factor authentication</h1>
+<p class="admin-sub">An extra step at login: a six-digit code from an app on
+  your phone, so your password alone is not enough to get in. Optional, and
+  set up per person — turning it on here does not affect anyone else.</p>
+
+<div class="admin-form" style="max-width:520px">
+  {% if current_user.totp_enabled %}
+  <p><span class="pill pill-green">On</span>
+    You have <b>{{ recovery_left }}</b> recovery code{{ '' if recovery_left == 1 else 's' }} left.</p>
+  {% if recovery_left == 0 %}
+  <p><small>You have used all your recovery codes. To get a fresh set, turn
+    two-factor authentication off below and set it up again.</small></p>
+  {% endif %}
+  <form method="post" action="{{ url_for('admin_2fa_disable') }}"
+        onsubmit="return confirm('Turn off two-factor authentication for your account?');">
+    <div class="field">
+      <label for="code">Six-digit code, to turn it off *</label>
+      <input type="text" id="code" name="code" required inputmode="numeric"
+             autocomplete="one-time-code" maxlength="20" placeholder="000000">
+      <small>A recovery code works here too, if your authenticator is gone.</small>
+    </div>
+    <button class="btn btn-red" type="submit">Turn off two-factor authentication</button>
+  </form>
+  {% else %}
+  <p><span class="pill pill-grey">Off</span>
+    Your account is protected by your password only.</p>
+  <p><a class="btn btn-green" href="{{ url_for('admin_2fa_enable') }}">Set up two-factor authentication</a></p>
+  {% endif %}
+</div>
 {% endblock %}

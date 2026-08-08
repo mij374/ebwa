@@ -61,8 +61,9 @@ Built and maintained by Netbus IT Support.
 - Admin forms: plain POST + redirect + `flash(msg, "ok"|"error")`.
   Destructive actions are POST forms with a JS `confirm()`. No AJAX.
 - Auth: single `User` model via Flask-Login, `@login_required` on every
-  admin route. Tiers live in `User.role` (see `ROLES`) — do not create a
-  second user table. A future board-member tier is another value here.
+  admin route, with optional per-user TOTP 2FA (see the roadmap entry
+  for the rules). Tiers live in `User.role` (see `ROLES`) — do not
+  create a second user table. A future board-member tier is another value here.
   - `admin` (default) — EBWA's own admins. Everything they need to run
     the site.
   - `super_admin` — **Netbus only**, never a client login. Adds the
@@ -217,6 +218,32 @@ Built (post-signing variation, Jul 2026):
   logged-in only: there is no reset/forgotten-password flow on the
   login page, so a lost password is reset by Netbus on the server.
   No schema change.
+- Two-factor authentication (optional, per user, TOTP — RFC 6238, the
+  standard 30-second 6-digit codes any authenticator app produces):
+  `pyotp` + `qrcode` for the enrolment QR, `totp_secret` /
+  `totp_enabled` / `totp_last_counter` on `User`, single-use hashed
+  `RecoveryCode` rows. Enrol and disable from /admin/account, both
+  requiring a working code; login gains a second step at
+  /admin/login/2fa. Deploy: three ALTER TABLEs (below) then
+  `flask --app app init-db` for `recovery_code`, plus
+  `pip install -r requirements.txt` for the two new packages.
+  - `ALTER TABLE user ADD COLUMN totp_secret VARCHAR(64) DEFAULT '';`
+  - `ALTER TABLE user ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;`
+  - `ALTER TABLE user ADD COLUMN totp_last_counter INTEGER;`
+  Rules if you touch this code:
+  - The secret is server-side only. It reaches the authenticator app
+    through the enrolment QR and nothing else — never put it in a
+    session, cookie, hidden field or log line. Between the password and
+    the code the signed session holds only the user id and a timestamp.
+  - Verify codes with `verify_totp()`, never `pyotp.TOTP.verify()`
+    directly: it enforces the ±1 step window AND the single-use replay
+    guard (`totp_last_counter`), so an intercepted code cannot be used
+    twice while still in window.
+  - Recovery codes are hashed like passwords, shown exactly once at
+    enrolment, and spent by stamping `used_at`. There is no way to
+    redisplay them — a user who runs out turns 2FA off and re-enrols.
+  - The code step is rate limited (`totp` scope) because six digits is
+    guessable. Do not remove it.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.

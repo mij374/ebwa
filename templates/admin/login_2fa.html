@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin login — EBWA</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-body">
+  <form class="login-card" method="post">
+    <span class="brand-mark" style="margin:0 auto 16px"><img src="{{ url_for('static', filename='img/ebwa-logo.png') }}" alt="EBWA logo"></span>
+    <h1>Enter your code</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+    <p class="login-note">Signing in as {{ email }}. Open your authenticator
+      app and type the six-digit code it shows for EBWA Admin.</p>
+    <label>Six-digit code
+      <input type="text" name="code" required autofocus inputmode="numeric"
+             autocomplete="one-time-code" maxlength="20" placeholder="000000">
+    </label>
+    <button class="btn btn-green" type="submit" style="width:100%;justify-content:center">Continue</button>
+    <p class="login-note">Lost your phone? Type one of your recovery codes
+      instead — each one works once.</p>
+    <a class="login-back" href="{{ url_for('admin_login') }}">← Start again</a>
+  </form>
+</body>
+</html>

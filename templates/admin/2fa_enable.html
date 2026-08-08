@@ -1,0 +1,31 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Set up two-factor authentication — EBWA Admin{% endblock %}
+{% block content %}
+<h1 class="admin-h1">Set up two-factor authentication</h1>
+<p class="admin-sub">An extra step at login: as well as your password you
+  type a six-digit code from an app on your phone, so a stolen password on
+  its own is not enough to get in.</p>
+
+<div class="admin-form" style="max-width:560px">
+  <p><b>1.</b> Install an authenticator app if you don't have one — Google
+    Authenticator, Microsoft Authenticator and Authy are all free.</p>
+
+  <p><b>2.</b> Scan this code with the app:</p>
+  <div class="tfa-qr"><img src="{{ qr }}" alt="Two-factor setup QR code"></div>
+  <p>Can't scan it? Add the account by hand instead, using this key:</p>
+  <p><span class="tfa-secret">{{ secret }}</span></p>
+
+  <form method="post">
+    <p><b>3.</b> Type the six-digit code the app now shows, to confirm it
+      worked:</p>
+    <div class="field">
+      <label for="code">Six-digit code *</label>
+      <input type="text" id="code" name="code" required autofocus
+             inputmode="numeric" autocomplete="one-time-code" maxlength="20"
+             placeholder="000000">
+    </div>
+    <button class="btn btn-green" type="submit">Turn on two-factor authentication</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_account') }}">Cancel</a>
+  </form>
+</div>
+{% endblock %}

@@ -28,6 +28,33 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+## Two-factor authentication (optional, per person)
+
+On the **Account** page each admin can turn on two-factor authentication:
+scan the QR code with any authenticator app (Google Authenticator,
+Microsoft Authenticator, Authy), type the six-digit code it shows to
+confirm, and from then on logging in takes two steps — password, then
+code. It's per person: turning it on for yourself doesn't affect anyone
+else, and it stays off until someone chooses it.
+
+Enrolment hands out **ten recovery codes**, shown once and never again
+(only hashed copies are kept). Each works once, in place of a code, so a
+lost phone isn't a lockout. If someone runs out, they turn 2FA off from
+the Account page and set it up again for a fresh set.
+
+If an admin loses both their phone and their recovery codes, Netbus
+clears 2FA on the server:
+
+```bash
+cd /opt/ebwa && source venv/bin/activate
+python3 -c "from app import app, db, User, RecoveryCode; \
+app.app_context().push(); \
+u = User.query.filter_by(email='them@ebwa.org.uk').first(); \
+RecoveryCode.query.filter_by(user_id=u.id).delete(); \
+u.totp_enabled = False; u.totp_secret = ''; u.totp_last_counter = None; \
+db.session.commit()"
+```
+
 ## Changing your admin password
 
 Log in, then **Account** in the sidebar (`/admin/account`). You need your
@@ -158,14 +185,24 @@ Schema changes are additive and always run **before** the restart:
 ```bash
 cd /opt/ebwa
 git pull
-# super-admin tier — one-off, on databases created before it existed:
+source venv/bin/activate
+pip install -r requirements.txt      # pyotp + qrcode are new
+# one-off column additions, on databases created before they existed:
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin';"
-flask --app app init-db      # creates the feature_flag table and seeds it
+sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_secret VARCHAR(64) DEFAULT '';"
+sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;"
+sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_last_counter INTEGER;"
+flask --app app init-db      # creates feature_flag + recovery_code
 sudo systemctl restart ebwa
 ```
 
-Existing admins keep working — they all become `role = 'admin'`. Promote
-the Netbus account afterwards with `flask --app app promote-super-admin`.
+Each `ALTER TABLE` is a one-off — re-running one errors with "duplicate
+column name", which is harmless. Existing admins keep working: they all
+become `role = 'admin'` with two-factor authentication off. Promote the
+Netbus account afterwards with `flask --app app promote-super-admin`.
+
+The server clock matters for 2FA — codes are time-based, so keep NTP
+running (Ubuntu does by default; check with `timedatectl`).
 
 ## Backups
 

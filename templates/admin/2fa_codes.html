@@ -1,0 +1,32 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Your recovery codes — EBWA Admin{% endblock %}
+{% block content %}
+<h1 class="admin-h1">Two-factor authentication is on</h1>
+<p class="admin-sub">Save these recovery codes now — this is the only time
+  they will be shown.</p>
+
+<div class="admin-form" style="max-width:560px">
+  <p>If you ever lose your phone, one of these gets you back in. Each code
+    works <b>once</b>. Print them or write them down and keep them
+    somewhere safe — not on the same phone as the authenticator app.</p>
+
+  <ul class="tfa-codes">
+    {% for code in codes %}<li>{{ code }}</li>{% endfor %}
+  </ul>
+
+  <p>Once you leave this page the codes cannot be shown again: we only keep
+    a hashed copy, the same way we store passwords.</p>
+
+  <a class="btn btn-green" href="{{ url_for('admin_account') }}">I have saved them</a>
+  <button class="btn btn-ghost" type="button" id="printCodes">Print</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var printBtn = document.getElementById('printCodes');
+  if (printBtn) {
+    printBtn.addEventListener('click', function(){ window.print(); });
+  }
+</script>
+{% endblock %}

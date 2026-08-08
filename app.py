@@ -8,8 +8,12 @@ First run:
     flask --app app create-admin admin@ebwa.org.uk
     flask --app app run --debug
 """
+import base64
+import hmac
+import io
 import os
 import re
+import secrets
 import time
 import uuid
 from datetime import datetime, date, timedelta, timezone
@@ -17,10 +21,14 @@ from decimal import Decimal, InvalidOperation
 from functools import wraps
 from zoneinfo import ZoneInfo
 
+import pyotp
+import qrcode
+import qrcode.image.svg
 import stripe
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, abort, send_from_directory)
+                   flash, abort, send_from_directory,
+                   session as flask_session)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          login_required, current_user)
@@ -77,6 +85,12 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="admin")
+    # Two-factor authentication — per user and optional. The secret is
+    # server-side only: it reaches the authenticator app via the enrolment
+    # QR and is never put in a session, cookie or form field.
+    totp_secret = db.Column(db.String(64), default="")     # base32
+    totp_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    totp_last_counter = db.Column(db.Integer)   # replay guard, see verify_totp
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
@@ -87,6 +101,21 @@ class User(UserMixin, db.Model):
     @property
     def is_super_admin(self):
         return self.role == "super_admin"
+
+
+class RecoveryCode(db.Model):
+    """One single-use 2FA recovery code, stored hashed like a password.
+
+    Codes are shown to the user exactly once, at enrolment. Spending one
+    stamps used_at rather than deleting the row, so there is a record
+    that it was used.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    user = db.relationship("User")
+    code_hash = db.Column(db.String(255), nullable=False)
+    used_at = db.Column(db.DateTime)      # NULL = still usable
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
 class FeatureFlag(db.Model):
@@ -427,6 +456,115 @@ def feature_required(name):
     return decorator
 
 
+# --------------------------------------------- two-factor authentication
+# Optional, per user, TOTP (RFC 6238) — the standard 30-second 6-digit
+# codes any authenticator app produces. Codes are verified server-side;
+# the shared secret never leaves the database except inside the enrolment
+# QR that the user scans.
+TOTP_ISSUER = "EBWA Admin"
+TOTP_WINDOW = 1              # accept one 30s step either side, for clock drift
+RECOVERY_CODE_COUNT = 10
+# No look-alike characters (0/o, 1/l/i) — these get written down.
+RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def verify_totp(user, code):
+    """True if `code` is a valid current code for `user`.
+
+    Each code is accepted once: the counter it matched is remembered, so
+    a code that was shoulder-surfed or intercepted cannot be replayed
+    while it is still inside the window.
+    """
+    code = re.sub(r"\s+", "", code or "")
+    if not user.totp_secret or len(code) != 6 or not code.isdigit():
+        return False
+    totp = pyotp.TOTP(user.totp_secret)
+    now = int(time.time())
+    for offset in range(-TOTP_WINDOW, TOTP_WINDOW + 1):
+        at = now + offset * totp.interval
+        if hmac.compare_digest(totp.at(at), code):
+            counter = at // totp.interval
+            if (user.totp_last_counter is not None
+                    and counter <= user.totp_last_counter):
+                return False        # already spent
+            user.totp_last_counter = counter
+            db.session.commit()
+            return True
+    return False
+
+
+def make_recovery_codes(user):
+    """Replace any existing codes with a fresh single-use set.
+
+    Returns the plain codes: they are shown once and only the hashes are
+    kept, so there is no way to display them again afterwards.
+    """
+    RecoveryCode.query.filter_by(user_id=user.id).delete()
+    codes = []
+    for _ in range(RECOVERY_CODE_COUNT):
+        raw = "".join(secrets.choice(RECOVERY_ALPHABET) for _ in range(8))
+        code = raw[:4] + "-" + raw[4:]
+        codes.append(code)
+        db.session.add(RecoveryCode(user_id=user.id,
+                                    code_hash=generate_password_hash(code)))
+    db.session.commit()
+    return codes
+
+
+def use_recovery_code(user, raw):
+    """Spend one unused recovery code; True if it matched. Single-use."""
+    candidate = re.sub(r"[^a-z0-9]", "", (raw or "").lower())
+    if len(candidate) != 8:
+        return False
+    formatted = candidate[:4] + "-" + candidate[4:]
+    for rc in RecoveryCode.query.filter_by(user_id=user.id,
+                                           used_at=None).all():
+        if check_password_hash(rc.code_hash, formatted):
+            rc.used_at = datetime.utcnow()
+            db.session.commit()
+            return True
+    return False
+
+
+def unused_recovery_codes(user):
+    return RecoveryCode.query.filter_by(user_id=user.id, used_at=None).count()
+
+
+def totp_qr_data_uri(user):
+    """The enrolment QR as an inline SVG data URI (the CSP allows data:
+    images, and this keeps the secret off any third-party chart service)."""
+    uri = pyotp.TOTP(user.totp_secret).provisioning_uri(
+        name=user.email, issuer_name=TOTP_ISSUER)
+    img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
+    buf = io.BytesIO()
+    img.save(buf)
+    return "data:image/svg+xml;base64," + \
+        base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+# Between password and code the user is not logged in yet. Only their id
+# and a timestamp go in the signed session cookie — never the secret.
+PENDING_2FA_USER = "pending_2fa_user"
+PENDING_2FA_AT = "pending_2fa_at"
+PENDING_2FA_MAX_AGE = 300        # seconds to finish the second step
+
+
+def pending_2fa_user():
+    """The user waiting on a code, or None if there is no live hand-off."""
+    uid = flask_session.get(PENDING_2FA_USER)
+    started = flask_session.get(PENDING_2FA_AT, 0)
+    if not uid or time.time() - started > PENDING_2FA_MAX_AGE:
+        clear_pending_2fa()
+        return None
+    user = db.session.get(User, uid)
+    return user if user and user.totp_enabled else None
+
+
+def clear_pending_2fa():
+    flask_session.pop(PENDING_2FA_USER, None)
+    flask_session.pop(PENDING_2FA_AT, None)
+
+
 def super_admin_required(fn):
     """Netbus-only admin route: anonymous users are sent to the login
     page as usual, logged-in client admins get a flat 403."""
@@ -471,6 +609,7 @@ def security_headers(resp):
 # brute force and form spam without new dependencies).
 RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     "login": (5, 600),
+    "totp": (10, 600),   # a 6-digit code is guessable without this
     "subscribe": (5, 3600),
     "donate": (10, 3600),
 }
@@ -886,10 +1025,54 @@ def admin_login():
             return render_template("admin/login.html")
         user = User.query.filter_by(email=request.form.get("email", "").lower().strip()).first()
         if user and user.check_password(request.form.get("password", "")):
+            if user.totp_enabled:
+                # Correct password is not enough: hand off to the code
+                # step without creating the session.
+                clear_pending_2fa()
+                flask_session[PENDING_2FA_USER] = user.id
+                flask_session[PENDING_2FA_AT] = int(time.time())
+                return redirect(url_for("admin_login_2fa"))
             login_user(user)
             return redirect(url_for("admin_dashboard"))
         flash("Incorrect email or password.", "error")
     return render_template("admin/login.html")
+
+
+@app.route("/admin/login/2fa", methods=["GET", "POST"])
+def admin_login_2fa():
+    """Second login step: the 6-digit code (or a recovery code).
+
+    Deliberately not @login_required — there is no session yet. Anyone
+    without a live hand-off from the password step is sent back to the
+    login page, so the route is useless on its own.
+    """
+    user = pending_2fa_user()
+    if not user:
+        return redirect(url_for("admin_login"))
+    if request.method == "POST":
+        if rate_limited("totp"):
+            flash("Too many codes tried — please wait ten minutes and "
+                  "start again.", "error")
+            clear_pending_2fa()
+            return redirect(url_for("admin_login"))
+        code = request.form.get("code", "")
+        if verify_totp(user, code):
+            clear_pending_2fa()
+            login_user(user)
+            return redirect(url_for("admin_dashboard"))
+        if use_recovery_code(user, code):
+            clear_pending_2fa()
+            login_user(user)
+            left = unused_recovery_codes(user)
+            flash("Recovery code accepted — that one is now used up and "
+                  "you have %d left. If you have lost your authenticator, "
+                  "turn two-factor authentication off and set it up again "
+                  "on your new phone." % left, "ok")
+            return redirect(url_for("admin_account"))
+        flash("That code was not right. Codes change every 30 seconds — "
+              "check your authenticator app and try the current one.",
+              "error")
+    return render_template("admin/login_2fa.html", email=user.email)
 
 
 @app.route("/admin/logout")
@@ -926,7 +1109,66 @@ def admin_account():
             flash("Your password has been changed.", "ok")
             return redirect(url_for("admin_account"))
     return render_template("admin/account.html",
-                           min_length=MIN_PASSWORD_LEN)
+                           min_length=MIN_PASSWORD_LEN,
+                           recovery_left=unused_recovery_codes(current_user))
+
+
+@app.route("/admin/account/2fa/enable", methods=["GET", "POST"])
+@login_required
+def admin_2fa_enable():
+    """Enrol this account in two-factor authentication.
+
+    The secret is generated straight onto the User row (never into the
+    session or a hidden form field) and only switches on once the user
+    proves, with a working code, that their app has it too.
+    """
+    if current_user.totp_enabled:
+        flash("Two-factor authentication is already switched on.", "error")
+        return redirect(url_for("admin_account"))
+    if not current_user.totp_secret:
+        current_user.totp_secret = pyotp.random_base32()
+        current_user.totp_last_counter = None
+        db.session.commit()
+
+    if request.method == "POST":
+        if verify_totp(current_user, request.form.get("code", "")):
+            current_user.totp_enabled = True
+            db.session.commit()
+            codes = make_recovery_codes(current_user)
+            # Shown exactly once. Rendered straight into the POST response
+            # instead of the usual redirect+flash because only the hashes
+            # are kept — after this page they cannot be displayed again.
+            return render_template("admin/2fa_codes.html", codes=codes)
+        flash("That code was not right, so two-factor authentication is "
+              "still off. Codes change every 30 seconds — try the current "
+              "one.", "error")
+
+    return render_template("admin/2fa_enable.html",
+                           qr=totp_qr_data_uri(current_user),
+                           secret=current_user.totp_secret)
+
+
+@app.route("/admin/account/2fa/disable", methods=["POST"])
+@login_required
+def admin_2fa_disable():
+    """Switch 2FA off. Needs a current code (or a recovery code, for
+    someone whose authenticator is gone) so a borrowed session can't."""
+    if not current_user.totp_enabled:
+        flash("Two-factor authentication is not switched on.", "error")
+        return redirect(url_for("admin_account"))
+    code = request.form.get("code", "")
+    if verify_totp(current_user, code) or use_recovery_code(current_user, code):
+        current_user.totp_enabled = False
+        current_user.totp_secret = ""       # a future enrolment starts fresh
+        current_user.totp_last_counter = None
+        RecoveryCode.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        flash("Two-factor authentication is now off, and your old recovery "
+              "codes no longer work.", "ok")
+    else:
+        flash("That code was not right — two-factor authentication is "
+              "still on.", "error")
+    return redirect(url_for("admin_account"))
 
 
 # ---------------------------------------------------------------- admin: dashboard
