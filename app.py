@@ -899,6 +899,36 @@ def admin_logout():
     return redirect(url_for("home"))
 
 
+# ---------------------------------------------------------------- admin: account
+MIN_PASSWORD_LEN = 10
+
+
+@app.route("/admin/account", methods=["GET", "POST"])
+@login_required
+def admin_account():
+    """Change your own password. Logged-in users only — there is
+    deliberately no reset flow on the login page."""
+    if request.method == "POST":
+        current = request.form.get("current_password", "")
+        new = request.form.get("new_password", "")
+        confirm = request.form.get("confirm_password", "")
+        if not current_user.check_password(current):
+            flash("Your current password is not correct.", "error")
+        elif len(new) < MIN_PASSWORD_LEN:
+            flash("Your new password must be at least %d characters long."
+                  % MIN_PASSWORD_LEN, "error")
+        elif new != confirm:
+            flash("The two new passwords do not match — please retype them.",
+                  "error")
+        else:
+            current_user.set_password(new)
+            db.session.commit()
+            flash("Your password has been changed.", "ok")
+            return redirect(url_for("admin_account"))
+    return render_template("admin/account.html",
+                           min_length=MIN_PASSWORD_LEN)
+
+
 # ---------------------------------------------------------------- admin: dashboard
 @app.route("/admin")
 @login_required

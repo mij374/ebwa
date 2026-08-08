@@ -211,6 +211,12 @@ Built (post-signing variation, Jul 2026):
   page at /admin/features with per-feature on/off toggles. Deploy:
   `ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT
   'admin';` then `flask --app app init-db` for the new table.
+- Account settings at /admin/account (all roles): change your own
+  password — current password verified, `MIN_PASSWORD_LEN` enforced,
+  confirmation must match, existing werkzeug hashing. Deliberately
+  logged-in only: there is no reset/forgotten-password flow on the
+  login page, so a lost password is reset by Netbus on the server.
+  No schema change.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.

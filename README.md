@@ -28,6 +28,22 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+## Changing your admin password
+
+Log in, then **Account** in the sidebar (`/admin/account`). You need your
+current password, and the new one must be at least 10 characters.
+
+There is deliberately no "forgotten password" link on the login page. If
+someone is locked out, Netbus resets it on the server:
+
+```bash
+cd /opt/ebwa && source venv/bin/activate
+python3 -c "from app import app, db, User; \
+app.app_context().push(); \
+u = User.query.filter_by(email='them@ebwa.org.uk').first(); \
+u.set_password('a-long-temporary-password'); db.session.commit()"
+```
+
 ## Admin roles and feature flags
 
 Admins are `role = 'admin'` by default — that's the EBWA team. Netbus
