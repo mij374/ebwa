@@ -278,6 +278,9 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .login-note{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0}
 .login-back{font-size:14px;color:var(--ink-soft);text-decoration:none}
 
+/* ---------- Audit log ---------- */
+.audit-pager{display:flex;gap:12px;margin-top:22px}
+
 /* ---------- User management ---------- */
 .admin-table details summary{cursor:pointer;display:inline-block;list-style:none}
 .admin-table details summary::-webkit-details-marker{display:none}

@@ -1,0 +1,83 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Audit log — EBWA Admin{% endblock %}
+{% block content %}
+<h1 class="admin-h1">Audit log</h1>
+<p class="admin-sub">A record of what was done in the admin area, and by
+  whom. Read-only and permanent — entries can't be edited or removed from
+  here, which is what makes the log worth having. Times are UK local.</p>
+
+<form method="get" class="admin-form" style="margin-bottom:28px">
+  <div class="field-row">
+    <div class="field">
+      <label for="user">Who</label>
+      <select id="user" name="user">
+        <option value="">Anyone</option>
+        {% for u in users %}
+        <option value="{{ u }}" {{ 'selected' if who == u }}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="action">Action</label>
+      <select id="action" name="action">
+        <option value="">Anything</option>
+        {% for a in actions %}
+        <option value="{{ a }}" {{ 'selected' if what == a }}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="from">From</label>
+      <input type="date" id="from" name="from"
+             value="{{ date_from.strftime('%Y-%m-%d') if date_from else '' }}">
+    </div>
+    <div class="field">
+      <label for="to">To</label>
+      <input type="date" id="to" name="to"
+             value="{{ date_to.strftime('%Y-%m-%d') if date_to else '' }}">
+    </div>
+  </div>
+  <button class="btn btn-green" type="submit">Filter</button>
+  <a class="btn btn-ghost" href="{{ url_for('admin_audit') }}">Clear</a>
+</form>
+
+<p class="admin-sub">{{ total }} entr{{ 'y' if total == 1 else 'ies' }}{% if
+  total %} — showing page {{ page }} of {{ pages }}{% endif %}.</p>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>When</th><th>Who</th><th>Action</th><th>Details</th><th>IP</th></tr>
+  </thead>
+  <tbody>
+    {% for e in rows %}
+    <tr>
+      <td class="nowrap">{{ e.created_at|uk_datetime }}</td>
+      <td class="nowrap">{{ e.user_email }}</td>
+      <td class="nowrap"><span class="pill pill-grey">{{ e.action }}</span></td>
+      <td>
+        {{ e.summary }}
+        {% if e.entity_type %}
+        <br><small>{{ e.entity_type }}{% if e.entity_id %} #{{ e.entity_id }}{% endif %}</small>
+        {% endif %}
+      </td>
+      <td class="nowrap"><small>{{ e.ip }}</small></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if pages > 1 %}
+<p class="audit-pager">
+  {% if page > 1 %}
+  <a class="btn btn-ghost" href="{{ url_for('admin_audit', page=page-1, user=who, action=what, from=request.args.get('from',''), to=request.args.get('to','')) }}">← Newer</a>
+  {% endif %}
+  {% if page < pages %}
+  <a class="btn btn-ghost" href="{{ url_for('admin_audit', page=page+1, user=who, action=what, from=request.args.get('from',''), to=request.args.get('to','')) }}">Older →</a>
+  {% endif %}
+</p>
+{% endif %}
+{% else %}
+<p class="admin-sub">Nothing recorded for those filters.</p>
+{% endif %}
+{% endblock %}

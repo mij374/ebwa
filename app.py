@@ -27,7 +27,7 @@ import qrcode.image.svg
 import stripe
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, abort, send_from_directory,
+                   flash, abort, send_from_directory, has_request_context,
                    session as flask_session)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
@@ -130,6 +130,28 @@ class FeatureFlag(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(60), unique=True, nullable=False)   # FEATURES name
     enabled = db.Column(db.Boolean, nullable=False, default=True)
+
+
+class AuditLog(db.Model):
+    """One recorded admin action. APPEND-ONLY BY DESIGN.
+
+    There is deliberately no route, helper or CLI command that edits or
+    deletes an entry — a log that can be tidied up afterwards is not a
+    log. Add nothing here that writes to an existing row.
+
+    user_id is nullable because a failed login has no user, and
+    user_email is a snapshot rather than a join so entries stay
+    meaningful after an account is deleted.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    user_email = db.Column(db.String(120), nullable=False, default="")
+    action = db.Column(db.String(40), nullable=False)      # short verb
+    entity_type = db.Column(db.String(40))                 # model name
+    entity_id = db.Column(db.Integer)
+    summary = db.Column(db.Text, default="")
+    ip = db.Column(db.String(45), default="")              # fits IPv6
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
 class Block(db.Model):
@@ -423,6 +445,10 @@ FEATURES = [
     ("donations", "Donations & collections",
      "The /donate page, collection campaign pages and the homepage "
      "collections strip.", True),
+    ("audit_log", "Audit log (client visibility)",
+     "Whether EBWA's own admins can see the audit log page. Recording "
+     "never stops, and super admins can always read it — this only "
+     "decides whether the client sees the page.", True),
 ]
 
 FEATURE_DEFAULTS = {name: default for name, _l, _d, default in FEATURES}
@@ -577,6 +603,33 @@ def super_admin_required(fn):
             abort(403)
         return fn(*args, **kwargs)
     return login_required(wrapper)
+
+
+# ------------------------------------------------------------ audit log
+def log_action(action, entity=None, summary=""):
+    """Append one entry to the audit log, and commit it.
+
+    `entity` is a model instance, or a (type_name, id) pair for a row
+    that no longer exists — capture those values BEFORE deleting it.
+    Recording is not conditional on any feature flag: the flag only
+    decides who may read the log back.
+    """
+    entry = AuditLog()
+    if has_request_context() and current_user.is_authenticated:
+        entry.user_id = current_user.id
+        entry.user_email = current_user.email
+    else:
+        entry.user_email = "anonymous"
+    if isinstance(entity, tuple):
+        entry.entity_type, entry.entity_id = entity
+    elif entity is not None:
+        entry.entity_type = type(entity).__name__
+        entry.entity_id = entity.id
+    entry.action = action
+    entry.summary = summary
+    entry.ip = (request.remote_addr or "") if has_request_context() else ""
+    db.session.add(entry)
+    db.session.commit()
 
 
 def is_last_super_admin(user):
@@ -1037,11 +1090,14 @@ def admin_login():
     if current_user.is_authenticated:
         return redirect(url_for("admin_dashboard"))
     if request.method == "POST":
+        attempted = request.form.get("email", "").lower().strip()
         if rate_limited("login"):
+            log_action("login_failed",
+                       summary="Rate limited. Attempted email: %s" % attempted)
             flash("Too many login attempts — please wait ten minutes and "
                   "try again.", "error")
             return render_template("admin/login.html")
-        user = User.query.filter_by(email=request.form.get("email", "").lower().strip()).first()
+        user = User.query.filter_by(email=attempted).first()
         if user and user.check_password(request.form.get("password", "")):
             if user.totp_enabled:
                 # Correct password is not enough: hand off to the code
@@ -1051,7 +1107,11 @@ def admin_login():
                 flask_session[PENDING_2FA_AT] = int(time.time())
                 return redirect(url_for("admin_login_2fa"))
             login_user(user)
+            log_action("login", summary="Password only (no two-factor).")
             return redirect(url_for("admin_dashboard"))
+        # The attempted email is recorded; the password never is.
+        log_action("login_failed",
+                   summary="Attempted email: %s" % attempted)
         flash("Incorrect email or password.", "error")
     return render_template("admin/login.html")
 
@@ -1077,16 +1137,22 @@ def admin_login_2fa():
         if verify_totp(user, code):
             clear_pending_2fa()
             login_user(user)
+            log_action("login", summary="Password and two-factor code.")
             return redirect(url_for("admin_dashboard"))
         if use_recovery_code(user, code):
             clear_pending_2fa()
             login_user(user)
             left = unused_recovery_codes(user)
+            log_action("login", summary="Password and a recovery code — "
+                                        "%d left." % left)
             flash("Recovery code accepted — that one is now used up and "
                   "you have %d left. If you have lost your authenticator, "
                   "turn two-factor authentication off and set it up again "
                   "on your new phone." % left, "ok")
             return redirect(url_for("admin_account"))
+        log_action("login_failed",
+                   summary="Wrong two-factor code. Attempted email: %s"
+                           % user.email)
         flash("That code was not right. Codes change every 30 seconds — "
               "check your authenticator app and try the current one.",
               "error")
@@ -1096,6 +1162,7 @@ def admin_login_2fa():
 @app.route("/admin/logout")
 @login_required
 def admin_logout():
+    log_action("logout")          # before the session goes, so it is attributed
     logout_user()
     return redirect(url_for("home"))
 
@@ -1124,6 +1191,8 @@ def admin_account():
         else:
             current_user.set_password(new)
             db.session.commit()
+            log_action("password_change", entity=current_user._get_current_object(),
+                       summary="Changed their own password.")
             flash("Your password has been changed.", "ok")
             return redirect(url_for("admin_account"))
     return render_template("admin/account.html",
@@ -1153,6 +1222,9 @@ def admin_2fa_enable():
             current_user.totp_enabled = True
             db.session.commit()
             codes = make_recovery_codes(current_user)
+            log_action("2fa_enable", entity=current_user._get_current_object(),
+                       summary="Turned on two-factor authentication and "
+                               "took a set of recovery codes.")
             # Shown exactly once. Rendered straight into the POST response
             # instead of the usual redirect+flash because only the hashes
             # are kept — after this page they cannot be displayed again.
@@ -1181,6 +1253,8 @@ def admin_2fa_disable():
         current_user.totp_last_counter = None
         RecoveryCode.query.filter_by(user_id=current_user.id).delete()
         db.session.commit()
+        log_action("2fa_disable", entity=current_user._get_current_object(),
+                   summary="Turned off their own two-factor authentication.")
         flash("Two-factor authentication is now off, and your old recovery "
               "codes no longer work.", "ok")
     else:
@@ -1222,6 +1296,8 @@ def admin_content():
                         delete_upload(b.value)
                         b.value = new_name
         db.session.commit()
+        log_action("edit", entity=("Block", None),
+                   summary="Saved page content for the %s section." % group)
         flash("Content saved.", "ok")
         return redirect(url_for("admin_content", group=group))
 
@@ -1271,6 +1347,9 @@ def admin_event_form(event_id=None):
             if is_new:
                 db.session.add(ev)
             db.session.commit()
+            log_action("create" if is_new else "edit", entity=ev,
+                       summary="%s event “%s”."
+                               % ("Created" if is_new else "Edited", ev.title))
             flash("Event saved.", "ok")
             return redirect(url_for("admin_events"))
 
@@ -1281,9 +1360,12 @@ def admin_event_form(event_id=None):
 @login_required
 def admin_event_delete(event_id):
     ev = db.session.get(Event, event_id) or abort(404)
+    gone, title = ("Event", ev.id), ev.title
     delete_upload(ev.image)
     db.session.delete(ev)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted event “%s”." % title)
     flash("Event deleted.", "ok")
     return redirect(url_for("admin_events"))
 
@@ -1329,6 +1411,10 @@ def admin_news_form(post_id=None):
             if is_new:
                 db.session.add(post)
             db.session.commit()
+            log_action("create" if is_new else "edit", entity=post,
+                       summary="%s news post “%s”."
+                               % ("Created" if is_new else "Edited",
+                                  post.title))
             flash("News post saved.", "ok")
             return redirect(url_for("admin_news"))
 
@@ -1339,9 +1425,12 @@ def admin_news_form(post_id=None):
 @login_required
 def admin_news_delete(post_id):
     post = db.session.get(NewsPost, post_id) or abort(404)
+    gone, title = ("NewsPost", post.id), post.title
     delete_upload(post.image)
     db.session.delete(post)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted news post “%s”." % title)
     flash("News post deleted.", "ok")
     return redirect(url_for("admin_news"))
 
@@ -1361,6 +1450,8 @@ def admin_gallery():
                 added += 1
         db.session.commit()
         if added:
+            log_action("create", entity=("GalleryImage", None),
+                       summary="Uploaded %d gallery image(s)." % added)
             flash("%d image(s) uploaded." % added, "ok")
         return redirect(url_for("admin_gallery"))
     images = GalleryImage.query.order_by(GalleryImage.sort,
@@ -1372,9 +1463,12 @@ def admin_gallery():
 @login_required
 def admin_gallery_delete(image_id):
     img = db.session.get(GalleryImage, image_id) or abort(404)
+    gone, caption = ("GalleryImage", img.id), img.caption or img.filename
     delete_upload(img.filename)
     db.session.delete(img)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted gallery image “%s”." % caption)
     flash("Image deleted.", "ok")
     return redirect(url_for("admin_gallery"))
 
@@ -1387,11 +1481,14 @@ def admin_testimonials():
         name = request.form.get("name", "").strip()
         quote = request.form.get("quote", "").strip()
         if name and quote:
-            db.session.add(Testimonial(
+            t = Testimonial(
                 name=name, quote=quote,
                 role=request.form.get("role", "").strip(),
-                published=request.form.get("published") == "on"))
+                published=request.form.get("published") == "on")
+            db.session.add(t)
             db.session.commit()
+            log_action("create", entity=t,
+                       summary="Added testimonial from %s." % name)
             flash("Testimonial added.", "ok")
         else:
             flash("Name and quote are required.", "error")
@@ -1405,8 +1502,11 @@ def admin_testimonials():
 @login_required
 def admin_testimonial_delete(t_id):
     t = db.session.get(Testimonial, t_id) or abort(404)
+    gone, name = ("Testimonial", t.id), t.name
     db.session.delete(t)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted testimonial from %s." % name)
     flash("Testimonial deleted.", "ok")
     return redirect(url_for("admin_testimonials"))
 
@@ -1417,6 +1517,9 @@ def admin_testimonial_toggle(t_id):
     t = db.session.get(Testimonial, t_id) or abort(404)
     t.published = not t.published
     db.session.commit()
+    log_action("status_change", entity=t,
+               summary="Testimonial from %s is now %s."
+                       % (t.name, "published" if t.published else "hidden"))
     return redirect(url_for("admin_testimonials"))
 
 
@@ -1427,11 +1530,13 @@ def admin_partners():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         if name:
-            db.session.add(Partner(
+            pt = Partner(
                 name=name,
                 url=request.form.get("url", "").strip(),
-                blurb=request.form.get("blurb", "").strip()))
+                blurb=request.form.get("blurb", "").strip())
+            db.session.add(pt)
             db.session.commit()
+            log_action("create", entity=pt, summary="Added partner %s." % name)
             flash("Partner added.", "ok")
         else:
             flash("Partner name is required.", "error")
@@ -1444,8 +1549,10 @@ def admin_partners():
 @login_required
 def admin_partner_delete(p_id):
     pt = db.session.get(Partner, p_id) or abort(404)
+    gone, name = ("Partner", pt.id), pt.name
     db.session.delete(pt)
     db.session.commit()
+    log_action("delete", entity=gone, summary="Deleted partner %s." % name)
     flash("Partner deleted.", "ok")
     return redirect(url_for("admin_partners"))
 
@@ -1488,6 +1595,9 @@ def admin_resource_form(resource_id=None):
             if is_new:
                 db.session.add(res)
             db.session.commit()
+            log_action("create" if is_new else "edit", entity=res,
+                       summary="%s resource “%s”."
+                               % ("Created" if is_new else "Edited", res.name))
             flash("Resource saved.", "ok")
             return redirect(url_for("admin_resources"))
 
@@ -1501,8 +1611,11 @@ def admin_resource_form(resource_id=None):
 @login_required
 def admin_resource_delete(resource_id):
     res = db.session.get(Resource, resource_id) or abort(404)
+    gone, name = ("Resource", res.id), res.name
     db.session.delete(res)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted resource “%s”." % name)
     flash("Resource deleted.", "ok")
     return redirect(url_for("admin_resources"))
 
@@ -1564,6 +1677,10 @@ def admin_milestone_form(milestone_id=None):
             if is_new:
                 db.session.add(m)
             db.session.commit()
+            log_action("create" if is_new else "edit", entity=m,
+                       summary="%s milestone “%s” (%d)."
+                               % ("Created" if is_new else "Edited",
+                                  m.title, m.year))
             flash("Milestone saved.", "ok")
             return redirect(url_for("admin_milestones"))
 
@@ -1574,9 +1691,12 @@ def admin_milestone_form(milestone_id=None):
 @login_required
 def admin_milestone_delete(milestone_id):
     m = db.session.get(Milestone, milestone_id) or abort(404)
+    gone, title = ("Milestone", m.id), m.title
     delete_upload(m.image)
     db.session.delete(m)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted milestone “%s”." % title)
     flash("Milestone deleted.", "ok")
     return redirect(url_for("admin_milestones"))
 
@@ -1596,6 +1716,9 @@ def admin_subscribers_csv():
     for s in Subscriber.query.order_by(Subscriber.created_at).all():
         lines.append("%s,%s" % (s.email,
                                 utc_as_uk(s.created_at).strftime("%Y-%m-%d")))
+    log_action("export", entity=("Subscriber", None),
+               summary="Exported the subscriber list as CSV (%d addresses)."
+                       % (len(lines) - 1))
     resp = app.response_class("\n".join(lines), mimetype="text/csv")
     resp.headers["Content-Disposition"] = "attachment; filename=ebwa-subscribers.csv"
     return resp
@@ -1605,8 +1728,11 @@ def admin_subscribers_csv():
 @login_required
 def admin_subscriber_delete(s_id):
     s = db.session.get(Subscriber, s_id) or abort(404)
+    gone, email = ("Subscriber", s.id), s.email
     db.session.delete(s)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Removed newsletter subscriber %s." % email)
     flash("Subscriber removed.", "ok")
     return redirect(url_for("admin_subscribers"))
 
@@ -1658,6 +1784,10 @@ def admin_campaign_form(campaign_id=None):
             if is_new:
                 db.session.add(camp)
             db.session.commit()
+            log_action("create" if is_new else "edit", entity=camp,
+                       summary="%s collection “%s”."
+                               % ("Created" if is_new else "Edited",
+                                  camp.title))
             flash("Collection saved.", "ok")
             return redirect(url_for("admin_campaigns"))
 
@@ -1674,9 +1804,12 @@ def admin_campaign_delete(campaign_id):
               "can't be deleted. Untick 'active' to take it off the "
               "website instead.", "error")
         return redirect(url_for("admin_campaigns"))
+    gone, title = ("Campaign", camp.id), camp.title
     delete_upload(camp.image)
     db.session.delete(camp)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted collection “%s”." % title)
     flash("Collection deleted.", "ok")
     return redirect(url_for("admin_campaigns"))
 
@@ -1687,6 +1820,9 @@ def admin_campaign_contributors(campaign_id):
     camp = db.session.get(Campaign, campaign_id) or abort(404)
     rows = (Payment.query.filter_by(campaign_id=camp.id)
             .order_by(Payment.created_at.desc()).all())
+    log_action("export", entity=camp,
+               summary="Viewed the printable contributor list for “%s” "
+                       "(%d payments)." % (camp.title, len(rows)))
     return render_template("admin/contributors.html", camp=camp, rows=rows)
 
 
@@ -1696,12 +1832,16 @@ def admin_campaign_contributors_csv(campaign_id):
     import csv
     import io
     camp = db.session.get(Campaign, campaign_id) or abort(404)
+    rows = (Payment.query.filter_by(campaign_id=camp.id)
+            .order_by(Payment.created_at).all())
+    log_action("export", entity=camp,
+               summary="Exported the contributor list for “%s” as CSV "
+                       "(%d payments)." % (camp.title, len(rows)))
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["date", "name", "email", "fee_gbp", "donation_gbp",
                 "total_gbp", "gift_aid", "status"])
-    for p in (Payment.query.filter_by(campaign_id=camp.id)
-              .order_by(Payment.created_at).all()):
+    for p in rows:
         w.writerow([utc_as_uk(p.created_at).strftime("%Y-%m-%d"),
                     p.name, p.email,
                     "%.2f" % (p.fee_pence / 100.0),
@@ -1735,6 +1875,12 @@ def uk_date_filter(dt):
     return utc_as_uk(dt).strftime("%d %b %Y") if dt else ""
 
 
+@app.template_filter("uk_datetime")
+def uk_datetime_filter(dt):
+    """Display a naive-UTC timestamp as its UK local date and time."""
+    return utc_as_uk(dt).strftime("%d %b %Y, %H:%M") if dt else ""
+
+
 def gift_aid_claimable_query(date_from=None, date_to=None):
     """Completed payments whose donation portion carries a valid declaration.
 
@@ -1758,6 +1904,18 @@ def gift_aid_claimable_query(date_from=None, date_to=None):
     return q.order_by(Payment.created_at)
 
 
+def describe_range(date_from, date_to):
+    """Human wording for a UK-local date filter, for audit summaries."""
+    if date_from and date_to:
+        return "%s to %s" % (date_from.strftime("%d %b %Y"),
+                             date_to.strftime("%d %b %Y"))
+    if date_from:
+        return "%s onwards" % date_from.strftime("%d %b %Y")
+    if date_to:
+        return "up to %s" % date_to.strftime("%d %b %Y")
+    return "all dates"
+
+
 def _parse_date_arg(name):
     try:
         return datetime.strptime(request.args.get(name, ""),
@@ -1774,6 +1932,12 @@ def admin_gift_aid():
     claimable_pence = sum(p.gift_aid_pence for p in rows)
     # 25p per £1, rounded half-up to the penny (integer maths, no floats)
     reclaim_pence = (claimable_pence * 25 + 50) // 100
+    log_action("export", entity=("Payment", None),
+               summary="Viewed the printable Gift Aid claim for %s — "
+                       "%d donations, %s claimable, %s reclaim."
+                       % (describe_range(date_from, date_to), len(rows),
+                          pounds_filter(claimable_pence),
+                          pounds_filter(reclaim_pence)))
     return render_template("admin/gift_aid.html", rows=rows,
                            claimable_pence=claimable_pence,
                            reclaim_pence=reclaim_pence,
@@ -1787,12 +1951,19 @@ def admin_gift_aid_csv():
     import csv
     import io
     date_from, date_to = _parse_date_arg("from"), _parse_date_arg("to")
+    claim_rows = gift_aid_claimable_query(date_from, date_to).all()
+    log_action("export", entity=("Payment", None),
+               summary="Exported the HMRC Gift Aid claim as CSV for %s — "
+                       "%d donations, %s claimable."
+                       % (describe_range(date_from, date_to), len(claim_rows),
+                          pounds_filter(sum(p.gift_aid_pence
+                                            for p in claim_rows))))
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["Title", "First name", "Last name",
                 "House name or number", "Postcode",
                 "Aggregated donations", "Donation date", "Amount"])
-    for p in gift_aid_claimable_query(date_from, date_to).all():
+    for p in claim_rows:
         parts = p.gift_aid_name.split()
         first = parts[0] if len(parts) > 1 else ""
         last = " ".join(parts[1:]) if len(parts) > 1 else p.gift_aid_name
@@ -1811,6 +1982,9 @@ def admin_gift_aid_csv():
 def admin_gift_aid_declarations():
     rows = (Payment.query.filter(Payment.gift_aid == True)  # noqa: E712
             .order_by(Payment.created_at.desc()).all())
+    log_action("export", entity=("Payment", None),
+               summary="Viewed the Gift Aid declaration records "
+                       "(%d declarations)." % len(rows))
     return render_template("admin/gift_aid_declarations.html", rows=rows)
 
 
@@ -1833,11 +2007,16 @@ def admin_membership_csv():
     w = csv.writer(out)
     w.writerow(["name", "email", "phone", "address", "reason", "status",
                 "applied_on"])
+    count = 0
     for m in (MembershipApplication.query
               .order_by(MembershipApplication.created_at).all()):
+        count += 1
         w.writerow([m.name, m.email, m.phone, m.address, m.reason,
                     m.status,
                     utc_as_uk(m.created_at).strftime("%Y-%m-%d")])
+    log_action("export", entity=("MembershipApplication", None),
+               summary="Exported membership applications as CSV "
+                       "(%d applications)." % count)
     resp = app.response_class(out.getvalue(), mimetype="text/csv")
     resp.headers["Content-Disposition"] = \
         "attachment; filename=ebwa-membership-applications.csv"
@@ -1852,6 +2031,9 @@ def admin_membership_status(m_id):
     if status in MEMBERSHIP_STATUSES:
         m.status = status
         db.session.commit()
+        log_action("status_change", entity=m,
+                   summary="Membership application from %s marked %s."
+                           % (m.name, status))
         flash("Status updated.", "ok")
     else:
         flash("Unknown status.", "error")
@@ -1862,10 +2044,65 @@ def admin_membership_status(m_id):
 @login_required
 def admin_membership_delete(m_id):
     m = db.session.get(MembershipApplication, m_id) or abort(404)
+    gone, name = ("MembershipApplication", m.id), m.name
     db.session.delete(m)
     db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted membership application from %s." % name)
     flash("Application removed.", "ok")
     return redirect(url_for("admin_membership"))
+
+
+# ---------------------------------------------------------------- admin: audit
+# Read-only. There is no route here that writes to an existing entry or
+# removes one, and there must never be — see the AuditLog docstring.
+AUDIT_PER_PAGE = 50
+
+
+@app.route("/admin/audit")
+@login_required
+def admin_audit():
+    """The audit log, newest first.
+
+    Super admins can always read it. The audit_log feature flag only
+    decides whether EBWA's own admins see the page — recording never
+    stops either way, so the log can't be quietly switched off.
+    """
+    if not (current_user.is_super_admin or feature_enabled("audit_log")):
+        abort(403)
+
+    who = request.args.get("user", "").strip()
+    what = request.args.get("action", "").strip()
+    date_from, date_to = _parse_date_arg("from"), _parse_date_arg("to")
+
+    q = AuditLog.query
+    if who:
+        q = q.filter(AuditLog.user_email == who)
+    if what:
+        q = q.filter(AuditLog.action == what)
+    if date_from:      # UK local dates in, naive UTC on the column
+        q = q.filter(AuditLog.created_at >= uk_midnight_as_utc(date_from))
+    if date_to:
+        q = q.filter(AuditLog.created_at
+                     < uk_midnight_as_utc(date_to + timedelta(days=1)))
+
+    total = q.count()
+    pages = max(1, (total + AUDIT_PER_PAGE - 1) // AUDIT_PER_PAGE)
+    try:
+        page = min(max(1, int(request.args.get("page", "1"))), pages)
+    except ValueError:
+        page = 1
+    rows = (q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .offset((page - 1) * AUDIT_PER_PAGE).limit(AUDIT_PER_PAGE).all())
+
+    users = [r[0] for r in db.session.query(AuditLog.user_email)
+             .distinct().order_by(AuditLog.user_email)]
+    actions = [r[0] for r in db.session.query(AuditLog.action)
+               .distinct().order_by(AuditLog.action)]
+    return render_template("admin/audit.html", rows=rows, users=users,
+                           actions=actions, page=page, pages=pages,
+                           total=total, who=who, what=what,
+                           date_from=date_from, date_to=date_to)
 
 
 # ---------------------------------------------------------------- admin: users
@@ -1900,6 +2137,8 @@ def admin_user_create():
         u.set_password(password)
         db.session.add(u)
         db.session.commit()
+        log_action("user_create", entity=u,
+                   summary="Created account %s with role %s." % (email, role))
         flash("Account created for %s." % email, "ok")
     return redirect(url_for("admin_users"))
 
@@ -1918,6 +2157,8 @@ def admin_user_password(user_id):
     else:
         u.set_password(password)
         db.session.commit()
+        log_action("user_password_reset", entity=u,
+                   summary="Reset the password for %s." % u.email)
         flash("Password reset for %s. Tell them to change it once they are "
               "in, from their own Account page." % u.email, "ok")
     return redirect(url_for("admin_users"))
@@ -1933,6 +2174,9 @@ def admin_user_reset_2fa(user_id):
     else:
         clear_user_2fa(u)
         db.session.commit()
+        log_action("user_2fa_reset", entity=u,
+                   summary="Cleared two-factor authentication for %s."
+                           % u.email)
         flash("Two-factor authentication cleared for %s — they can log in "
               "with their password and set it up again." % u.email, "ok")
     return redirect(url_for("admin_users"))
@@ -1959,8 +2203,11 @@ def admin_user_role(user_id):
     elif role == u.role:
         flash("%s already has that role." % u.email, "error")
     else:
+        was = u.role
         u.role = role
         db.session.commit()
+        log_action("user_role_change", entity=u,
+                   summary="Changed %s from %s to %s." % (u.email, was, role))
         flash("%s is now %s." % (u.email, role), "ok")
     return redirect(url_for("admin_users"))
 
@@ -1977,9 +2224,11 @@ def admin_user_delete(user_id):
               "to do it.", "error")
     else:
         RecoveryCode.query.filter_by(user_id=u.id).delete()
-        email = u.email
+        gone, email, was = ("User", u.id), u.email, u.role
         db.session.delete(u)
         db.session.commit()
+        log_action("user_delete", entity=gone,
+                   summary="Deleted account %s (role %s)." % (email, was))
         flash("Account deleted: %s." % email, "ok")
     return redirect(url_for("admin_users"))
 
@@ -2005,6 +2254,10 @@ def admin_feature_toggle(name):
         db.session.add(flag)
     flag.enabled = not flag.enabled
     db.session.commit()
+    log_action("feature_toggle", entity=flag,
+               summary="Switched the %s feature %s."
+                       % (FEATURE_LABELS[name],
+                          "on" if flag.enabled else "off"))
     flash("%s is now %s. Nothing was deleted — switching it back on "
           "restores the pages as they were."
           % (FEATURE_LABELS[name], "on" if flag.enabled else "off"), "ok")

@@ -28,6 +28,25 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+## Audit log
+
+**Audit log** in the sidebar (`/admin/audit`) shows what has been done in
+the admin area and by whom: logins and failed login attempts, logouts,
+password changes, two-factor being turned on or off, every item created,
+edited, deleted or re-published across the whole site, every account
+change a super admin makes, every feature switched on or off, and every
+export or printable list of personal data. Newest first, with filters by
+person, action and date range, and times shown in UK local time.
+
+The page is read-only and the log is permanent. There is no button — and
+no hidden URL — that edits or deletes an entry, which is the point of
+having one. A failed login records the email that was tried and nothing
+else; passwords, 2FA secrets and recovery codes are never written to it.
+
+Netbus can hide the page from EBWA's own admins with the **Audit log**
+feature flag in Settings. That only affects who can see the page:
+recording carries on regardless, and super admins can always read it.
+
 ## Two-factor authentication (optional, per person)
 
 On the **Account** page each admin can turn on two-factor authentication:
@@ -87,8 +106,9 @@ flask --app app delete-admin              # remove an account
 
 Super admins get a **Settings** page at `/admin/features` listing the
 optional modules (News & projects, Community resources, Our Journey,
-Become a member, Donations & collections) with an on/off toggle each.
-Normal admins never see the link and get a 403 if they try the URL.
+Become a member, Donations & collections, Audit log visibility) with an
+on/off toggle each. Normal admins never see the link and get a 403 if
+they try the URL.
 
 Switching a module off hides its public pages (they 404), its menu links
 and its admin section — **nothing is deleted**, and switching it back on
@@ -198,7 +218,7 @@ sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_secret VARCHAR(64) DE
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;"
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_last_counter INTEGER;"
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN created_at DATETIME;"
-flask --app app init-db      # creates feature_flag + recovery_code
+flask --app app init-db      # creates feature_flag, recovery_code, audit_log
 sudo systemctl restart ebwa
 ```
 

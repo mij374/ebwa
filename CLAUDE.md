@@ -84,6 +84,23 @@ Built and maintained by Netbus IT Support.
     last-super-admin protection), `promote-super-admin`. Prefer adding
     a CLI command over documenting raw SQL — the README should never
     tell anyone to hand-edit the database.
+- Audit log: `AuditLog` is APPEND-ONLY. Never write a route, helper or
+  CLI command that updates or deletes an entry, and never make recording
+  conditional on anything — a log that can be edited or switched off is
+  not a log. The `audit_log` feature flag governs only who may READ the
+  page (super admins always can).
+  - Record with `log_action(action, entity=None, summary="")`. It reads
+    `current_user` and `request.remote_addr` itself and commits.
+  - Call it AFTER `db.session.commit()`, so the row has its id. For
+    deletes, capture `("Model", obj.id)` and the human name BEFORE
+    deleting and pass that tuple as `entity`.
+  - Anything that creates, edits, deletes or changes the status of a
+    record MUST log. So must every export or printable view of personal
+    data — that is where data leaves the system.
+  - Summaries are British English and readable by a non-technical
+    trustee ("Deleted event “Eid Iftar”."). NEVER put a password, a
+    password hash, a TOTP secret or a recovery code in a summary; a
+    failed login records the attempted email only.
 - Feature flags: optional/phased modules are listed in `FEATURES` in
   `app.py` (name, label, description, default) and stored one row per
   name in `FeatureFlag` — `init-db` is idempotent and inserts only
@@ -263,6 +280,14 @@ Built (post-signing variation, Jul 2026):
   Deploy: `ALTER TABLE user ADD COLUMN created_at DATETIME;` (nullable
   by necessity — SQLite refuses a CURRENT_TIMESTAMP default on ADD
   COLUMN, so accounts predating it show "—").
+- Audit log (rules above): `AuditLog` model + `log_action()`, wired into
+  logins (success and failure), logout, password change, 2FA on/off,
+  every create/edit/delete/status-change across all content modules,
+  every super-admin user-management action, every feature toggle, and
+  every export or printable personal-data view. Read-only paginated
+  page at /admin/audit with who/action/date filters, gated by the
+  `audit_log` flag for client admins only. Deploy: new table only —
+  `flask --app app init-db`.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
