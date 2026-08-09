@@ -17,7 +17,8 @@ sections, and never overwrites real content.
 from datetime import date, timedelta
 
 from app import (app, db, DEFAULT_BLOCKS, FEATURES, Block, Event, FeatureFlag,
-                 Milestone, NewsPost, Partner, Testimonial, unique_slug)
+                 Milestone, NewsPost, Partner, Testimonial, seed_services,
+                 unique_slug)
 
 TODAY = date.today()
 
@@ -245,6 +246,12 @@ def seed():
             added += 1
     results.append(("feature flags", "%d seeded" % added if added
                     else "skipped (all present)"))
+
+    # "What we do" cards: the same defaults init-db uses, and equally
+    # skipped once the table has anything in it.
+    seeded = seed_services()
+    results.append(("service cards", "%d seeded" % seeded if seeded
+                    else "skipped (already present)"))
 
     # Content blocks: insert any missing defaults (idempotent, mirrors
     # init-db), then fill demo copy — skipped if any block has been

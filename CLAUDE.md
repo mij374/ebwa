@@ -58,6 +58,15 @@ Built and maintained by Netbus IT Support.
   to `DEFAULT_BLOCKS` (group, key, label, kind, default) — `init-db` is
   idempotent and inserts only missing keys. Read in routes with
   `blocks_for(group)`, render with `c.get('key','')`.
+  - No visible string on a public page should be hardcoded in a template
+    if an admin might reasonably want to change it — headings, labels
+    and all. The exceptions are the Bengali `.bn` eyebrow accents (Phase
+    2 translations own those) and purely decorative emoji icons.
+- Seeded RECORDS (as opposed to blocks) are seeded only into an empty
+  table — see `DEFAULT_SERVICES` / `seed_services()`. Blocks are fixed
+  slots, so re-inserting a missing key is right; records are things an
+  admin may legitimately delete, and a later `init-db` on deploy must
+  never resurrect them. Follow that split for any future seeded list.
 - Admin forms: plain POST + redirect + `flash(msg, "ok"|"error")`.
   Destructive actions are POST forms with a JS `confirm()`. No AJAX.
 - Auth: single `User` model via Flask-Login, `@login_required` on every
@@ -307,6 +316,14 @@ Built (post-signing variation, Jul 2026):
   Deploy: `ALTER TABLE user ADD COLUMN created_at DATETIME;` (nullable
   by necessity — SQLite refuses a CURRENT_TIMESTAMP default on ADD
   COLUMN, so accounts predating it show "—").
+- "What we do" service cards (`Service` model: title, description, icon,
+  sort, published) replacing the six hardcoded homepage cards, with
+  admin CRUD at /admin/services and a publish toggle. `icon` is a single
+  emoji typed into the form — no icon library. Seeded from
+  `DEFAULT_SERVICES` into an empty table only. The contact page's
+  headings and field labels became Blocks in the same change, so every
+  text string in that section is editable. Deploy: new table only —
+  `flask --app app init-db`.
 - Audit log (rules above): `AuditLog` model + `log_action()`, wired into
   logins (success and failure), logout, password change, 2FA on/off,
   every create/edit/delete/status-change across all content modules,

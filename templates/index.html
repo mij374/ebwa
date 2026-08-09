@@ -31,20 +31,19 @@
   </div>
 </div>
 
+{% if services %}
 <section>
   <div class="wrap">
     <p class="eyebrow">What we do <span class="bn">· আমাদের কাজ</span></p>
     <h2>Support for every generation</h2>
     <div class="cards">
-      <div class="card"><div class="card-icon">📚</div><h3>Education &amp; schools</h3><p>Weekend Arabic and Bengali schools, supplementary education and cultural activities.</p></div>
-      <div class="card"><div class="card-icon">🤝</div><h3>Elderly drop-in</h3><p>Regular recreational and fitness sessions tackling social isolation for older residents.</p></div>
-      <div class="card"><div class="card-icon">💼</div><h3>Training &amp; employment</h3><p>Employability, childcare and volunteering courses for women.</p></div>
-      <div class="card"><div class="card-icon">⚖️</div><h3>Legal advice &amp; translation</h3><p>Free advice and translation to navigate social services with confidence.</p></div>
-      <div class="card"><div class="card-icon">❤️</div><h3>Health &amp; wellbeing</h3><p>Health awareness campaigns, counselling and wellbeing initiatives for all ages.</p></div>
-      <div class="card"><div class="card-icon">🛡️</div><h3>Community safety</h3><p>Working with local authorities and the police on legal awareness and crime prevention.</p></div>
+      {% for s in services %}
+      <div class="card"><div class="card-icon">{{ s.icon }}</div><h3>{{ s.title }}</h3><p>{{ s.description }}</p></div>
+      {% endfor %}
     </div>
   </div>
 </section>
+{% endif %}
 
 {% if upcoming %}
 <section class="tinted">

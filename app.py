@@ -226,6 +226,22 @@ class Testimonial(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class Service(db.Model):
+    """A "What we do" card on the homepage.
+
+    icon is a single emoji character typed straight into the admin form —
+    the cards have always rendered emoji, and a whole icon library would
+    be a build step this site deliberately does not have.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(160), nullable=False)
+    description = db.Column(db.String(300), default="")
+    icon = db.Column(db.String(16), default="")
+    sort = db.Column(db.Integer, default=0)
+    published = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+
 class Partner(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(160), nullable=False)
@@ -765,9 +781,12 @@ def home():
                     .order_by(Testimonial.sort, Testimonial.created_at.desc())
                     .limit(6).all())
     partners = Partner.query.order_by(Partner.sort, Partner.name).all()
+    services = (Service.query.filter_by(published=True)
+                .order_by(Service.sort, Service.id).all())
     return render_template("index.html", c=content, upcoming=upcoming,
                            latest_news=latest_news, campaigns=campaigns,
-                           testimonials=testimonials, partners=partners)
+                           testimonials=testimonials, partners=partners,
+                           services=services)
 
 
 @app.route("/subscribe", methods=["POST"])
@@ -1491,6 +1510,82 @@ def admin_news_delete(post_id):
                summary="Deleted news post “%s”." % title)
     flash("News post deleted.", "ok")
     return redirect(url_for("admin_news"))
+
+
+# ---------------------------------------------------------------- admin: services
+@app.route("/admin/services")
+@login_required
+def admin_services():
+    rows = Service.query.order_by(Service.sort, Service.id).all()
+    return render_template("admin/services_list.html", rows=rows)
+
+
+@app.route("/admin/services/new", methods=["GET", "POST"])
+@app.route("/admin/services/<int:service_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_service_form(service_id=None):
+    svc = db.session.get(Service, service_id) if service_id else None
+    if service_id and not svc:
+        abort(404)
+
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        if not title:
+            flash("Title is required.", "error")
+        else:
+            is_new = svc is None
+            if is_new:
+                svc = Service()
+            try:
+                sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                sort = 0
+            values = {
+                "title": title,
+                "description": request.form.get("description", "").strip(),
+                "icon": request.form.get("icon", "").strip()[:16],
+                "sort": sort,
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(svc, values)
+            apply_values(svc, values)
+            if is_new:
+                db.session.add(svc)
+            db.session.commit()
+            log_action("create" if is_new else "edit", entity=svc,
+                       summary=save_summary("service card", svc.title,
+                                            is_new, changed))
+            flash("Service saved.", "ok")
+            return redirect(url_for("admin_services"))
+
+    return render_template("admin/service_form.html", svc=svc)
+
+
+@app.route("/admin/services/<int:service_id>/toggle", methods=["POST"])
+@login_required
+def admin_service_toggle(service_id):
+    svc = db.session.get(Service, service_id) or abort(404)
+    svc.published = not svc.published
+    db.session.commit()
+    log_action("status_change", entity=svc,
+               summary="Service card “%s” is now %s (%s)."
+                       % (svc.title,
+                          "published" if svc.published else "hidden",
+                          describe_changes(["published"])))
+    return redirect(url_for("admin_services"))
+
+
+@app.route("/admin/services/<int:service_id>/delete", methods=["POST"])
+@login_required
+def admin_service_delete(service_id):
+    svc = db.session.get(Service, service_id) or abort(404)
+    gone, title = ("Service", svc.id), svc.title
+    db.session.delete(svc)
+    db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted service card “%s”." % title)
+    flash("Service deleted.", "ok")
+    return redirect(url_for("admin_services"))
 
 
 # ---------------------------------------------------------------- admin: gallery
@@ -2362,11 +2457,61 @@ DEFAULT_BLOCKS = [
      "From our earliest gatherings to the projects we run today, this is "
      "the story of EBWA's work in Enfield — the milestones we have reached "
      "and the funders who helped us get there."),
+    ("contact", "contact_eyebrow", "Section eyebrow", "text", "Contact us"),
+    ("contact", "contact_heading", "Page heading", "text",
+     "Visit us in Ponders End"),
     ("contact", "contact_intro", "Intro text", "text",
      "Our centre welcomes visitors for support every week. Drop in, call, or find us on the High Street."),
+    ("contact", "contact_card_title", "Details box heading", "text",
+     "Get in touch"),
+    ("contact", "contact_label_address", "Label: address", "text", "Address"),
+    ("contact", "contact_label_phone", "Label: telephone", "text",
+     "Telephone"),
+    ("contact", "contact_label_hours", "Label: drop-in times", "text",
+     "Drop-in"),
     ("contact", "contact_hours", "Opening / drop-in times", "text",
      "Weekly sessions — call for current times"),
 ]
+
+# The six "What we do" cards the homepage shipped with, so an existing
+# site keeps exactly what it had. Seeded only into an EMPTY table: unlike
+# DEFAULT_BLOCKS these are ordinary records an admin may legitimately
+# delete, and a deploy must not resurrect them.
+DEFAULT_SERVICES = [
+    # icon, title, description
+    ("📚", "Education & schools",
+     "Weekend Arabic and Bengali schools, supplementary education and "
+     "cultural activities."),
+    ("🤝", "Elderly drop-in",
+     "Regular recreational and fitness sessions tackling social isolation "
+     "for older residents."),
+    ("💼", "Training & employment",
+     "Employability, childcare and volunteering courses for women."),
+    ("⚖️", "Legal advice & translation",
+     "Free advice and translation to navigate social services with "
+     "confidence."),
+    ("❤️", "Health & wellbeing",
+     "Health awareness campaigns, counselling and wellbeing initiatives "
+     "for all ages."),
+    ("🛡️", "Community safety",
+     "Working with local authorities and the police on legal awareness "
+     "and crime prevention."),
+]
+
+
+def seed_services():
+    """Insert the default cards if there are none. Returns how many."""
+    if Service.query.count():
+        return 0
+    for sort, (icon, title, description) in enumerate(DEFAULT_SERVICES):
+        s = Service()
+        s.icon = icon
+        s.title = title
+        s.description = description
+        s.sort = sort
+        s.published = True
+        db.session.add(s)
+    return len(DEFAULT_SERVICES)
 
 
 @app.cli.command("init-db")
@@ -2380,7 +2525,10 @@ def init_db():
     for name, _label, _desc, default in FEATURES:
         if not FeatureFlag.query.filter_by(name=name).first():
             db.session.add(FeatureFlag(name=name, enabled=default))
+    seeded = seed_services()
     db.session.commit()
+    if seeded:
+        print("Seeded %d 'What we do' cards." % seeded)
     print("Database initialised.")
 
 

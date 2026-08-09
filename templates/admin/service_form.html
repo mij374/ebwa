@@ -1,0 +1,47 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit service card' if svc else 'New service card' }}</h1>
+<p class="admin-sub">Service cards make up the "What we do" section on the homepage.</p>
+
+<form method="post" class="admin-form">
+  <div class="field-row">
+    <div class="field">
+      <label for="title">Title *</label>
+      <input type="text" id="title" name="title" required maxlength="160"
+             value="{{ svc.title if svc else '' }}"
+             placeholder="e.g. Education &amp; schools">
+    </div>
+    <div class="field">
+      <label for="icon">Icon</label>
+      <input type="text" id="icon" name="icon" maxlength="16"
+             value="{{ svc.icon if svc else '' }}" placeholder="📚">
+      <small>One emoji, typed straight in — on Windows press
+        <b>Windows key + full stop</b> to open the emoji picker, or copy one
+        from an existing card. Leave blank for no icon.</small>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="description">Short description</label>
+    <textarea id="description" name="description" rows="3" maxlength="300"
+              placeholder="One or two lines about this service">{{ svc.description if svc else '' }}</textarea>
+    <small>Keep it to a sentence or two — the cards sit side by side.</small>
+  </div>
+
+  <div class="field">
+    <label for="sort">Sort order</label>
+    <input type="number" id="sort" name="sort" value="{{ svc.sort if svc else 0 }}">
+    <small>Lower numbers appear first.</small>
+  </div>
+
+  <div class="field field-check">
+    <label><input type="checkbox" name="published"
+                  {{ 'checked' if (svc.published if svc else True) }}> Published</label>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save card</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_services') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

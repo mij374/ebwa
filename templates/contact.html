@@ -3,23 +3,23 @@
 {% block content %}
 <section>
   <div class="wrap">
-    <p class="eyebrow">Contact us <span class="bn">· যোগাযোগ</span></p>
-    <h2>Visit us in Ponders End</h2>
+    <p class="eyebrow">{{ c.get('contact_eyebrow','') }} <span class="bn">· যোগাযোগ</span></p>
+    <h2>{{ c.get('contact_heading','') }}</h2>
     <p class="lede">{{ c.get('contact_intro','') }}</p>
     <div class="contact-grid">
       <div class="contact-card">
-        <h3>Get in touch</h3>
+        <h3>{{ c.get('contact_card_title','') }}</h3>
         <div class="contact-row">
           <span class="ico">📍</span>
-          <div><b>Address</b>{{ site.get('site_address','') }}</div>
+          <div><b>{{ c.get('contact_label_address','') }}</b>{{ site.get('site_address','') }}</div>
         </div>
         <div class="contact-row">
           <span class="ico">☎</span>
-          <div><b>Telephone</b><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">{{ site.get('site_phone','') }}</a></div>
+          <div><b>{{ c.get('contact_label_phone','') }}</b><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">{{ site.get('site_phone','') }}</a></div>
         </div>
         <div class="contact-row">
           <span class="ico">🕐</span>
-          <div><b>Drop-in</b>{{ c.get('contact_hours','') }}</div>
+          <div><b>{{ c.get('contact_label_hours','') }}</b>{{ c.get('contact_hours','') }}</div>
         </div>
       </div>
       <div class="map">

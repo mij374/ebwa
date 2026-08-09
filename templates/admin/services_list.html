@@ -1,0 +1,46 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}What we do — EBWA Admin{% endblock %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">What we do</h1>
+    <p class="admin-sub">The service cards on the homepage. Lowest sort
+      number shows first; hidden cards stay here but come off the site.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_service_form') }}">Add a card</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead><tr><th>Sort</th><th>Card</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+    {% for s in rows %}
+    <tr>
+      <td class="nowrap">{{ s.sort }}</td>
+      <td>
+        <b>{% if s.icon %}{{ s.icon }} {% endif %}{{ s.title }}</b>
+        {% if s.description %}<br><small>{{ s.description }}</small>{% endif %}
+      </td>
+      <td class="nowrap">
+        {% if s.published %}<span class="pill pill-green">Published</span>
+        {% else %}<span class="pill pill-grey">Hidden</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('admin_service_form', service_id=s.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_service_toggle', service_id=s.id) }}" style="display:inline">
+          <button class="table-link" type="submit">{{ 'Hide' if s.published else 'Publish' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_service_delete', service_id=s.id) }}" style="display:inline"
+              onsubmit="return confirm('Delete this service card?');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No service cards yet — the "What we do" section is
+  hidden from the homepage until you add one.</p>
+{% endif %}
+{% endblock %}

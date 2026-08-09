@@ -18,6 +18,7 @@
     <nav>
       <a href="{{ url_for('admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'admin_dashboard' }}">Dashboard</a>
       <a href="{{ url_for('admin_content') }}" class="{{ 'active' if request.endpoint == 'admin_content' }}">Page content</a>
+      <a href="{{ url_for('admin_services') }}" class="{{ 'active' if request.endpoint and 'service' in request.endpoint }}">What we do</a>
       <a href="{{ url_for('admin_events') }}" class="{{ 'active' if request.endpoint and 'event' in request.endpoint }}">Events</a>
       {% if features.news %}<a href="{{ url_for('admin_news') }}" class="{{ 'active' if request.endpoint and 'news' in request.endpoint }}">News &amp; Projects</a>{% endif %}
       <a href="{{ url_for('admin_gallery') }}" class="{{ 'active' if request.endpoint == 'admin_gallery' }}">Gallery</a>

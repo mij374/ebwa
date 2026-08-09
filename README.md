@@ -121,6 +121,19 @@ description, default), guard the public route with
 `{% if features.name %}`, and run `flask --app app init-db` again (it
 only inserts missing names).
 
+## Editing the homepage "What we do" cards
+
+**What we do** in the admin sidebar (`/admin/services`) manages the six
+service cards on the homepage. Add, edit, reorder (lower sort number
+first), hide or delete them. The icon is a single emoji typed straight
+into the form — on Windows press <kbd>Windows key</kbd> + <kbd>.</kbd>
+for the emoji picker. Hiding a card keeps it in the admin list but takes
+it off the site; with no cards at all the section disappears cleanly.
+
+The six original cards are seeded on first `init-db`. Once the table has
+anything in it, later deploys leave it alone — so edited and deleted
+cards stay that way.
+
 ## Adding/changing editable content blocks
 
 Content blocks are seeded in `DEFAULT_BLOCKS` in `app.py`
