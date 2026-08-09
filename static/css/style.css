@@ -206,6 +206,7 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .foot-about{font-size:14.5px;max-width:38ch}
 .foot-bar{border-top:1px solid rgba(255,255,255,.16);padding-top:22px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13.5px;opacity:.7}
 .foot-admin{text-decoration:none}
+.foot-legal{display:flex;gap:18px;flex-wrap:wrap}
 
 /* ================= ADMIN ================= */
 .admin-body{background:#EFF2EE}
@@ -293,6 +294,37 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .login-card input:focus{outline:none;border-color:var(--green)}
 .login-note{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0}
 .login-back{font-size:14px;color:var(--ink-soft);text-decoration:none}
+
+/* ---------- Legal pages ---------- */
+.legal-page{max-width:70ch}
+.legal-page h2{margin-bottom:20px}
+.legal-page p{margin-bottom:16px;color:var(--ink-soft);line-height:1.65}
+
+/* ---------- Cookie notice ----------
+   A strip along the bottom, not a modal: it never covers the page or
+   traps focus, and the OK button is an ordinary submit button so it
+   works from the keyboard with no JavaScript at all. */
+.cookie-notice{
+  position:fixed;left:0;right:0;bottom:0;z-index:60;
+  background:var(--green-deep);color:#fff;
+  display:flex;align-items:center;justify-content:center;gap:20px;
+  flex-wrap:wrap;padding:14px 24px;font-size:14.5px;line-height:1.5;
+  box-shadow:0 -6px 24px rgba(0,0,0,.2);
+}
+.cookie-notice p{max-width:74ch}
+.cookie-notice a{color:#fff}
+.cookie-ok{background:#fff;color:var(--green-deep);padding:9px 26px;font-size:14px}
+/* Keep the strip from sitting over the last of the footer. The strip
+   wraps onto more lines as the viewport narrows, so the clearance grows
+   with it — measured at each step in tests/check_header_layout.py. */
+body.has-notice footer{padding-bottom:110px}
+@media (max-width: 900px){
+  body.has-notice footer{padding-bottom:190px}
+}
+@media (max-width: 640px){
+  .cookie-notice{justify-content:flex-start;padding:16px 20px;font-size:14px}
+  body.has-notice footer{padding-bottom:210px}
+}
 
 /* ---------- Audit log ---------- */
 .audit-pager{display:flex;gap:12px;margin-top:22px}

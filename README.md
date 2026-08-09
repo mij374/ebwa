@@ -121,6 +121,29 @@ description, default), guard the public route with
 `{% if features.name %}`, and run `flask --app app init-db` again (it
 only inserts missing names).
 
+## Legal pages and the cookie notice
+
+`/privacy` and `/terms` are ordinary editable pages — **Page content →
+legal** in the admin. Leave a blank line between paragraphs; each one
+becomes its own paragraph on the page. Both are linked in the footer and
+listed in the sitemap.
+
+> **Before launch:** both ship with placeholder text that says so on the
+> page. EBWA needs to supply its own privacy notice and terms — Netbus
+> can't write them on the charity's behalf. This is a launch blocker.
+
+A notice appears along the bottom of the page on someone's first visit,
+explaining the cookies and linking to the privacy page. Clicking (or
+tabbing to and pressing Enter on) **OK** records that it has been read
+in a first-party cookie and it does not come back.
+
+The site sets exactly two cookies, both strictly necessary: the admin
+login session, and the one remembering the notice has been read. There
+is no analytics, advertising or tracking of any kind, so the notice is
+**informational, not a consent request** — nothing on the site waits on
+it. If analytics is ever added, that changes: the law then requires a
+proper consent flow, not this banner. Raise it with Netbus first.
+
 ## Editing the homepage "What we do" cards
 
 **What we do** in the admin sidebar (`/admin/services`) manages the six

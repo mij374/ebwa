@@ -705,11 +705,19 @@ def clear_user_2fa(user):
     user.totp_last_counter = None
 
 
+# The site's only cookie besides the login session: a flag saying the
+# notice has been read. No tracking, no analytics, nothing to consent to.
+COOKIE_NOTICE_NAME = "ebwa_notice"
+
+
 @app.context_processor
 def inject_globals():
     site = blocks_for("site")
+    seen = request.cookies.get(COOKIE_NOTICE_NAME) if has_request_context() \
+        else "1"
     return {"site": site, "current_year": datetime.utcnow().year,
-            "features": feature_flags()}
+            "features": feature_flags(),
+            "show_cookie_notice": seen != "1"}
 
 
 # Security headers on every response. CSP allows exactly what the
@@ -813,7 +821,8 @@ def sitemap():
         ("home", None), ("about", None), ("events", None),
         ("news", "news"), ("resources", "resources"),
         ("journey", "our_journey"), ("gallery", None),
-        ("membership", "membership_form"), ("contact", None)]
+        ("membership", "membership_form"), ("contact", None),
+        ("privacy", None), ("terms", None)]
     urls = [url_for(e) for e, f in pages if f is None or flags[f]]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
              Event.query.filter_by(published=True).all()]
@@ -1138,6 +1147,41 @@ def membership():
                   "be in touch soon.", "ok")
             return redirect(url_for("membership"))
     return render_template("membership.html")
+
+
+@app.route("/privacy")
+def privacy():
+    c = blocks_for("legal")
+    return render_template("legal.html",
+                           page_title=c.get("privacy_title", ""),
+                           page_body=c.get("privacy_body", ""))
+
+
+@app.route("/terms")
+def terms():
+    c = blocks_for("legal")
+    return render_template("legal.html",
+                           page_title=c.get("terms_title", ""),
+                           page_body=c.get("terms_body", ""))
+
+
+@app.route("/cookie-notice/dismiss", methods=["POST"])
+def dismiss_cookie_notice():
+    """Remember that the notice has been read, in a first-party cookie.
+
+    Server-side rather than localStorage so no inline script is needed and
+    the existing CSP stays as tight as it is. This is an acknowledgement,
+    NOT a consent record — see the cookie note in CLAUDE.md.
+    """
+    target = request.form.get("next", "")
+    if not target.startswith("/") or target.startswith("//"):
+        target = url_for("home")      # never bounce off-site
+    resp = redirect(target)
+    resp.set_cookie(COOKIE_NOTICE_NAME, "1",
+                    max_age=60 * 60 * 24 * 365, path="/",
+                    httponly=True, samesite="Lax",
+                    secure=request.is_secure)
+    return resp
 
 
 @app.route("/contact")
@@ -2471,6 +2515,29 @@ DEFAULT_BLOCKS = [
      "Drop-in"),
     ("contact", "contact_hours", "Opening / drop-in times", "text",
      "Weekly sessions — call for current times"),
+    # Placeholders only. EBWA must supply the real wording before launch —
+    # Netbus cannot write a charity's privacy notice on its behalf.
+    ("legal", "privacy_title", "Privacy page title", "text",
+     "Privacy notice"),
+    ("legal", "privacy_body", "Privacy page text", "text",
+     "PLACEHOLDER — EBWA needs to replace this with the association's own "
+     "privacy notice before the site goes live.\n"
+     "It should say what personal information EBWA collects (for example "
+     "membership applications, newsletter sign-ups and donation and Gift "
+     "Aid records), why it is held, how long it is kept, who it is shared "
+     "with, and how someone can ask to see or delete their information.\n"
+     "It should also give a contact point for questions about personal "
+     "data.\n"
+     "Edit this page in Admin → Page content → legal."),
+    ("legal", "terms_title", "Terms page title", "text", "Terms of use"),
+    ("legal", "terms_body", "Terms page text", "text",
+     "PLACEHOLDER — EBWA needs to replace this with its own terms before "
+     "the site goes live.\n"
+     "It should cover how the website may be used, who owns the content "
+     "and photographs, what EBWA does and does not promise about the "
+     "information published here, and how to get in touch about anything "
+     "on the site.\n"
+     "Edit this page in Admin → Page content → legal."),
 ]
 
 # The six "What we do" cards the homepage shipped with, so an existing

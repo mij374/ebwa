@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} — EBWA{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap legal-page">
+    <h2>{{ page_title }}</h2>
+    {% for para in page_body.split('\n') if para.strip() %}
+    <p>{{ para }}</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

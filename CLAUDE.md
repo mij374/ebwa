@@ -153,6 +153,22 @@ Built and maintained by Netbus IT Support.
   menu is positioned from it, so change the variable, not both.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
+- Cookies: the site sets exactly two, both first-party and strictly
+  necessary — the Flask login session, and `ebwa_notice` recording that
+  the footer notice has been read. There is NO analytics, advertising or
+  tracking of any kind.
+  - The banner is therefore INFORMATIONAL, not a consent mechanism. It
+    does not collect, store or represent consent, and dismissing it is
+    an acknowledgement only. Never describe it as consent, and never
+    treat `ebwa_notice` as a lawful basis for anything.
+  - If analytics or any third-party script is ever added, this banner is
+    NOT sufficient: PECR requires prior, informed, refusable consent
+    before such cookies are set, which means a real consent flow (block
+    the script until opted in, offer an equal "reject", store the
+    choice). Raise it rather than quietly reusing the banner.
+  - Dismissal is a server-set cookie via a plain POST form — no
+    localStorage and no inline script, so the CSP stays as tight as it
+    is. Keep it that way.
 
 ## Database changes
 
@@ -324,6 +340,13 @@ Built (post-signing variation, Jul 2026):
   headings and field labels became Blocks in the same change, so every
   text string in that section is editable. Deploy: new table only —
   `flask --app app init-db`.
+- Legal pages: /privacy and /terms rendering `legal` group Blocks
+  (title + multi-paragraph body, split on newlines like `about_body`),
+  linked in the footer and listed in the sitemap. Core pages — not
+  flaggable. **Seeded with PLACEHOLDER copy: EBWA must supply the real
+  privacy notice and terms before launch.** Plus the footer cookie
+  notice (rules above). Deploy: `flask --app app init-db` seeds the new
+  blocks; no new tables.
 - Audit log (rules above): `AuditLog` model + `log_action()`, wired into
   logins (success and failure), logout, password change, 2FA on/off,
   every create/edit/delete/status-change across all content modules,

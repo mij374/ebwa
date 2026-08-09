@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
 <meta property="og:image" content="{{ url_for('static', filename='img/ebwa-logo.png', _external=True) }}">
 </head>
-<body>
+<body{% if show_cookie_notice %} class="has-notice"{% endif %}>
 
 <header>
   <div class="wrap nav">
@@ -96,10 +96,31 @@
     </div>
     <div class="foot-bar">
       <span>© {{ current_year }} Enfield Bangladesh Welfare Association. All rights reserved.</span>
-      <span><a href="{{ url_for('admin_login') }}" class="foot-admin">Admin</a></span>
+      <span class="foot-legal">
+        <a href="{{ url_for('privacy') }}">Privacy notice</a>
+        <a href="{{ url_for('terms') }}">Terms of use</a>
+        <a href="{{ url_for('admin_login') }}" class="foot-admin">Admin</a>
+      </span>
     </div>
   </div>
 </footer>
+
+{% if show_cookie_notice %}
+{# Informational only — the site sets no tracking or analytics cookies, so
+   there is nothing here to consent to. Plain form, no JavaScript, so it
+   works with the CSP and is dismissible from the keyboard. #}
+<aside class="cookie-notice" role="region" aria-label="Cookie notice">
+  <p>This site uses one cookie to remember that you've seen this message,
+     and another to keep staff signed in to the admin area. We don't use
+     any tracking or advertising cookies.
+     <a href="{{ url_for('privacy') }}">Read our privacy notice</a>.</p>
+  <form method="post" action="{{ url_for('dismiss_cookie_notice') }}">
+    <input type="hidden" name="next"
+           value="{{ request.full_path if request.query_string else request.path }}">
+    <button class="btn cookie-ok" type="submit">OK</button>
+  </form>
+</aside>
+{% endif %}
 
 <script>
   var menuBtn = document.getElementById('menuBtn');

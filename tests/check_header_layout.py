@@ -163,6 +163,35 @@ with sync_playwright() as pw:
             check("%dpx: phone hidden or inline, never wrapping" % width,
                   True)
 
+        # ---- the cookie notice must not sit over the footer, and must be
+        # dismissible from the keyboard alone
+        page.goto(BASE + "/", wait_until="load")
+        notice = page.locator(".cookie-notice")
+        check("%dpx: cookie notice shown on a first visit" % width,
+              notice.count() == 1, str(notice.count()))
+        if notice.count():
+            page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(300)
+            room = page.evaluate("""() => {
+                const n = document.querySelector('.cookie-notice')
+                    .getBoundingClientRect();
+                const f = document.querySelector('.foot-bar')
+                    .getBoundingClientRect();
+                return {gap: Math.round(n.top - f.bottom),
+                        over: document.documentElement.scrollWidth
+                              - document.documentElement.clientWidth};
+            }""")
+            check("%dpx: footer clears the cookie notice" % width,
+                  room["gap"] >= 0, "%dpx of overlap" % -room["gap"])
+            check("%dpx: cookie notice causes no sideways scroll" % width,
+                  room["over"] <= 0, "%dpx" % room["over"])
+            with page.expect_navigation(wait_until="load"):
+                page.focus(".cookie-ok")
+                page.keyboard.press("Enter")
+            page.wait_for_timeout(300)
+            check("%dpx: notice dismissed with the keyboard alone" % width,
+                  page.locator(".cookie-notice").count() == 0)
+
         # ---- other pages share the header, so spot-check them too
         for path in PAGES[1:]:
             page.goto(BASE + path, wait_until="networkidle")
