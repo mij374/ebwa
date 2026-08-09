@@ -199,9 +199,23 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
     }
 }
 ```
+
+**These four headers are load-bearing.** The app trusts exactly one proxy
+hop (`ProxyFix(..., x_for=1, x_proto=1, x_host=1)` in `app.py`) so that
+the audit log records the real visitor and each visitor gets their own
+rate-limit bucket. Without them every request looks like it came from
+127.0.0.1, and the whole internet shares one bucket.
+
+`$proxy_add_x_forwarded_for` appends the real client to whatever the
+caller sent, and the app reads the **last** entry — so a visitor who
+forges `X-Forwarded-For` can't fake their IP or dodge the rate limit.
+Two things follow: gunicorn must stay bound to `127.0.0.1` so nobody can
+reach it directly, and if another proxy (a CDN, say) is ever put in
+front, the hop counts in `app.py` must go up to match.
 
 ## Upgrading an existing deployment
 

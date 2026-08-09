@@ -32,6 +32,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          login_required, current_user)
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -45,6 +46,18 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-in-production
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "instance", "ebwa.db"))
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+
+# In production gunicorn sits behind nginx, so every request arrives from
+# 127.0.0.1. Without this the audit log records the proxy instead of the
+# caller, and — worse — the whole internet shares one rate-limit bucket.
+#
+# EXACTLY ONE HOP (nginx), never an arbitrary forwarded chain: ProxyFix
+# takes the RIGHTMOST value of each header, which is the one nginx itself
+# appended via `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`.
+# Anything a client forges into the header sits to the left of that and is
+# ignored. Raise these numbers only if a real extra proxy is added in
+# front, and never let the app be reachable except through nginx.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Stripe keys from env vars only — never committed (CLAUDE.md donations rules)
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")

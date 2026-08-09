@@ -84,6 +84,13 @@ Built and maintained by Netbus IT Support.
     last-super-admin protection), `promote-super-admin`. Prefer adding
     a CLI command over documenting raw SQL — the README should never
     tell anyone to hand-edit the database.
+- Reverse proxy: gunicorn runs behind nginx, so `app.wsgi_app` is
+  wrapped in `ProxyFix(x_for=1, x_proto=1, x_host=1)` — exactly one hop.
+  Anything reading `request.remote_addr` (audit log, rate limiter)
+  depends on it. Do not raise the hop counts unless a real extra proxy
+  is added in front, do not switch to trusting a whole forwarded chain,
+  and keep gunicorn bound to 127.0.0.1 so the app is unreachable except
+  through nginx.
 - Audit log: `AuditLog` is APPEND-ONLY. Never write a route, helper or
   CLI command that updates or deletes an entry, and never make recording
   conditional on anything — a log that can be edited or switched off is
