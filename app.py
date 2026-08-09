@@ -47,6 +47,16 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "instance", "ebwa.db"))
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
+# Admin sessions expire after 20 minutes of INACTIVITY. Flask signs the
+# session cookie with a timestamp and refuses it once it is older than
+# PERMANENT_SESSION_LIFETIME; SESSION_REFRESH_EACH_REQUEST re-issues the
+# cookie on every request, so the clock restarts each time someone does
+# something and only genuine idleness ends the session.
+IDLE_SESSION_MINUTES = 20
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
+    minutes=IDLE_SESSION_MINUTES)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+
 # In production gunicorn sits behind nginx, so every request arrives from
 # 127.0.0.1. Without this the audit log records the proxy instead of the
 # caller, and — worse — the whole internet shares one rate-limit bucket.
@@ -621,6 +631,45 @@ def pending_2fa_user():
 def clear_pending_2fa():
     flask_session.pop(PENDING_2FA_USER, None)
     flask_session.pop(PENDING_2FA_AT, None)
+
+
+# ------------------------------------------------------- idle expiry
+def start_admin_session(user):
+    """Log someone in with an idle-expiry session (see the config note)."""
+    login_user(user)
+    flask_session.permanent = True
+
+
+def session_expired():
+    """True if this request carried one of OUR session cookies that had
+    someone logged in, and it is simply too old to be accepted.
+
+    Checked by re-reading the cookie with the age limit lifted: that
+    separates a timed-out admin from a first-time visitor, and from an
+    anonymous visitor who merely picked up a session cookie from a flash
+    message (those carry no user id).
+    """
+    raw = request.cookies.get(app.config.get("SESSION_COOKIE_NAME", "session"))
+    if not raw:
+        return False
+    serializer = app.session_interface.get_signing_serializer(app)
+    if serializer is None:
+        return False
+    try:
+        data = serializer.loads(raw, max_age=None)   # age deliberately ignored
+    except Exception:
+        return False        # not ours, or tampered with
+    return bool(data.get("_user_id"))
+
+
+@login_manager.unauthorized_handler
+def handle_unauthorized():
+    """Say WHY the login page is being shown, instead of bouncing silently."""
+    if session_expired():
+        flash("Your session has expired, please log in again.", "error")
+    else:
+        flash("Please log in to continue.", "error")
+    return redirect(url_for("admin_login"))
 
 
 def super_admin_required(fn):
@@ -1211,7 +1260,7 @@ def admin_login():
                 flask_session[PENDING_2FA_USER] = user.id
                 flask_session[PENDING_2FA_AT] = int(time.time())
                 return redirect(url_for("admin_login_2fa"))
-            login_user(user)
+            start_admin_session(user)
             log_action("login", summary="Password only (no two-factor).")
             return redirect(url_for("admin_dashboard"))
         # The attempted email is recorded; the password never is.
@@ -1241,12 +1290,12 @@ def admin_login_2fa():
         code = request.form.get("code", "")
         if verify_totp(user, code):
             clear_pending_2fa()
-            login_user(user)
+            start_admin_session(user)
             log_action("login", summary="Password and two-factor code.")
             return redirect(url_for("admin_dashboard"))
         if use_recovery_code(user, code):
             clear_pending_2fa()
-            login_user(user)
+            start_admin_session(user)
             left = unused_recovery_codes(user)
             log_action("login", summary="Password and a recovery code — "
                                         "%d left." % left)

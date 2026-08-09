@@ -73,6 +73,20 @@ Built and maintained by Netbus IT Support.
   admin route, with optional per-user TOTP 2FA (see the roadmap entry
   for the rules). Tiers live in `User.role` (see `ROLES`) — do not
   create a second user table. A future board-member tier is another value here.
+  - Admin sessions expire after `IDLE_SESSION_MINUTES` (20) of
+    INACTIVITY: `PERMANENT_SESSION_LIFETIME` + `SESSION_REFRESH_EACH_REQUEST`,
+    with `start_admin_session()` (not a bare `login_user()`) at every
+    login point so the session is permanent. Flask re-signs the cookie
+    on each request, so the clock restarts on activity — do not swap
+    this for an absolute timeout. The 2FA hand-off has its own, shorter
+    5-minute window (`PENDING_2FA_MAX_AGE`) and must stay under the idle
+    window so it is the one that decides.
+  - `login_manager.unauthorized_handler` explains WHY the login page
+    appeared: a session that timed out says so, a first-time visitor
+    gets a plain prompt. `session_expired()` tells them apart by
+    re-reading the cookie with the age limit lifted — an anonymous
+    visitor can hold a session cookie just from a flash message, so
+    "cookie present" alone is not enough.
   - `admin` (default) — EBWA's own admins. Everything they need to run
     the site.
   - `super_admin` — **Netbus only**, never a client login. Adds the

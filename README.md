@@ -47,6 +47,18 @@ Netbus can hide the page from EBWA's own admins with the **Audit log**
 feature flag in Settings. That only affects who can see the page:
 recording carries on regardless, and super admins can always read it.
 
+## Staying signed in
+
+The admin area signs you out after **20 minutes of doing nothing** — a
+sensible precaution on a shared or public computer. It's idle time, not
+total time: as long as you keep working, the clock keeps resetting, so a
+long afternoon of editing never interrupts you.
+
+If it does expire, the next click returns you to the login page with a
+note saying the session timed out, rather than dumping you there with no
+explanation. Anything you'd typed into a form but not saved is lost, so
+save long pieces of writing as you go.
+
 ## Two-factor authentication (optional, per person)
 
 On the **Account** page each admin can turn on two-factor authentication:
