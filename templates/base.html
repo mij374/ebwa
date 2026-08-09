@@ -21,19 +21,21 @@
       <span class="brand-mark"><img src="{{ url_for('static', filename='img/ebwa-mark.png') }}" alt="EBWA logo"></span>
       <span class="brand-name">EBWA<small>Enfield Bangladesh Welfare Association</small></span>
     </a>
-    <nav aria-label="Main">
+    <nav class="main-nav" aria-label="Main">
       <ul class="nav-links" id="navLinks">
-        <li><a href="{{ url_for('about') }}">About us</a></li>
+        <li><a href="{{ url_for('about') }}">About</a></li>
         <li><a href="{{ url_for('events') }}">Events</a></li>
         {% if features.news %}<li><a href="{{ url_for('news') }}">News</a></li>{% endif %}
         {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
-        {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
+        {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Journey</a></li>{% endif %}
         <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
-        {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join us</a></li>{% endif %}
+        {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join</a></li>{% endif %}
         <li><a href="{{ url_for('contact') }}">Contact</a></li>
         {% if current_user.is_authenticated %}
         <li><a href="{{ url_for('admin_dashboard') }}">Admin</a></li>
         {% endif %}
+        {# Phone lives in the menu on small screens, where the header has no room #}
+        <li class="nav-phone-item"><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">☎ {{ site.get('site_phone','') }}</a></li>
       </ul>
     </nav>
     <a class="nav-phone" href="tel:{{ site.get('site_phone','')|replace(' ','') }}">☎ {{ site.get('site_phone','') }}</a>

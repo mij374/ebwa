@@ -136,6 +136,12 @@ Built and maintained by Netbus IT Support.
   (`--green`, `--red`, `--paper`, etc.) and class naming style. Design
   identity: Bangladeshi flag bottle green + red circle motif, Bengali
   script accents in section eyebrows (`.eyebrow .bn`).
+- Header: the nav must never wrap to a second line. It sheds things in
+  order as the viewport narrows — phone at 1100px, brand strapline at
+  980px, whole nav to the menu button at 899px — so a new nav item means
+  re-checking those steps (and probably a shorter label) rather than
+  letting the row grow. Header height is `--header-h`; the open mobile
+  menu is positioned from it, so change the variable, not both.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 
@@ -159,6 +165,13 @@ admin, form create/edit/delete round-trips, and that unpublished content
 is absent from public pages and 404s by direct URL. Smoke tests live in
 tests/; run them against a scratchpad DATABASE_URL, never
 instance/ebwa.db.
+
+Layout changes also have `tests/check_header_layout.py` — a Playwright
+run against real Chromium at 1440/1280/1024/768/390px asserting the nav
+stays on one line, nothing scrolls sideways, and the mobile menu opens.
+It needs a browser so it is NOT part of the smoke suite (`smoke_test_*`);
+run it by hand after touching the header, nav or breakpoints:
+`python tests/check_header_layout.py [--shots DIR]`.
 
 ## Deploy (production pattern)
 
