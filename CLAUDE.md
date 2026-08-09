@@ -108,6 +108,13 @@ Built and maintained by Netbus IT Support.
     trustee ("Deleted event “Eid Iftar”."). NEVER put a password, a
     password hash, a TOTP secret or a recovery code in a summary; a
     failed login records the attempted email only.
+  - Edits record WHICH fields changed, never the values: build a
+    `{field: new_value}` dict, call `changed_fields(obj, values)` BEFORE
+    `apply_values(obj, values)`, and pass the result to `save_summary()`
+    (or `describe_changes()` for anything not named create/edit).
+    Appending an uploaded image counts as a changed field. Logging old
+    or new values would copy page content and personal data into a
+    second table that is never pruned — don't, however useful it looks.
 - Feature flags: optional/phased modules are listed in `FEATURES` in
   `app.py` (name, label, description, default) and stored one row per
   name in `FeatureFlag` — `init-db` is idempotent and inserts only

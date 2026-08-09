@@ -619,6 +619,35 @@ def super_admin_required(fn):
 
 
 # ------------------------------------------------------------ audit log
+# An edit records WHICH fields changed, never what they changed from or
+# to. Copying the values would duplicate page content and personal data
+# into a second table that is never pruned — the audit log says what
+# happened, the record itself says what it now holds.
+def changed_fields(obj, values):
+    """Names of the fields whose submitted value differs from the stored
+    one. `values` is {field_name: new_value}; call BEFORE applying it."""
+    return [name for name, new in values.items() if getattr(obj, name) != new]
+
+
+def apply_values(obj, values):
+    for name, new in values.items():
+        setattr(obj, name, new)
+
+
+def describe_changes(changed):
+    """'changed: title, venue', or plain wording when nothing moved."""
+    if not changed:
+        return "no fields changed"
+    return "changed: " + ", ".join(changed)
+
+
+def save_summary(noun, name, is_new, changed):
+    """Audit wording for a create or an edit of a named record."""
+    if is_new:
+        return "Created %s “%s”." % (noun, name)
+    return "Edited %s “%s” (%s)." % (noun, name, describe_changes(changed))
+
+
 def log_action(action, entity=None, summary=""):
     """Append one entry to the audit log, and commit it.
 
@@ -1298,9 +1327,13 @@ def admin_content():
     blocks = Block.query.filter_by(group=group).order_by(Block.sort).all()
 
     if request.method == "POST":
+        changed = []          # block keys, never the text that was typed
         for b in blocks:
             if b.kind == "text":
-                b.value = request.form.get("block_%d" % b.id, b.value)
+                new_value = request.form.get("block_%d" % b.id, b.value)
+                if new_value != b.value:
+                    changed.append(b.key)
+                b.value = new_value
             else:  # image
                 f = request.files.get("block_%d" % b.id)
                 if f and f.filename:
@@ -1308,9 +1341,11 @@ def admin_content():
                     if new_name:
                         delete_upload(b.value)
                         b.value = new_name
+                        changed.append(b.key)
         db.session.commit()
         log_action("edit", entity=("Block", None),
-                   summary="Saved page content for the %s section." % group)
+                   summary="Saved page content for the %s section (%s)."
+                           % (group, describe_changes(changed)))
         flash("Content saved.", "ok")
         return redirect(url_for("admin_content", group=group))
 
@@ -1343,26 +1378,31 @@ def admin_event_form(event_id=None):
             is_new = ev is None
             if is_new:
                 ev = Event()
-            ev.title = title
-            ev.slug = unique_slug(Event, title, ev.id)
-            ev.event_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            ev.start_time = request.form.get("start_time", "").strip()
-            ev.venue = request.form.get("venue", "").strip()
-            ev.summary = request.form.get("summary", "").strip()
-            ev.description = request.form.get("description", "").strip()
-            ev.published = request.form.get("published") == "on"
+            values = {
+                "title": title,
+                "event_date": datetime.strptime(date_str, "%Y-%m-%d").date(),
+                "start_time": request.form.get("start_time", "").strip(),
+                "venue": request.form.get("venue", "").strip(),
+                "summary": request.form.get("summary", "").strip(),
+                "description": request.form.get("description", "").strip(),
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(ev, values)
+            apply_values(ev, values)
+            ev.slug = unique_slug(Event, title, ev.id)   # derived from title
             f = request.files.get("image")
             if f and f.filename:
                 new_name = save_upload(f)
                 if new_name:
                     delete_upload(ev.image)
                     ev.image = new_name
+                    changed.append("image")
             if is_new:
                 db.session.add(ev)
             db.session.commit()
             log_action("create" if is_new else "edit", entity=ev,
-                       summary="%s event “%s”."
-                               % ("Created" if is_new else "Edited", ev.title))
+                       summary=save_summary("event", ev.title, is_new,
+                                            changed))
             flash("Event saved.", "ok")
             return redirect(url_for("admin_events"))
 
@@ -1409,25 +1449,30 @@ def admin_news_form(post_id=None):
             is_new = post is None
             if is_new:
                 post = NewsPost()
-            post.title = title
+            values = {
+                "title": title,
+                "published_date": datetime.strptime(date_str,
+                                                    "%Y-%m-%d").date(),
+                "summary": request.form.get("summary", "").strip(),
+                "body": request.form.get("body", "").strip(),
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(post, values)
+            apply_values(post, values)
             post.slug = unique_slug(NewsPost, title, post.id)
-            post.published_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            post.summary = request.form.get("summary", "").strip()
-            post.body = request.form.get("body", "").strip()
-            post.published = request.form.get("published") == "on"
             f = request.files.get("image")
             if f and f.filename:
                 new_name = save_upload(f)
                 if new_name:
                     delete_upload(post.image)
                     post.image = new_name
+                    changed.append("image")
             if is_new:
                 db.session.add(post)
             db.session.commit()
             log_action("create" if is_new else "edit", entity=post,
-                       summary="%s news post “%s”."
-                               % ("Created" if is_new else "Edited",
-                                  post.title))
+                       summary=save_summary("news post", post.title, is_new,
+                                            changed))
             flash("News post saved.", "ok")
             return redirect(url_for("admin_news"))
 
@@ -1531,8 +1576,9 @@ def admin_testimonial_toggle(t_id):
     t.published = not t.published
     db.session.commit()
     log_action("status_change", entity=t,
-               summary="Testimonial from %s is now %s."
-                       % (t.name, "published" if t.published else "hidden"))
+               summary="Testimonial from %s is now %s (%s)."
+                       % (t.name, "published" if t.published else "hidden",
+                          describe_changes(["published"])))
     return redirect(url_for("admin_testimonials"))
 
 
@@ -1596,21 +1642,26 @@ def admin_resource_form(resource_id=None):
             is_new = res is None
             if is_new:
                 res = Resource()
-            res.name = name
-            res.category = category
-            res.description = request.form.get("description", "").strip()
-            res.phone = request.form.get("phone", "").strip()
-            res.url = request.form.get("url", "").strip()
             try:
-                res.sort = int(request.form.get("sort", "0"))
+                sort = int(request.form.get("sort", "0"))
             except ValueError:
-                res.sort = 0
+                sort = 0
+            values = {
+                "name": name,
+                "category": category,
+                "description": request.form.get("description", "").strip(),
+                "phone": request.form.get("phone", "").strip(),
+                "url": request.form.get("url", "").strip(),
+                "sort": sort,
+            }
+            changed = [] if is_new else changed_fields(res, values)
+            apply_values(res, values)
             if is_new:
                 db.session.add(res)
             db.session.commit()
             log_action("create" if is_new else "edit", entity=res,
-                       summary="%s resource “%s”."
-                               % ("Created" if is_new else "Edited", res.name))
+                       summary=save_summary("resource", res.name, is_new,
+                                            changed))
             flash("Resource saved.", "ok")
             return redirect(url_for("admin_resources"))
 
@@ -1669,31 +1720,36 @@ def admin_milestone_form(milestone_id=None):
             is_new = m is None
             if is_new:
                 m = Milestone()
-            m.title = title
-            m.year = year
-            m.summary = request.form.get("summary", "").strip()
-            m.outcome = request.form.get("outcome", "").strip()
-            m.funder_name = request.form.get("funder_name", "").strip()
-            m.amount_pence = amount_pence
-            m.funder_url = request.form.get("funder_url", "").strip()
             try:
-                m.sort = int(request.form.get("sort", "0"))
+                sort = int(request.form.get("sort", "0"))
             except ValueError:
-                m.sort = 0
-            m.published = request.form.get("published") == "on"
+                sort = 0
+            values = {
+                "title": title,
+                "year": year,
+                "summary": request.form.get("summary", "").strip(),
+                "outcome": request.form.get("outcome", "").strip(),
+                "funder_name": request.form.get("funder_name", "").strip(),
+                "amount_pence": amount_pence,
+                "funder_url": request.form.get("funder_url", "").strip(),
+                "sort": sort,
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(m, values)
+            apply_values(m, values)
             f = request.files.get("image")
             if f and f.filename:
                 new_name = save_upload(f)
                 if new_name:
                     delete_upload(m.image)
                     m.image = new_name
+                    changed.append("image")
             if is_new:
                 db.session.add(m)
             db.session.commit()
             log_action("create" if is_new else "edit", entity=m,
-                       summary="%s milestone “%s” (%d)."
-                               % ("Created" if is_new else "Edited",
-                                  m.title, m.year))
+                       summary=save_summary("milestone", m.title, is_new,
+                                            changed))
             flash("Milestone saved.", "ok")
             return redirect(url_for("admin_milestones"))
 
@@ -1782,25 +1838,29 @@ def admin_campaign_form(campaign_id=None):
             is_new = camp is None
             if is_new:
                 camp = Campaign()
-            camp.title = title
+            values = {
+                "title": title,
+                "description": request.form.get("description", "").strip(),
+                "target_pence": target_pence,
+                "fee_pence": fee_pence,
+                "active": request.form.get("active") == "on",
+            }
+            changed = [] if is_new else changed_fields(camp, values)
+            apply_values(camp, values)
             camp.slug = unique_slug(Campaign, title, camp.id)
-            camp.description = request.form.get("description", "").strip()
-            camp.target_pence = target_pence
-            camp.fee_pence = fee_pence
-            camp.active = request.form.get("active") == "on"
             f = request.files.get("image")
             if f and f.filename:
                 new_name = save_upload(f)
                 if new_name:
                     delete_upload(camp.image)
                     camp.image = new_name
+                    changed.append("image")
             if is_new:
                 db.session.add(camp)
             db.session.commit()
             log_action("create" if is_new else "edit", entity=camp,
-                       summary="%s collection “%s”."
-                               % ("Created" if is_new else "Edited",
-                                  camp.title))
+                       summary=save_summary("collection", camp.title, is_new,
+                                            changed))
             flash("Collection saved.", "ok")
             return redirect(url_for("admin_campaigns"))
 
@@ -2042,11 +2102,12 @@ def admin_membership_status(m_id):
     m = db.session.get(MembershipApplication, m_id) or abort(404)
     status = request.form.get("status", "")
     if status in MEMBERSHIP_STATUSES:
+        changed = changed_fields(m, {"status": status})
         m.status = status
         db.session.commit()
         log_action("status_change", entity=m,
-                   summary="Membership application from %s marked %s."
-                           % (m.name, status))
+                   summary="Membership application from %s marked %s (%s)."
+                           % (m.name, status, describe_changes(changed)))
         flash("Status updated.", "ok")
     else:
         flash("Unknown status.", "error")
