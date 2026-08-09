@@ -156,6 +156,18 @@ is no analytics, advertising or tracking of any kind, so the notice is
 it. If analytics is ever added, that changes: the law then requires a
 proper consent flow, not this banner. Raise it with Netbus first.
 
+## Partner logos
+
+**Partners** in the admin sidebar. Each partner card can show the
+organisation's name and description (the default), its logo on its own,
+or the logo with the name and description underneath — pick one under
+"What the card shows" and upload a logo on the same form.
+
+Existing partners keep the name-and-description look until you upload a
+logo, and if you pick a logo option without uploading one the card
+quietly falls back to the text so nothing looks broken. The admin list
+flags those with "Name (no logo yet)".
+
 ## Editing the homepage "What we do" cards
 
 **What we do** in the admin sidebar (`/admin/services`) manages the six
@@ -280,7 +292,9 @@ sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_secret VARCHAR(64) DE
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;"
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_last_counter INTEGER;"
 sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN created_at DATETIME;"
-flask --app app init-db      # creates feature_flag, recovery_code, audit_log
+sqlite3 instance/ebwa.db "ALTER TABLE partner ADD COLUMN logo VARCHAR(255) DEFAULT '';"
+sqlite3 instance/ebwa.db "ALTER TABLE partner ADD COLUMN display_mode VARCHAR(10) NOT NULL DEFAULT 'text';"
+flask --app app init-db      # creates feature_flag, recovery_code, audit_log, service
 sudo systemctl restart ebwa
 ```
 

@@ -139,10 +139,12 @@
     <h2>Working together for Enfield</h2>
     <div class="partner-grid">
       {% for pt in partners %}
-      {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener">
-        <b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}
-      </a>
-      {% else %}<div class="partner-card"><b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}</div>{% endif %}
+      {% set body %}
+        {% if pt.shows_logo %}<img class="partner-logo" src="{{ url_for('static', filename='uploads/' + pt.logo) }}" alt="{{ pt.name }}">{% endif %}
+        {% if pt.shows_text %}<b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}{% endif %}
+      {% endset %}
+      {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener">{{ body }}</a>
+      {% else %}<div class="partner-card">{{ body }}</div>{% endif %}
       {% endfor %}
     </div>
   </div>

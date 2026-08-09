@@ -141,7 +141,7 @@ client.post("/admin/journey/new", data={"title": "Opened the centre",
                                         "year": "2021", "published": "on"})
 client.post("/admin/testimonials", data={"name": "Fatima", "quote": "Lovely.",
                                          "published": "on"})
-client.post("/admin/partners", data={"name": "Enfield Council"})
+client.post("/admin/partners/new", data={"name": "Enfield Council"})
 client.post("/admin/content?group=home", data={})
 created = summaries("create")
 check("event creation recorded",
@@ -227,7 +227,7 @@ check("toggling the audit_log flag is itself recorded",
 # ---- recording continues while the audit_log flag is off
 set_flag("audit_log", False)
 before = audit_count()
-client.post("/admin/partners", data={"name": "Recorded While Off"})
+client.post("/admin/partners/new", data={"name": "Recorded While Off"})
 check("mutations are still recorded with the flag off",
       audit_count() > before)
 check("that entry is really there",

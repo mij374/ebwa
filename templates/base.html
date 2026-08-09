@@ -34,11 +34,13 @@
         {% if current_user.is_authenticated %}
         <li><a href="{{ url_for('admin_dashboard') }}">Admin</a></li>
         {% endif %}
+        {% if features.donations %}
+        <li><a class="nav-donate" href="{{ url_for('donate') }}">Donate</a></li>
+        {% endif %}
         {# Phone lives in the menu on small screens, where the header has no room #}
         <li class="nav-phone-item"><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">☎ {{ site.get('site_phone','') }}</a></li>
       </ul>
     </nav>
-    <a class="nav-phone" href="tel:{{ site.get('site_phone','')|replace(' ','') }}">☎ {{ site.get('site_phone','') }}</a>
     <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>

@@ -252,12 +252,29 @@ class Service(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
+PARTNER_MODES = ("text", "image", "both")
+
+
 class Partner(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(160), nullable=False)
     url = db.Column(db.String(300), default="")
     blurb = db.Column(db.String(300), default="")
+    logo = db.Column(db.String(255), default="")      # uploads filename
+    # 'text' (name + blurb, the original look), 'image' (logo only) or
+    # 'both'. Defaults to text so existing rows look exactly as they did
+    # until someone uploads a logo and chooses otherwise.
+    display_mode = db.Column(db.String(10), nullable=False, default="text")
     sort = db.Column(db.Integer, default=0)
+
+    @property
+    def shows_logo(self):
+        """A logo-ish mode only counts if there is actually a logo."""
+        return bool(self.logo) and self.display_mode in ("image", "both")
+
+    @property
+    def shows_text(self):
+        return not self.shows_logo or self.display_mode == "both"
 
 
 class Resource(db.Model):
@@ -1771,25 +1788,63 @@ def admin_testimonial_toggle(t_id):
 
 
 # ---------------------------------------------------------------- admin: partners
-@app.route("/admin/partners", methods=["GET", "POST"])
+@app.route("/admin/partners")
 @login_required
 def admin_partners():
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        if name:
-            pt = Partner(
-                name=name,
-                url=request.form.get("url", "").strip(),
-                blurb=request.form.get("blurb", "").strip())
-            db.session.add(pt)
-            db.session.commit()
-            log_action("create", entity=pt, summary="Added partner %s." % name)
-            flash("Partner added.", "ok")
-        else:
-            flash("Partner name is required.", "error")
-        return redirect(url_for("admin_partners"))
     rows = Partner.query.order_by(Partner.sort, Partner.name).all()
     return render_template("admin/partners.html", rows=rows)
+
+
+@app.route("/admin/partners/new", methods=["GET", "POST"])
+@app.route("/admin/partners/<int:p_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_partner_form(p_id=None):
+    pt = db.session.get(Partner, p_id) if p_id else None
+    if p_id and not pt:
+        abort(404)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        mode = request.form.get("display_mode", "text")
+        if not name:
+            flash("Partner name is required.", "error")
+        elif mode not in PARTNER_MODES:
+            flash("Unknown display option.", "error")
+        else:
+            is_new = pt is None
+            if is_new:
+                pt = Partner()
+            try:
+                sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                sort = 0
+            values = {
+                "name": name,
+                "url": request.form.get("url", "").strip(),
+                "blurb": request.form.get("blurb", "").strip(),
+                "display_mode": mode,
+                "sort": sort,
+            }
+            changed = [] if is_new else changed_fields(pt, values)
+            apply_values(pt, values)
+            f = request.files.get("logo")
+            if f and f.filename:
+                new_name = save_upload(f)
+                if new_name:
+                    delete_upload(pt.logo)
+                    pt.logo = new_name
+                    changed.append("logo")
+            if is_new:
+                db.session.add(pt)
+            db.session.commit()
+            log_action("create" if is_new else "edit", entity=pt,
+                       summary=save_summary("partner", pt.name, is_new,
+                                            changed))
+            flash("Partner saved.", "ok")
+            return redirect(url_for("admin_partners"))
+
+    return render_template("admin/partner_form.html", pt=pt,
+                           modes=PARTNER_MODES)
 
 
 @app.route("/admin/partners/<int:p_id>/delete", methods=["POST"])
@@ -1797,6 +1852,7 @@ def admin_partners():
 def admin_partner_delete(p_id):
     pt = db.session.get(Partner, p_id) or abort(404)
     gone, name = ("Partner", pt.id), pt.name
+    delete_upload(pt.logo)
     db.session.delete(pt)
     db.session.commit()
     log_action("delete", entity=gone, summary="Deleted partner %s." % name)

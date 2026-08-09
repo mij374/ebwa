@@ -90,11 +90,18 @@ header{
   transition:color .15s, border-color .15s;
 }
 .nav-links a:hover{color:var(--green);border-color:var(--red)}
-/* Quieter than the nav: present, but not competing for the same space */
-.nav-phone{
-  display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--green);
-  text-decoration:none;font-size:13.5px;white-space:nowrap;flex:none;
+/* The one primary action in the header: a red pill carrying the same
+   weight as .btn-green, without the button padding that would push the
+   nav onto a second line. */
+.nav-links a.nav-donate{
+  background:var(--red);color:#fff;border-radius:999px;padding:8px 18px;
+  font-family:var(--font-display);font-weight:700;border-bottom:none;
+  box-shadow:0 4px 14px rgba(232,51,63,.28);
 }
+.nav-links a.nav-donate:hover{color:#fff;border-color:transparent;filter:brightness(1.06)}
+
+/* The phone number lives in the mobile menu, the footer and /contact —
+   the header row is spoken for by the nav and the Donate action. */
 .nav-phone-item{display:none}      /* menu-only; see the mobile breakpoint */
 .menu-btn{display:none;background:none;border:none;cursor:pointer;padding:8px}
 .menu-btn span{display:block;width:24px;height:2.5px;background:var(--ink);margin:5px 0;border-radius:2px}
@@ -326,6 +333,11 @@ body.has-notice footer{padding-bottom:110px}
   body.has-notice footer{padding-bottom:210px}
 }
 
+.admin-thumb{
+  max-height:34px;max-width:110px;width:auto;vertical-align:middle;
+  margin-right:10px;object-fit:contain;
+}
+
 /* ---------- Audit log ---------- */
 .audit-pager{display:flex;gap:12px;margin-top:22px}
 
@@ -362,9 +374,6 @@ body.has-notice footer{padding-bottom:110px}
    The nav must never wrap to a second line, so each step drops the least
    important thing first: the phone, then the strapline, then the whole
    nav in favour of the menu button. */
-@media (max-width: 1100px){
-  .nav-phone{display:none}          /* still in the footer and on /contact */
-}
 @media (max-width: 980px){
   .brand-name small{display:none}   /* decorative; the logo still says EBWA */
   .nav-links{gap:16px}
@@ -425,6 +434,10 @@ body.has-notice footer{padding-bottom:110px}
   transition:transform .15s ease, box-shadow .15s ease;
 }
 a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56,42,.10)}
+.partner-logo{
+  display:block;max-width:100%;max-height:56px;width:auto;margin:0 auto 10px;
+  object-fit:contain;
+}
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}
 

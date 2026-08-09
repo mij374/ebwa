@@ -160,11 +160,17 @@ Built and maintained by Netbus IT Support.
   identity: Bangladeshi flag bottle green + red circle motif, Bengali
   script accents in section eyebrows (`.eyebrow .bn`).
 - Header: the nav must never wrap to a second line. It sheds things in
-  order as the viewport narrows — phone at 1100px, brand strapline at
-  980px, whole nav to the menu button at 899px — so a new nav item means
-  re-checking those steps (and probably a shorter label) rather than
-  letting the row grow. Header height is `--header-h`; the open mobile
-  menu is positioned from it, so change the variable, not both.
+  order as the viewport narrows — brand strapline at 980px, whole nav to
+  the menu button at 899px — so a new nav item means re-checking those
+  steps (and probably a shorter label) rather than letting the row grow.
+  Header height is `--header-h`; the open mobile menu is positioned from
+  it, so change the variable, not both.
+  - The row is full at 1280px. It carries the nav and exactly ONE
+    primary action, the Donate pill (`.nav-donate`, red, flag-gated on
+    `donations`). The phone number was moved out to make room and now
+    lives in the mobile menu, the footer and /contact. Anything new
+    competing for that row has to displace something — run
+    `tests/check_header_layout.py` before assuming it fits.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 - Cookies: the site sets exactly two, both first-party and strictly
@@ -354,6 +360,15 @@ Built (post-signing variation, Jul 2026):
   headings and field labels became Blocks in the same change, so every
   text string in that section is editable. Deploy: new table only —
   `flask --app app init-db`.
+- Partner cards can show a logo: `Partner.display_mode` ('text' |
+  'image' | 'both', see `PARTNER_MODES`) plus an optional `logo` upload,
+  with admin CRUD moved to the list + form-page pattern so logos can be
+  added to existing rows. A logo mode with no logo falls back to text
+  (`shows_logo` / `shows_text`), so a half-finished partner never renders
+  an empty card. Deploy:
+  `ALTER TABLE partner ADD COLUMN logo VARCHAR(255) DEFAULT '';` and
+  `ALTER TABLE partner ADD COLUMN display_mode VARCHAR(10) NOT NULL
+  DEFAULT 'text';`
 - Legal pages: /privacy and /terms rendering `legal` group Blocks
   (title + multi-paragraph body, split on newlines like `about_body`),
   linked in the footer and listed in the sitemap. Core pages — not

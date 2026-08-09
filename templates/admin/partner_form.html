@@ -1,0 +1,63 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit partner' if pt else 'New partner' }}</h1>
+<p class="admin-sub">Partners appear on the homepage. Upload a logo if you
+  have one — otherwise the card shows the name and description.</p>
+
+<form method="post" class="admin-form" enctype="multipart/form-data">
+  <div class="field-row">
+    <div class="field">
+      <label for="name">Organisation name *</label>
+      <input type="text" id="name" name="name" required maxlength="160"
+             value="{{ pt.name if pt else '' }}"
+             placeholder="e.g. Enfield Council">
+    </div>
+    <div class="field">
+      <label for="url">Website link</label>
+      <input type="text" id="url" name="url" value="{{ pt.url if pt else '' }}"
+             placeholder="https://...">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="blurb">Short description</label>
+    <input type="text" id="blurb" name="blurb" maxlength="300"
+           value="{{ pt.blurb if pt else '' }}"
+           placeholder="One line about the partnership">
+  </div>
+
+  <div class="field">
+    <label for="display_mode">What the card shows</label>
+    <select id="display_mode" name="display_mode">
+      {% for m in modes %}
+      <option value="{{ m }}" {{ 'selected' if pt and pt.display_mode == m }}>
+        {% if m == 'text' %}Name and description{% elif m == 'image' %}Logo only{% else %}Logo, then name and description{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    <small>The logo options need a logo uploaded below — until then the card
+      falls back to the name and description, so nothing looks broken.</small>
+  </div>
+
+  <div class="field">
+    <label for="logo">Logo</label>
+    {% if pt and pt.logo %}
+    <p><img class="admin-thumb" src="{{ url_for('static', filename='uploads/' + pt.logo) }}" alt="Current logo"></p>
+    {% endif %}
+    <input type="file" id="logo" name="logo" accept="image/*">
+    <small>A PNG with a transparent or white background works best.
+      Uploading a new one replaces the old.</small>
+  </div>
+
+  <div class="field">
+    <label for="sort">Sort order</label>
+    <input type="number" id="sort" name="sort" value="{{ pt.sort if pt else 0 }}">
+    <small>Lower numbers appear first.</small>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save partner</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_partners') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
