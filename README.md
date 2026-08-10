@@ -279,33 +279,33 @@ front, the hop counts in `app.py` must go up to match.
 
 ## Upgrading an existing deployment
 
-Schema changes are additive and always run **before** the restart:
+**[DEPLOY.md](DEPLOY.md) is the checklist** — every schema change, newest
+first, with the exact statements and a tick-box per environment. Work
+upwards from the oldest unticked entry, then:
 
 ```bash
 cd /opt/ebwa
 git pull
 source venv/bin/activate
-pip install -r requirements.txt      # pyotp + qrcode are new
-# one-off column additions, on databases created before they existed:
-sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin';"
-sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_secret VARCHAR(64) DEFAULT '';"
-sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;"
-sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN totp_last_counter INTEGER;"
-sqlite3 instance/ebwa.db "ALTER TABLE user ADD COLUMN created_at DATETIME;"
-sqlite3 instance/ebwa.db "ALTER TABLE partner ADD COLUMN logo VARCHAR(255) DEFAULT '';"
-sqlite3 instance/ebwa.db "ALTER TABLE partner ADD COLUMN display_mode VARCHAR(10) NOT NULL DEFAULT 'text';"
-flask --app app init-db      # creates feature_flag, recovery_code, audit_log, service
+pip install -r requirements.txt          # if an entry says so
+sqlite3 instance/ebwa.db ".backup instance/ebwa-before-upgrade.db"
+# ... the ALTER TABLE statements from each unticked entry, oldest first ...
+flask --app app init-db                  # if an entry says so
 sudo systemctl restart ebwa
 ```
 
-`created_at` has to be nullable — SQLite won't accept a
-`CURRENT_TIMESTAMP` default on an added column — so accounts that
-predate it show "—" in the Users list. New accounts are stamped.
+Schema changes are additive and always run **before** the restart — the
+app queries the new columns the moment it starts.
 
-Each `ALTER TABLE` is a one-off — re-running one errors with "duplicate
-column name", which is harmless. Existing admins keep working: they all
-become `role = 'admin'` with two-factor authentication off. Promote the
-Netbus account afterwards with `flask --app app promote-super-admin`.
+Each `ALTER TABLE` is a one-off; re-running one errors with "duplicate
+column name", which is harmless. `init-db` only ever creates what's
+missing. On a brand-new database none of the ALTERs apply — `init-db`
+builds everything at its current shape.
+
+Existing admins keep working: they all become `role = 'admin'` with
+two-factor authentication off. Promote the Netbus account afterwards with
+`flask --app app promote-super-admin`, then tick the boxes in DEPLOY.md
+and commit them.
 
 The server clock matters for 2FA — codes are time-based, so keep NTP
 running (Ubuntu does by default; check with `timedatectl`).

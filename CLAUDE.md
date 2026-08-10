@@ -201,6 +201,23 @@ No migration tool. Schema changes are additive:
    `ALTER TABLE ... ADD COLUMN ...` statement in the change notes, to be
    run with `sqlite3 instance/ebwa.db` before restart.
 4. Never write code that drops tables or deletes data.
+5. **Append an entry to `DEPLOY.md` in the SAME commit.** That file is
+   the only record of what has been applied to which environment; a
+   schema change missing from it gets missed on a deploy, and the site
+   500s on the first request after the restart. Newest entry at the top,
+   with the date, the commit subject, the exact statements (`ALTER
+   TABLE ...` and/or `flask --app app init-db`), anything else the
+   deploy needs (a `pip install`, an env var, a CLI command someone must
+   run afterwards), and unticked boxes for local / demo VPS /
+   production.
+   - This applies to seed-only changes too — new `DEFAULT_BLOCKS` keys
+     or a new seeded list need `init-db` even though no schema moves.
+   - A commit cannot contain its own hash, so head the entry
+     `## (pending) — <date> — <subject>` and backfill the short hash
+     with the next commit. Only the HASH may be backfilled; the entry
+     itself goes in with the change that caused it.
+   - Tick a box only once it has actually been applied to that
+     environment, and commit the tick.
 
 ## Testing
 
