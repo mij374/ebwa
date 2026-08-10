@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-10 — Apply rich content to News and Events
+## ed71f89 — 2026-08-10 — Apply rich content to News and Events
 
 **Nothing to run.** Both models already had their `layout` column and
 `content_image` already exists, so this is templates and routes only —
