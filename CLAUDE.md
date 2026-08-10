@@ -218,6 +218,13 @@ No migration tool. Schema changes are additive:
      itself goes in with the change that caused it.
    - Tick a box only once it has actually been applied to that
      environment, and commit the tick.
+6. `flask --app app check-schema` compares the models against the
+   database, names any missing tables or columns, suggests the
+   `ALTER TABLE` for each, and exits 1 if anything is missing. Run it at
+   the end of every deploy, BEFORE the restart — it turns a missed step
+   into a failed check instead of a 500 for every visitor. It is
+   read-only. Leftover tables from retired modules are reported but
+   never fail it, since this project never drops anything.
 
 ## Testing
 

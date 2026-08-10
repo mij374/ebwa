@@ -7,6 +7,9 @@ First run:
     flask --app app init-db
     flask --app app create-admin admin@ebwa.org.uk
     flask --app app run --debug
+
+After every deploy, before restarting (see DEPLOY.md):
+    flask --app app check-schema
 """
 import base64
 import hmac
@@ -2702,6 +2705,80 @@ def init_db():
     if seeded:
         print("Seeded %d 'What we do' cards." % seeded)
     print("Database initialised.")
+
+
+def _suggested_alter(table_name, col):
+    """A best-effort ALTER TABLE for a column the database is missing.
+
+    SQLite only accepts a CONSTANT default on ADD COLUMN, so a NOT NULL
+    column whose default is computed (a timestamp, say) is suggested as
+    nullable — which is what those columns end up as anyway. Always check
+    the suggestion against the real statement in DEPLOY.md.
+    """
+    ddl_type = col.type.compile(db.engine.dialect)
+    sql = "ALTER TABLE %s ADD COLUMN %s %s" % (table_name, col.name, ddl_type)
+    default = getattr(col.default, "arg", None)
+    if col.default is not None and not callable(default):
+        if isinstance(default, bool):
+            sql += " DEFAULT %d" % int(default)
+        elif isinstance(default, (int, float)):
+            sql += " DEFAULT %s" % default
+        else:
+            sql += " DEFAULT '%s'" % default
+        if not col.nullable:
+            sql = sql.replace(" DEFAULT", " NOT NULL DEFAULT")
+    return sql + ";"
+
+
+@app.cli.command("check-schema")
+def check_schema():
+    """Compare the models against the database; exit 1 if anything is
+    missing. Run it at the end of every deploy, before the restart:
+    flask --app app check-schema"""
+    from sqlalchemy import inspect
+    insp = inspect(db.engine)
+    present = set(insp.get_table_names())
+
+    missing_tables, missing_columns = [], []
+    for table in db.metadata.sorted_tables:
+        if table.name not in present:
+            missing_tables.append(table)
+            continue
+        actual = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in actual:
+                missing_columns.append((table.name, col))
+
+    # Columns and tables the database has but the models no longer do.
+    # Never a failure — this project never drops anything, so retired
+    # modules leave harmless leftovers behind (see DEPLOY.md).
+    model_tables = {t.name for t in db.metadata.sorted_tables}
+    orphan_tables = sorted(present - model_tables)
+
+    if missing_tables:
+        print("MISSING TABLES (%d):" % len(missing_tables))
+        for table in missing_tables:
+            print("  - %s" % table.name)
+        print("  Fix: flask --app app init-db")
+    if missing_columns:
+        print("MISSING COLUMNS (%d):" % len(missing_columns))
+        for table_name, col in missing_columns:
+            print("  - %s.%s" % (table_name, col.name))
+        print("  Fix (check each against DEPLOY.md first):")
+        for table_name, col in missing_columns:
+            print("    %s" % _suggested_alter(table_name, col))
+    if orphan_tables:
+        print("Tables in the database but not in the models: %s"
+              % ", ".join(orphan_tables))
+        print("  Expected for retired modules. Nothing to do: this "
+              "project never drops tables.")
+
+    if missing_tables or missing_columns:
+        print("\nSchema is BEHIND the code. Apply the above BEFORE "
+              "restarting the app.")
+        raise SystemExit(1)
+    print("Schema is up to date: %d tables, all columns present."
+          % len(model_tables))
 
 
 @app.cli.command("create-admin")

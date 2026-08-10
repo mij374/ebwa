@@ -291,11 +291,34 @@ pip install -r requirements.txt          # if an entry says so
 sqlite3 instance/ebwa.db ".backup instance/ebwa-before-upgrade.db"
 # ... the ALTER TABLE statements from each unticked entry, oldest first ...
 flask --app app init-db                  # if an entry says so
+flask --app app check-schema             # must print "Schema is up to date"
 sudo systemctl restart ebwa
 ```
 
 Schema changes are additive and always run **before** the restart — the
 app queries the new columns the moment it starts.
+
+`check-schema` is what stops a missed step becoming an outage. It
+compares the models against the live database and exits non-zero if
+anything is missing, listing the tables and columns and suggesting the
+`ALTER TABLE` for each:
+
+```
+MISSING COLUMNS (2):
+  - partner.logo
+  - partner.display_mode
+  Fix (check each against DEPLOY.md first):
+    ALTER TABLE partner ADD COLUMN logo VARCHAR(255) DEFAULT '';
+    ALTER TABLE partner ADD COLUMN display_mode VARCHAR(10) NOT NULL DEFAULT 'text';
+
+Schema is BEHIND the code. Apply the above BEFORE restarting the app.
+```
+
+**Run it at the end of every deploy, before the restart.** If it doesn't
+say "Schema is up to date", don't restart — fix it first. It only reads
+the database, so it's safe to run whenever you want to know where a
+server stands. Tables left behind by retired modules are listed as
+expected and don't count as a failure.
 
 Each `ALTER TABLE` is a one-off; re-running one errors with "duplicate
 column name", which is harmless. `init-db` only ever creates what's
