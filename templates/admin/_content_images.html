@@ -1,0 +1,104 @@
+{#
+  Reusable image manager + layout picker. Include it from any admin page
+  that owns rich content, with owner_type / owner_id / layout / layouts /
+  images in scope:
+
+    {% include "admin/_content_images.html" %}
+
+  Only shown when the rich_layouts feature flag is on — the including
+  page is responsible for that check.
+#}
+<h1 class="admin-h1" style="margin-top:44px">Page layout</h1>
+<p class="admin-sub">How the words and photos are arranged on the public
+  page. Try one, save, and look at the page — you can change it back at
+  any time.</p>
+
+<form method="post" class="admin-form"
+      action="{{ url_for('admin_layout_save', owner_type=owner_type, owner_id=owner_id) }}">
+  <div class="field">
+    <label for="layout">Layout</label>
+    <select id="layout" name="layout">
+      {% for value, label in layouts %}
+      <option value="{{ value }}" {{ 'selected' if layout == value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <small>Gallery and Alternating need photos below to show their shape;
+      with none, the page falls back to Classic.</small>
+  </div>
+  <button class="btn btn-green" type="submit">Save layout</button>
+</form>
+
+<h1 class="admin-h1" style="margin-top:44px">Photos</h1>
+<p class="admin-sub">The first photo (lowest sort number) is the lead
+  image. Every photo needs alt text — a short description for people using
+  a screen reader.</p>
+
+<form method="post" class="admin-form" enctype="multipart/form-data"
+      style="margin-bottom:30px"
+      action="{{ url_for('admin_image_add', owner_type=owner_type, owner_id=owner_id) }}">
+  <div class="field-row">
+    <div class="field">
+      <label for="image">Photo *</label>
+      <input type="file" id="image" name="image" accept="image/*" required>
+    </div>
+    <div class="field">
+      <label for="sort">Sort order</label>
+      <input type="number" id="sort" name="sort" value="{{ (images|length) * 10 }}">
+    </div>
+  </div>
+  <div class="field">
+    <label for="alt_text">Alt text *</label>
+    <input type="text" id="alt_text" name="alt_text" required maxlength="300"
+           placeholder="e.g. Volunteers serving lunch at the elderly drop-in">
+    <small>Describe what is happening in the photo, not that it is a photo.</small>
+  </div>
+  <div class="field">
+    <label for="caption">Caption</label>
+    <input type="text" id="caption" name="caption" maxlength="300"
+           placeholder="Optional — shown under the photo on the page">
+  </div>
+  <button class="btn btn-green" type="submit">Add photo</button>
+</form>
+
+{% if images %}
+<table class="admin-table">
+  <thead><tr><th>Photo</th><th>Alt text and caption</th><th>Sort</th><th></th></tr></thead>
+  <tbody>
+    {% for img in images %}
+    <tr>
+      <td><img class="admin-thumb" src="{{ url_for('static', filename='uploads/' + img.filename) }}" alt=""></td>
+      <td>
+        <form method="post" id="img{{ img.id }}"
+              action="{{ url_for('admin_image_save', image_id=img.id) }}">
+          <div class="field">
+            <label for="alt{{ img.id }}">Alt text *</label>
+            <input type="text" id="alt{{ img.id }}" name="alt_text" required
+                   maxlength="300" value="{{ img.alt_text }}">
+          </div>
+          <div class="field">
+            <label for="cap{{ img.id }}">Caption</label>
+            <input type="text" id="cap{{ img.id }}" name="caption"
+                   maxlength="300" value="{{ img.caption }}">
+          </div>
+        </form>
+      </td>
+      <td class="nowrap">
+        <input type="number" name="sort" form="img{{ img.id }}"
+               value="{{ img.sort }}" style="width:80px">
+      </td>
+      <td class="nowrap">
+        <button class="table-link" type="submit" form="img{{ img.id }}">Save</button>
+        <form method="post" style="display:inline"
+              action="{{ url_for('admin_image_delete', image_id=img.id) }}"
+              onsubmit="return confirm('Remove this photo from the page?');">
+          <button class="table-link danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-sub">No photos yet. The page shows its single existing
+  image until you add some here.</p>
+{% endif %}

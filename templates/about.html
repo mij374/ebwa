@@ -1,24 +1,12 @@
 {% extends "base.html" %}
+{% from "_rich_content.html" import rich_content %}
 {% block title %}About us — EBWA{% endblock %}
 {% block content %}
 <section>
-  <div class="wrap about-grid">
-    <div>
-      <p class="eyebrow">About us <span class="bn">· আমাদের সম্পর্কে</span></p>
-      <h2>{{ c.get('about_title','About EBWA') }}</h2>
-      <div class="lede">
-        {% for para in c.get('about_body','').split('\n') if para.strip() %}
-        <p style="margin-bottom:14px">{{ para }}</p>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="about-photo">
-      {% if c.get('about_image') %}
-      <img src="{{ url_for('static', filename='uploads/' + c['about_image']) }}" alt="EBWA">
-      {% else %}
-      <div class="img-placeholder">Upload a photo in Admin → Content → about</div>
-      {% endif %}
-    </div>
+  <div class="wrap">
+    <p class="eyebrow">About us <span class="bn">· আমাদের সম্পর্কে</span></p>
+    <h2>{{ c.get('about_title','About EBWA') }}</h2>
+    {{ rich_content(paragraphs, images, layout) }}
   </div>
 </section>
 {% endblock %}

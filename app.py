@@ -180,6 +180,39 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
+# The three rich-content layouts, shared by every content type.
+CONTENT_LAYOUTS = ("classic", "gallery", "alternating")
+CONTENT_LAYOUT_LABELS = (
+    ("classic", "Classic — a lead photo beside the text, the rest in a "
+                "strip underneath"),
+    ("gallery", "Gallery — the text first, then the photos in a grid"),
+    ("alternating", "Alternating — text and photos side by side, swapping "
+                    "sides down the page"),
+)
+
+
+class ContentImage(db.Model):
+    """An image attached to a piece of content, by owner_type + owner_id.
+
+    Generic on purpose: one table, one admin partial and one rendering
+    macro serve About, news posts, events and milestones, rather than a
+    photo table and a bespoke template per module. Singleton owners — the
+    About page, which is Blocks rather than a row — use owner_id 0.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    owner_type = db.Column(db.String(40), nullable=False)  # see CONTENT_OWNERS
+    owner_id = db.Column(db.Integer, nullable=False, default=0)
+    filename = db.Column(db.String(255), nullable=False)   # uploads filename
+    caption = db.Column(db.String(300), default="")
+    alt_text = db.Column(db.String(300), nullable=False, default="")
+    sort = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+    __table_args__ = (
+        db.Index("ix_content_image_owner", "owner_type", "owner_id"),
+    )
+
+
 class Block(db.Model):
     """A named editable content block (text or image) used on public pages."""
     id = db.Column(db.Integer, primary_key=True)
@@ -202,6 +235,7 @@ class Event(db.Model):
     description = db.Column(db.Text, default="")          # full details, paragraphs
     image = db.Column(db.String(255), default="")         # uploads filename
     published = db.Column(db.Boolean, default=True)
+    layout = db.Column(db.String(20), nullable=False, default="classic")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
     @property
@@ -218,6 +252,7 @@ class NewsPost(db.Model):
     body = db.Column(db.Text, default="")                 # full article, paragraphs
     image = db.Column(db.String(255), default="")         # uploads filename
     published = db.Column(db.Boolean, default=True)
+    layout = db.Column(db.String(20), nullable=False, default="classic")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
@@ -308,6 +343,7 @@ class Milestone(db.Model):
     image = db.Column(db.String(255), default="")     # uploads filename
     sort = db.Column(db.Integer, default=0)
     published = db.Column(db.Boolean, default=True)
+    layout = db.Column(db.String(20), nullable=False, default="classic")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
@@ -485,6 +521,178 @@ def blocks_for(group):
     return {b.key: b.value for b in rows}
 
 
+# ------------------------------------------------------- rich content
+# One generic attachment table plus one set of helpers, so a content type
+# opts in by naming itself here and rendering the shared macro. 'about' is
+# the page itself (Blocks, no row), so it uses owner_id 0 and keeps its
+# layout in a Block; the rest keep theirs in a `layout` column.
+CONTENT_OWNERS = {
+    "about": None,
+    "news_post": None,      # filled in below, once the models exist
+    "event": None,
+    "milestone": None,
+}
+ABOUT_LAYOUT_KEY = "about_layout"
+# Blocks the plain content editor must not show as a text box
+HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY,)
+
+
+class LegacyLeadImage:
+    """The old single `about_image` Block, shaped like a ContentImage so
+    the macro can render it without a special case."""
+
+    def __init__(self, filename, alt_text):
+        self.id = None
+        self.filename = filename
+        self.alt_text = alt_text
+        self.caption = ""
+        self.sort = 0
+
+
+def images_for(owner_type, owner_id=0):
+    return (ContentImage.query
+            .filter_by(owner_type=owner_type, owner_id=owner_id)
+            .order_by(ContentImage.sort, ContentImage.id).all())
+
+
+def attach_image(owner_type, owner_id, file_storage, alt_text,
+                 caption="", sort=0):
+    """Store an upload and attach it. Returns (image, error_message).
+
+    Alt text is required, not optional: an image nobody can describe is
+    an image a screen reader user simply loses.
+    """
+    alt_text = (alt_text or "").strip()
+    if not alt_text:
+        return None, ("Please describe the image in the alt text box — it "
+                      "is what people using a screen reader hear.")
+    if not file_storage or not file_storage.filename:
+        return None, "Please choose an image file."
+    name = save_upload(file_storage)      # flashes its own type/size error
+    if not name:
+        return None, None
+    img = ContentImage()
+    img.owner_type = owner_type
+    img.owner_id = owner_id
+    img.filename = name
+    img.alt_text = alt_text[:300]
+    img.caption = (caption or "").strip()[:300]
+    img.sort = sort
+    db.session.add(img)
+    db.session.commit()
+    return img, None
+
+
+def _upload_still_referenced(filename, excluding_id=None):
+    """True if some other row still points at this file — another
+    attachment, or a Block (the legacy single About image, which stays
+    put so the flag-off view keeps working)."""
+    q = ContentImage.query.filter_by(filename=filename)
+    if excluding_id is not None:
+        q = q.filter(ContentImage.id != excluding_id)
+    if q.first():
+        return True
+    return Block.query.filter_by(kind="image",
+                                 value=filename).first() is not None
+
+
+def delete_content_image(img):
+    """Detach an image, and delete its file unless something else uses it."""
+    filename, img_id = img.filename, img.id
+    db.session.delete(img)
+    db.session.commit()
+    if not _upload_still_referenced(filename, excluding_id=img_id):
+        delete_upload(filename)
+
+
+def delete_images_for(owner_type, owner_id):
+    """Cascade for a deleted owner: attachments and their files go too."""
+    gone = images_for(owner_type, owner_id)
+    for img in gone:
+        delete_content_image(img)
+    return len(gone)
+
+
+def layout_for(owner_type, owner_id=0):
+    """The chosen preset, always one of CONTENT_LAYOUTS."""
+    if owner_type == "about":
+        block = Block.query.filter_by(key=ABOUT_LAYOUT_KEY).first()
+        value = block.value if block else ""
+    else:
+        model = CONTENT_OWNERS.get(owner_type)
+        obj = db.session.get(model, owner_id) if model else None
+        value = getattr(obj, "layout", "") if obj else ""
+    return value if value in CONTENT_LAYOUTS else "classic"
+
+
+def set_layout(owner_type, owner_id, value):
+    if value not in CONTENT_LAYOUTS:
+        return False
+    if owner_type == "about":
+        block = Block.query.filter_by(key=ABOUT_LAYOUT_KEY).first()
+        if not block:
+            return False
+        block.value = value
+    else:
+        model = CONTENT_OWNERS.get(owner_type)
+        obj = db.session.get(model, owner_id) if model else None
+        if not obj:
+            return False
+        obj.layout = value
+    db.session.commit()
+    return True
+
+
+def migrate_about_lead_image():
+    """Bring the old single `about_image` into ContentImage the first time
+    the manager is used, so nothing is lost when About goes rich.
+
+    The Block keeps its value: it is what the site falls back to when the
+    rich_layouts flag is off, and `_upload_still_referenced` stops the
+    shared file being deleted out from under it.
+    """
+    if images_for("about"):
+        return None
+    block = Block.query.filter_by(key="about_image").first()
+    if not block or not block.value:
+        return None
+    img = ContentImage()
+    img.owner_type = "about"
+    img.owner_id = 0
+    img.filename = block.value
+    img.alt_text = "Enfield Bangladesh Welfare Association"
+    img.sort = 0
+    db.session.add(img)
+    db.session.commit()
+    return img
+
+
+def paragraphs_of(text):
+    """Body text into paragraphs — the existing blank-line convention."""
+    return [p.strip() for p in (text or "").split("\n") if p.strip()]
+
+
+@app.template_global("interleave_content")
+def interleave_content(paragraphs, images):
+    """Pair paragraphs with images for the alternating preset.
+
+    Paragraphs are spread as evenly as the image count allows; anything
+    left over becomes a final text-only row, and spare images get rows of
+    their own. Never drops either.
+    """
+    if not images:
+        return [{"paragraphs": paragraphs, "image": None}]
+    per = max(1, -(-len(paragraphs) // len(images)))     # ceiling division
+    rows, taken = [], 0
+    for img in images:
+        rows.append({"paragraphs": paragraphs[taken:taken + per],
+                     "image": img})
+        taken += per
+    if taken < len(paragraphs):
+        rows.append({"paragraphs": paragraphs[taken:], "image": None})
+    return rows
+
+
 # ------------------------------------------------------- feature flags
 # The optional/phased modules Netbus can switch on or off per site. Core
 # pages (home, about, events, gallery, contact) are deliberately NOT
@@ -504,11 +712,20 @@ FEATURES = [
     ("donations", "Donations & collections",
      "The /donate page, collection campaign pages and the homepage "
      "collections strip.", True),
+    ("rich_layouts", "Rich page layouts",
+     "Whether the layout chooser and multi-image manager appear in the "
+     "admin. With it off every page renders in the classic layout with "
+     "its single image, exactly as before.", True),
     ("audit_log", "Audit log (client visibility)",
      "Whether EBWA's own admins can see the audit log page. Recording "
      "never stops, and super admins can always read it — this only "
      "decides whether the client sees the page.", True),
 ]
+
+# Owner types point at their models now that both exist. 'about' stays
+# None: it is the page, not a row.
+CONTENT_OWNERS.update({"news_post": NewsPost, "event": Event,
+                       "milestone": Milestone})
 
 FEATURE_DEFAULTS = {name: default for name, _l, _d, default in FEATURES}
 FEATURE_LABELS = {name: label for name, label, _d, _de in FEATURES}
@@ -924,7 +1141,17 @@ def robots():
 
 @app.route("/about")
 def about():
-    return render_template("about.html", c=blocks_for("about"))
+    c = blocks_for("about")
+    # With rich layouts off the page is exactly what it always was: the
+    # classic preset with the one about_image.
+    rich = feature_enabled("rich_layouts")
+    layout = layout_for("about") if rich else "classic"
+    images = images_for("about") if rich else []
+    if not images and c.get("about_image"):
+        images = [LegacyLeadImage(c["about_image"],
+                                  "Enfield Bangladesh Welfare Association")]
+    return render_template("about.html", c=c, layout=layout, images=images,
+                           paragraphs=paragraphs_of(c.get("about_body", "")))
 
 
 @app.route("/events")
@@ -1456,7 +1683,10 @@ def admin_dashboard():
 def admin_content():
     group = request.args.get("group", "home")
     groups = [g[0] for g in db.session.query(Block.group).distinct().order_by(Block.group)]
-    blocks = Block.query.filter_by(group=group).order_by(Block.sort).all()
+    # about_layout is chosen with the layout picker, not typed into a box
+    blocks = (Block.query.filter_by(group=group)
+              .filter(Block.key.notin_(HIDDEN_BLOCK_KEYS))
+              .order_by(Block.sort).all())
 
     if request.method == "POST":
         changed = []          # block keys, never the text that was typed
@@ -1481,8 +1711,148 @@ def admin_content():
         flash("Content saved.", "ok")
         return redirect(url_for("admin_content", group=group))
 
+    # The About tab also carries the layout picker and image manager.
+    rich = group == "about" and feature_enabled("rich_layouts")
     return render_template("admin/content.html", blocks=blocks,
-                           group=group, groups=groups)
+                           group=group, groups=groups, rich=rich,
+                           owner_type="about", owner_id=0,
+                           layouts=CONTENT_LAYOUT_LABELS,
+                           layout=layout_for("about"),
+                           images=images_for("about"))
+
+
+# ---------------------------------------------------------------- admin: content images
+# Generic: any owner_type in CONTENT_OWNERS uses these four routes and the
+# admin/_content_images.html partial. Only About is wired up so far.
+def owner_admin_url(owner_type, owner_id):
+    """Where to send the admin back to after changing an owner's images."""
+    if owner_type == "about":
+        return url_for("admin_content", group="about")
+    endpoints = {"news_post": ("admin_news_form", "post_id"),
+                 "event": ("admin_event_form", "event_id"),
+                 "milestone": ("admin_milestone_form", "milestone_id")}
+    if owner_type in endpoints:
+        endpoint, arg = endpoints[owner_type]
+        return url_for(endpoint, **{arg: owner_id})
+    return url_for("admin_dashboard")
+
+
+def rich_layouts_available():
+    """The flag gates the admin UI. Refused server-side too, so a stale
+    tab cannot post to a feature the client has switched off."""
+    if feature_enabled("rich_layouts"):
+        return True
+    flash("Rich page layouts are switched off for this site.", "error")
+    return False
+
+
+def known_owner(owner_type, owner_id):
+    if owner_type not in CONTENT_OWNERS:
+        return False
+    if owner_type == "about":
+        return owner_id == 0
+    model = CONTENT_OWNERS[owner_type]
+    return db.session.get(model, owner_id) is not None
+
+
+@app.route("/admin/content-images/<owner_type>/<int:owner_id>/add",
+           methods=["POST"])
+@login_required
+def admin_image_add(owner_type, owner_id):
+    if not rich_layouts_available():
+        return redirect(owner_admin_url(owner_type, owner_id))
+    if not known_owner(owner_type, owner_id):
+        abort(404)
+    # Check the alt text BEFORE migrating, so a rejected upload leaves
+    # everything exactly as it was.
+    if not request.form.get("alt_text", "").strip():
+        flash("Please describe the image in the alt text box — it is what "
+              "people using a screen reader hear.", "error")
+        return redirect(owner_admin_url(owner_type, owner_id))
+    if owner_type == "about":
+        migrate_about_lead_image()      # keep the old single image first
+    try:
+        sort = int(request.form.get("sort", "0"))
+    except ValueError:
+        sort = 0
+    img, error = attach_image(owner_type, owner_id,
+                              request.files.get("image"),
+                              request.form.get("alt_text", ""),
+                              request.form.get("caption", ""), sort)
+    if error:
+        flash(error, "error")
+    elif img:
+        log_action("create", entity=img,
+                   summary="Added an image to %s." % owner_type)
+        flash("Image added.", "ok")
+    return redirect(owner_admin_url(owner_type, owner_id))
+
+
+@app.route("/admin/content-images/<int:image_id>/save", methods=["POST"])
+@login_required
+def admin_image_save(image_id):
+    img = db.session.get(ContentImage, image_id) or abort(404)
+    if not rich_layouts_available():
+        return redirect(owner_admin_url(img.owner_type, img.owner_id))
+    alt_text = request.form.get("alt_text", "").strip()
+    if not alt_text:
+        flash("Alt text cannot be emptied — it is what screen readers "
+              "announce.", "error")
+        return redirect(owner_admin_url(img.owner_type, img.owner_id))
+    try:
+        sort = int(request.form.get("sort", "0"))
+    except ValueError:
+        sort = img.sort
+    values = {"alt_text": alt_text[:300],
+              "caption": request.form.get("caption", "").strip()[:300],
+              "sort": sort}
+    changed = changed_fields(img, values)
+    apply_values(img, values)
+    db.session.commit()
+    log_action("edit", entity=img,
+               summary=save_summary("image on %s" % img.owner_type,
+                                    img.filename, False, changed))
+    flash("Image updated.", "ok")
+    return redirect(owner_admin_url(img.owner_type, img.owner_id))
+
+
+@app.route("/admin/content-images/<int:image_id>/delete", methods=["POST"])
+@login_required
+def admin_image_delete(image_id):
+    img = db.session.get(ContentImage, image_id) or abort(404)
+    if not rich_layouts_available():
+        return redirect(owner_admin_url(img.owner_type, img.owner_id))
+    owner_type, owner_id = img.owner_type, img.owner_id
+    gone, filename = ("ContentImage", img.id), img.filename
+    delete_content_image(img)
+    log_action("delete", entity=gone,
+               summary="Removed the image %s from %s." % (filename, owner_type))
+    flash("Image removed.", "ok")
+    return redirect(owner_admin_url(owner_type, owner_id))
+
+
+@app.route("/admin/content-images/<owner_type>/<int:owner_id>/layout",
+           methods=["POST"])
+@login_required
+def admin_layout_save(owner_type, owner_id):
+    if not rich_layouts_available():
+        return redirect(owner_admin_url(owner_type, owner_id))
+    if not known_owner(owner_type, owner_id):
+        abort(404)
+    if owner_type == "about":
+        migrate_about_lead_image()
+    value = request.form.get("layout", "")
+    was = layout_for(owner_type, owner_id)
+    if not set_layout(owner_type, owner_id, value):
+        flash("Unknown layout.", "error")
+    else:
+        log_action("edit", entity=("Layout", owner_id),
+                   summary="Set the %s layout to %s (%s)."
+                           % (owner_type, value,
+                              describe_changes(["layout"] if value != was
+                                               else [])))
+        flash("Layout saved.", "ok")
+    return redirect(owner_admin_url(owner_type, owner_id))
 
 
 # ---------------------------------------------------------------- admin: events
@@ -1546,6 +1916,7 @@ def admin_event_form(event_id=None):
 def admin_event_delete(event_id):
     ev = db.session.get(Event, event_id) or abort(404)
     gone, title = ("Event", ev.id), ev.title
+    delete_images_for("event", ev.id)
     delete_upload(ev.image)
     db.session.delete(ev)
     db.session.commit()
@@ -1616,6 +1987,7 @@ def admin_news_form(post_id=None):
 def admin_news_delete(post_id):
     post = db.session.get(NewsPost, post_id) or abort(404)
     gone, title = ("NewsPost", post.id), post.title
+    delete_images_for("news_post", post.id)
     delete_upload(post.image)
     db.session.delete(post)
     db.session.commit()
@@ -2008,6 +2380,7 @@ def admin_milestone_form(milestone_id=None):
 def admin_milestone_delete(milestone_id):
     m = db.session.get(Milestone, milestone_id) or abort(404)
     gone, title = ("Milestone", m.id), m.title
+    delete_images_for("milestone", m.id)
     delete_upload(m.image)
     db.session.delete(m)
     db.session.commit()
@@ -2605,6 +2978,8 @@ DEFAULT_BLOCKS = [
      "Founded by Choudhury Mohammed Anwar MBE, former Mayor of Enfield, EBWA provides "
      "education, welfare and social support to the whole community."),
     ("about", "about_image", "Founder / about photo", "image", ""),
+    # Chosen through the layout picker, not the plain text editor.
+    ("about", "about_layout", "Page layout", "text", "classic"),
     ("journey", "journey_intro", "Intro text", "text",
      "From our earliest gatherings to the projects we run today, this is "
      "the story of EBWA's work in Enfield — the milestones we have reached "

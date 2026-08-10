@@ -1,0 +1,81 @@
+{#
+  The shared rich-content macro. One call renders any content type in any
+  of the three presets, so About, news, events and Our Journey all read
+  from the same markup and the same CSS.
+
+    {% from "_rich_content.html" import rich_content %}
+    {{ rich_content(paragraphs, images, layout) }}
+
+  paragraphs — list of strings (see paragraphs_of())
+  images     — ContentImage rows, or a LegacyLeadImage stand-in
+  layout     — 'classic' | 'gallery' | 'alternating'
+
+  Every image is lazy-loaded and sits in a box with a fixed aspect-ratio,
+  so nothing jumps around as the page loads.
+#}
+
+{% macro _figure(img, ratio) %}
+<figure class="rc-figure" style="--rc-ratio: {{ ratio }}">
+  <img src="{{ url_for('static', filename='uploads/' + img.filename) }}"
+       alt="{{ img.alt_text }}" loading="lazy" decoding="async">
+  {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
+</figure>
+{% endmacro %}
+
+
+{% macro rich_content(paragraphs, images, layout='classic') %}
+{% set images = images or [] %}
+
+{#- ------------------------------------------------------- gallery -#}
+{% if layout == 'gallery' and images %}
+<div class="rc rc-gallery">
+  <div class="rc-text">
+    {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
+  </div>
+  <div class="rc-masonry">
+    {% for img in images %}{{ _figure(img, '4 / 3') }}{% endfor %}
+  </div>
+</div>
+
+{#- --------------------------------------------------- alternating -#}
+{% elif layout == 'alternating' and images %}
+<div class="rc rc-alt">
+  {% for row in interleave_content(paragraphs, images) %}
+  {#- A row with no words left to pair becomes a full-width band, rather
+      than an image marooned beside an empty column. -#}
+  <div class="rc-alt-row{{ ' is-flipped' if loop.index is divisibleby 2 }}{{ ' is-textonly' if not row.image }}{{ ' is-mediaonly' if row.image and not row.paragraphs }}">
+    {% if row.paragraphs %}
+    <div class="rc-text">
+      {% for para in row.paragraphs %}<p>{{ para }}</p>{% endfor %}
+    </div>
+    {% endif %}
+    {% if row.image %}
+    <div class="rc-alt-media">{{ _figure(row.image, '5 / 4') }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{#- ------------------------------------------------------- classic -#}
+{% else %}
+<div class="rc rc-classic">
+  <div class="rc-classic-top">
+    <div class="rc-text">
+      {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
+    </div>
+    {% if images %}
+    <div class="rc-lead">{{ _figure(images[0], '4 / 3.4') }}</div>
+    {% else %}
+    <div class="rc-lead">
+      <div class="img-placeholder">Upload a photo in Admin → Content → about</div>
+    </div>
+    {% endif %}
+  </div>
+  {% if images|length > 1 %}
+  <div class="rc-strip">
+    {% for img in images[1:] %}{{ _figure(img, '1 / 1') }}{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}

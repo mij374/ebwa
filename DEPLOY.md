@@ -59,6 +59,33 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-10 — Add the rich-content system, applied to About
+
+New `content_image` table, plus a `layout` column on the three content
+models that will use the presets next.
+
+```sql
+ALTER TABLE event ADD COLUMN layout VARCHAR(20) NOT NULL DEFAULT 'classic';
+ALTER TABLE milestone ADD COLUMN layout VARCHAR(20) NOT NULL DEFAULT 'classic';
+ALTER TABLE news_post ADD COLUMN layout VARCHAR(20) NOT NULL DEFAULT 'classic';
+```
+
+```bash
+flask --app app init-db     # creates content_image, seeds about_layout + the flag
+```
+
+Only About renders the presets so far; the three columns default to
+`classic` and are inert until news, events and Our Journey are wired up.
+The existing single About image is untouched on disk and keeps working —
+it migrates into `content_image` the first time someone uses the image
+manager. Nothing changes on the public site until then.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## b092725 — 2026-08-09 — Add partner logos and a header Donate button
 
 Two new columns on `partner`. No new tables.

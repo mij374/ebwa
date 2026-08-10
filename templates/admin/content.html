@@ -30,4 +30,8 @@
   {% endfor %}
   <button class="btn btn-green" type="submit">Save changes</button>
 </form>
+
+{% if rich %}
+{% include "admin/_content_images.html" %}
+{% endif %}
 {% endblock %}

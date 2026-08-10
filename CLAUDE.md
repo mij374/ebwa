@@ -51,6 +51,32 @@ Built and maintained by Netbus IT Support.
   `db.session.add()` it just before `commit()`. Adding an empty object
   early triggers autoflush inserts of half-populated rows during
   intermediate queries (e.g. slug-uniqueness checks).
+- Rich content (multiple images + layout presets) is deliberately
+  generic: ONE `ContentImage` table keyed by `owner_type`/`owner_id`, one
+  admin partial (`admin/_content_images.html`) and one rendering macro
+  (`_rich_content.html`). Do not add a photo table or a bespoke gallery
+  template to a module — wire it into this instead.
+  - To give a content type rich content: add it to `CONTENT_OWNERS`, give
+    it a `layout` column (About has no row, so it uses the `about_layout`
+    Block and owner_id 0), include the admin partial on its form page,
+    and call `rich_content(paragraphs, images, layout)` in its template.
+    `owner_admin_url()` needs a case so the admin redirects back sensibly.
+  - Go through `images_for()` / `attach_image()` / `delete_content_image()`
+    / `delete_images_for()` — never `ContentImage.query.delete()` or a
+    bare `delete_upload()`. The delete helper checks whether another row
+    or a Block still points at the file before removing it, which is what
+    stops the legacy single image being deleted out from under the
+    flag-off view.
+  - **Every owner's delete route must call `delete_images_for()`** or
+    attachments and files are orphaned.
+  - Alt text is REQUIRED on upload and cannot be emptied by an edit. An
+    image nobody can describe is one a screen reader user simply loses.
+    Images are lazy-loaded and every figure carries an aspect-ratio, so
+    the page does not jump as they arrive.
+  - The three presets (`CONTENT_LAYOUTS`) must stay visually distinct —
+    that is the point of offering them. Reading width is capped at 68ch
+    in all three. Any transition is already covered by the global
+    prefers-reduced-motion rule at the top of the stylesheet.
 - Image uploads: always use the existing `save_upload()` /
   `delete_upload()` helpers (extension whitelist, UUID rename, 8 MB cap).
   When replacing an image, delete the old file after a successful save.
@@ -384,6 +410,12 @@ Built (post-signing variation, Jul 2026):
   headings and field labels became Blocks in the same change, so every
   text string in that section is editable. Deploy: new table only —
   `flask --app app init-db`.
+- Rich content system (rules above): `ContentImage` + the three layout
+  presets, behind the `rich_layouts` flag. **Applied to About only so
+  far** — News, Events and Our Journey have their `layout` column and a
+  delete cascade already, but still render their own templates. Wiring
+  each one up is now template work plus an include. Deploy: new table
+  and three columns (see DEPLOY.md).
 - Partner cards can show a logo: `Partner.display_mode` ('text' |
   'image' | 'both', see `PARTNER_MODES`) plus an optional `logo` upload,
   with admin CRUD moved to the list + form-page pattern so logos can be

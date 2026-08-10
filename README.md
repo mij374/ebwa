@@ -156,6 +156,37 @@ is no analytics, advertising or tracking of any kind, so the notice is
 it. If analytics is ever added, that changes: the law then requires a
 proper consent flow, not this banner. Raise it with Netbus first.
 
+## Page layouts and photos (About)
+
+Open **Page content → About** in the admin. Below the usual text boxes
+there are two new panels.
+
+**Page layout** picks how the words and photos are arranged:
+
+| Layout | What it looks like |
+| --- | --- |
+| **Classic** | A lead photo beside the text, any others in a strip underneath |
+| **Gallery** | The text first, then the photos in a staggered grid |
+| **Alternating** | Text and photos side by side, swapping sides down the page |
+
+Try one, save, and look at the page — you can change back at any time,
+and no photos are lost either way. Gallery and Alternating need photos to
+show their shape; with none, the page falls back to Classic.
+
+**Photos** adds as many images as you like. The one with the lowest sort
+number is the lead image; change the numbers to reorder. Every photo
+needs **alt text** — a short description of what is happening in it, read
+aloud to people using a screen reader. The form won't accept a photo
+without it, and won't let you empty it later. Captions are optional and
+appear under the photo on the page.
+
+The single "About photo" you already had keeps working and becomes the
+lead image the first time you use the manager, so nothing is lost.
+
+Netbus can hide both panels with the **Rich page layouts** flag in
+Settings; with it off the page renders the classic layout with that one
+photo, exactly as it did before.
+
 ## Partner logos
 
 **Partners** in the admin sidebar. Each partner card can show the
