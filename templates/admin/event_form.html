@@ -63,4 +63,10 @@
     <a class="btn btn-ghost" href="{{ url_for('admin_events') }}">Cancel</a>
   </div>
 </form>
+
+{% if rich %}
+{% include "admin/_content_images.html" %}
+{% elif rich_hint %}
+<p class="admin-sub" style="margin-top:36px">Save this first, then come back to choose a layout and add photos.</p>
+{% endif %}
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_rich_content.html" import rich_content %}
 {% block title %}{{ post.title }} — EBWA News{% endblock %}
 {% block content %}
 <section>
@@ -8,14 +9,7 @@
     <div class="event-meta">
       <span>📅 {{ post.published_date.strftime('%A %d %B %Y') }}</span>
     </div>
-    {% if post.image %}
-    <img class="event-hero" src="{{ url_for('static', filename='uploads/' + post.image) }}" alt="">
-    {% endif %}
-    <div class="event-body">
-      {% for para in post.body.split('\n') if para.strip() %}
-      <p>{{ para }}</p>
-      {% endfor %}
-    </div>
+    {{ rich_content(paragraphs, images, layout) }}
   </div>
 </section>
 {% endblock %}

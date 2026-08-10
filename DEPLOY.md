@@ -59,6 +59,22 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-10 — Apply rich content to News and Events
+
+**Nothing to run.** Both models already had their `layout` column and
+`content_image` already exists, so this is templates and routes only —
+confirmed with `flask --app app check-schema`.
+
+Each post and event keeps its single image until someone opens the new
+manager on it, at which point that image becomes the lead attachment and
+the `image` column keeps its value for the listing cards.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 7921130 — 2026-08-10 — Add the rich-content system, applied to About
 
 New `content_image` table, plus a `layout` column on the three content

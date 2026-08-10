@@ -643,28 +643,62 @@ def set_layout(owner_type, owner_id, value):
     return True
 
 
-def migrate_about_lead_image():
-    """Bring the old single `about_image` into ContentImage the first time
-    the manager is used, so nothing is lost when About goes rich.
+def legacy_lead_image(owner_type, owner_id=0):
+    """The single image a content type had before rich layouts: the
+    `about_image` Block for About, the `image` column for the rest.
+    Returns (filename, alt_text) or (None, None)."""
+    if owner_type == "about":
+        block = Block.query.filter_by(key="about_image").first()
+        filename = block.value if block else ""
+        return (filename or None,
+                "Enfield Bangladesh Welfare Association")
+    model = CONTENT_OWNERS.get(owner_type)
+    obj = db.session.get(model, owner_id) if model else None
+    filename = getattr(obj, "image", "") if obj else ""
+    return (filename or None, getattr(obj, "title", "") if obj else "")
 
-    The Block keeps its value: it is what the site falls back to when the
-    rich_layouts flag is off, and `_upload_still_referenced` stops the
-    shared file being deleted out from under it.
+
+def migrate_legacy_lead_image(owner_type, owner_id=0):
+    """Bring the old single image into ContentImage the first time the
+    manager is used, so nothing is lost when a page goes rich.
+
+    The original column or Block keeps its value: it is what the site
+    falls back to when the rich_layouts flag is off, what the listing
+    cards still use, and `_upload_still_referenced` stops the shared file
+    being deleted out from under either.
     """
-    if images_for("about"):
+    if images_for(owner_type, owner_id):
         return None
-    block = Block.query.filter_by(key="about_image").first()
-    if not block or not block.value:
+    filename, alt_text = legacy_lead_image(owner_type, owner_id)
+    if not filename:
         return None
     img = ContentImage()
-    img.owner_type = "about"
-    img.owner_id = 0
-    img.filename = block.value
-    img.alt_text = "Enfield Bangladesh Welfare Association"
+    img.owner_type = owner_type
+    img.owner_id = owner_id
+    img.filename = filename
+    img.alt_text = alt_text or "Photograph"
     img.sort = 0
     db.session.add(img)
     db.session.commit()
     return img
+
+
+def rich_content_for(owner_type, owner_id=0):
+    """Everything a detail page needs: (layout, images).
+
+    With the rich_layouts flag off this is always the classic preset with
+    the one legacy image, so a site can ship either way.
+    """
+    if not feature_enabled("rich_layouts"):
+        layout, images = "classic", []
+    else:
+        layout = layout_for(owner_type, owner_id)
+        images = images_for(owner_type, owner_id)
+    if not images:
+        filename, alt_text = legacy_lead_image(owner_type, owner_id)
+        if filename:
+            images = [LegacyLeadImage(filename, alt_text or "Photograph")]
+    return layout, images
 
 
 def paragraphs_of(text):
@@ -1142,14 +1176,7 @@ def robots():
 @app.route("/about")
 def about():
     c = blocks_for("about")
-    # With rich layouts off the page is exactly what it always was: the
-    # classic preset with the one about_image.
-    rich = feature_enabled("rich_layouts")
-    layout = layout_for("about") if rich else "classic"
-    images = images_for("about") if rich else []
-    if not images and c.get("about_image"):
-        images = [LegacyLeadImage(c["about_image"],
-                                  "Enfield Bangladesh Welfare Association")]
+    layout, images = rich_content_for("about")
     return render_template("about.html", c=c, layout=layout, images=images,
                            paragraphs=paragraphs_of(c.get("about_body", "")))
 
@@ -1169,7 +1196,10 @@ def events():
 @app.route("/events/<slug>")
 def event_detail(slug):
     ev = Event.query.filter_by(slug=slug, published=True).first_or_404()
-    return render_template("event_detail.html", ev=ev)
+    layout, images = rich_content_for("event", ev.id)
+    return render_template("event_detail.html", ev=ev, layout=layout,
+                           images=images,
+                           paragraphs=paragraphs_of(ev.description))
 
 
 @app.route("/news")
@@ -1185,7 +1215,9 @@ def news():
 @feature_required("news")
 def news_detail(slug):
     post = NewsPost.query.filter_by(slug=slug, published=True).first_or_404()
-    return render_template("news_detail.html", post=post)
+    layout, images = rich_content_for("news_post", post.id)
+    return render_template("news_detail.html", post=post, layout=layout,
+                           images=images, paragraphs=paragraphs_of(post.body))
 
 
 @app.route("/gallery")
@@ -1737,6 +1769,27 @@ def owner_admin_url(owner_type, owner_id):
     return url_for("admin_dashboard")
 
 
+def rich_admin_context(owner_type, obj):
+    """Template context for the shared image manager on an admin form.
+
+    `rich` is False on a brand-new record: there is no owner to hang
+    images off until it has been saved once, so the form says so rather
+    than offering a manager that cannot work.
+    """
+    if obj is None or not feature_enabled("rich_layouts"):
+        return {"rich": False,
+                # Only nudge when the feature is on and the record is new
+                "rich_hint": obj is None and feature_enabled("rich_layouts"),
+                "owner_type": owner_type, "owner_id": 0,
+                "layouts": CONTENT_LAYOUT_LABELS, "layout": "classic",
+                "images": []}
+    return {"rich": True, "rich_hint": False,
+            "owner_type": owner_type, "owner_id": obj.id,
+            "layouts": CONTENT_LAYOUT_LABELS,
+            "layout": layout_for(owner_type, obj.id),
+            "images": images_for(owner_type, obj.id)}
+
+
 def rich_layouts_available():
     """The flag gates the admin UI. Refused server-side too, so a stale
     tab cannot post to a feature the client has switched off."""
@@ -1769,8 +1822,7 @@ def admin_image_add(owner_type, owner_id):
         flash("Please describe the image in the alt text box — it is what "
               "people using a screen reader hear.", "error")
         return redirect(owner_admin_url(owner_type, owner_id))
-    if owner_type == "about":
-        migrate_about_lead_image()      # keep the old single image first
+    migrate_legacy_lead_image(owner_type, owner_id)   # keep the old one first
     try:
         sort = int(request.form.get("sort", "0"))
     except ValueError:
@@ -1839,8 +1891,7 @@ def admin_layout_save(owner_type, owner_id):
         return redirect(owner_admin_url(owner_type, owner_id))
     if not known_owner(owner_type, owner_id):
         abort(404)
-    if owner_type == "about":
-        migrate_about_lead_image()
+    migrate_legacy_lead_image(owner_type, owner_id)
     value = request.form.get("layout", "")
     was = layout_for(owner_type, owner_id)
     if not set_layout(owner_type, owner_id, value):
@@ -1908,7 +1959,8 @@ def admin_event_form(event_id=None):
             flash("Event saved.", "ok")
             return redirect(url_for("admin_events"))
 
-    return render_template("admin/event_form.html", ev=ev)
+    return render_template("admin/event_form.html", ev=ev,
+                           **rich_admin_context("event", ev))
 
 
 @app.route("/admin/events/<int:event_id>/delete", methods=["POST"])
@@ -1979,7 +2031,8 @@ def admin_news_form(post_id=None):
             flash("News post saved.", "ok")
             return redirect(url_for("admin_news"))
 
-    return render_template("admin/news_form.html", post=post)
+    return render_template("admin/news_form.html", post=post,
+                           **rich_admin_context("news_post", post))
 
 
 @app.route("/admin/news/<int:post_id>/delete", methods=["POST"])

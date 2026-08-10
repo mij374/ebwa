@@ -156,10 +156,13 @@ is no analytics, advertising or tracking of any kind, so the notice is
 it. If analytics is ever added, that changes: the law then requires a
 proper consent flow, not this banner. Raise it with Netbus first.
 
-## Page layouts and photos (About)
+## Page layouts and photos
 
-Open **Page content → About** in the admin. Below the usual text boxes
-there are two new panels.
+Available on the **About** page (Page content → About), and on every
+**news post** and **event** — open one for editing and the same two
+panels appear below the usual form. A brand-new post or event has to be
+saved once before its photos can be added, since there is nothing to
+attach them to until then.
 
 **Page layout** picks how the words and photos are arranged:
 
@@ -180,8 +183,10 @@ aloud to people using a screen reader. The form won't accept a photo
 without it, and won't let you empty it later. Captions are optional and
 appear under the photo on the page.
 
-The single "About photo" you already had keeps working and becomes the
-lead image the first time you use the manager, so nothing is lost.
+The single photo an item already had keeps working and becomes the lead
+image the first time you use the manager, so nothing is lost. Listing
+pages and homepage cards always show that lead photo only — the extra
+photos appear on the full page.
 
 Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one

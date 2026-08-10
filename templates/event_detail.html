@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_rich_content.html" import rich_content %}
 {% block title %}{{ ev.title }} — EBWA Events{% endblock %}
 {% block content %}
 <section>
@@ -11,14 +12,7 @@
       {% if ev.venue %}<span>📍 {{ ev.venue }}</span>{% endif %}
       {% if ev.is_past %}<span class="badge-past">Past event</span>{% endif %}
     </div>
-    {% if ev.image %}
-    <img class="event-hero" src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">
-    {% endif %}
-    <div class="event-body">
-      {% for para in ev.description.split('\n') if para.strip() %}
-      <p>{{ para }}</p>
-      {% endfor %}
-    </div>
+    {{ rich_content(paragraphs, images, layout) }}
   </div>
 </section>
 {% endblock %}

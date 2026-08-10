@@ -411,11 +411,14 @@ Built (post-signing variation, Jul 2026):
   text string in that section is editable. Deploy: new table only —
   `flask --app app init-db`.
 - Rich content system (rules above): `ContentImage` + the three layout
-  presets, behind the `rich_layouts` flag. **Applied to About only so
-  far** — News, Events and Our Journey have their `layout` column and a
-  delete cascade already, but still render their own templates. Wiring
-  each one up is now template work plus an include. Deploy: new table
-  and three columns (see DEPLOY.md).
+  presets, behind the `rich_layouts` flag. **Applied to About, News and
+  Events.** Our Journey has its `layout` column and delete cascade but
+  still renders its own template — wiring it up is `rich_content_for()`
+  in the route, the macro in the detail template, and
+  `rich_admin_context()` + the partial on the admin form. Listing and
+  card views deliberately keep using the single `image` column, so a
+  post's lead photo is the one that appears in a card.
+  Deploy: table and columns landed with the About commit (see DEPLOY.md).
 - Partner cards can show a logo: `Partner.display_mode` ('text' |
   'image' | 'both', see `PARTNER_MODES`) plus an optional `logo` upload,
   with admin CRUD moved to the list + form-page pattern so logos can be
