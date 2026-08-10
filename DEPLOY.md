@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-10 — Add the rich-content system, applied to About
+## 7921130 — 2026-08-10 — Add the rich-content system, applied to About
 
 New `content_image` table, plus a `layout` column on the three content
 models that will use the presets next.
