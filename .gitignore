@@ -6,3 +6,8 @@ tests/test_ebwa.db*
 *.pyc
 venv/
 .env
+
+# OS file-manager clutter
+Thumbs.db
+desktop.ini
+.DS_Store
