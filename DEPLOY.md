@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — FAQ module
+## 4c97233 — 2026-08-21 — FAQ module
 
 New table, no `ALTER TABLE`.
 
