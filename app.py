@@ -46,6 +46,16 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
+# Where this install lives on its server. NOTHING reads or writes these
+# paths — they exist so the admin can print accurate instructions (the
+# "how to change the SMTP password" box on Settings). A deployment
+# somewhere else sets these variables and the instructions follow it
+# instead of confidently telling somebody the wrong path.
+DEPLOY_ENV_FILE = os.environ.get("DEPLOY_ENV_FILE", "/etc/ebwa/env")
+DEPLOY_PATH = os.environ.get("DEPLOY_PATH", "/opt/ebwa")
+DEPLOY_SERVICE = os.environ.get("DEPLOY_SERVICE", "ebwa")
+DEPLOY_USER = os.environ.get("DEPLOY_USER", "www-data")
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
 ALLOWED_EXT = {"jpg", "jpeg", "png", "webp", "gif"}
@@ -4317,7 +4327,11 @@ def admin_features():
         "admin/features.html", rows=FEATURES, flags=feature_flags(),
         settings=mail_settings(), fields=MAIL_SETTINGS,
         modes=SECURITY_MODES, mail_ready=mail_configured(),
-        password_set=password_is_set())
+        password_set=password_is_set(),
+        # For the "how to change the password" instructions: real paths
+        # for THIS deployment, never hardcoded in the template.
+        deploy={"env_file": DEPLOY_ENV_FILE, "path": DEPLOY_PATH,
+                "service": DEPLOY_SERVICE, "user": DEPLOY_USER})
 
 
 def valid_address(value):

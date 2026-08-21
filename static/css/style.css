@@ -721,6 +721,24 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;
   background:var(--white);border:1px solid var(--line);border-radius:12px;padding:14px 18px;
 }
+/* The "how to change the password" box on Settings: the FAQ accordion,
+   reused. Commands sit in their own scrolling box so a long one-liner
+   cannot push the admin sideways on a phone. */
+.admin-help{margin:0 0 26px;max-width:74ch}
+.admin-help summary{font-size:16px}
+.admin-help .faq-answer{padding-bottom:18px}
+.admin-steps{padding-left:20px;display:grid;gap:14px;color:var(--ink-soft);font-size:15px;line-height:1.6}
+/* min-width:0, or each step is sized to the MIN-CONTENT width of the
+   command inside it — one long one-liner and the whole admin scrolls
+   sideways on a phone. The <pre> scrolls instead, which is the point. */
+.admin-steps li{padding-left:4px;min-width:0}
+.admin-steps li > pre{min-width:0}
+.admin-help pre{
+  background:var(--green-deep);color:#EAF3EE;border-radius:10px;
+  padding:12px 14px;margin:8px 0 0;overflow-x:auto;max-width:100%;
+}
+.admin-help pre code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;white-space:pre}
+.admin-help p{color:var(--ink-soft);font-size:15px;margin-top:16px}
 .admin-move-bar label{font-weight:700;font-size:14px}
 .admin-move-bar select{padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:var(--paper)}
 .is-hidden{display:none}

@@ -261,6 +261,61 @@ Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
 
+## Changing the SMTP password
+
+The mail password is the one setting that is **not** editable in the
+website's Settings page. Everything in the database is included in the
+nightly backups, and a live mail password does not belong in a backup —
+so it stays in a file on the server. (The same steps are shown, with this
+deployment's real paths, in the collapsible box under the password on
+Settings → Email.)
+
+1. Connect to the server over SSH.
+2. Open the environment file:
+
+   ```bash
+   sudo nano /etc/ebwa/env
+   ```
+
+3. Edit or add the line below. No spaces around the equals sign, and
+   single quotes around the value — the quotes protect `$`, `#`, `!` and
+   spaces:
+
+   ```bash
+   SMTP_PASSWORD='new-password-here'
+   ```
+
+4. Save and exit: **Ctrl+O**, **Enter**, **Ctrl+X**.
+5. Check the file still parses. One malformed line stops the service
+   reading *any* of its settings:
+
+   ```bash
+   sudo -u www-data bash -c 'set -a; source /etc/ebwa/env; set +a; echo "env OK"'
+   ```
+
+6. Restart the service so it picks up the change:
+
+   ```bash
+   sudo systemctl restart ebwa
+   ```
+
+7. Confirm it works:
+
+   ```bash
+   sudo -u www-data bash -c 'cd /opt/ebwa && set -a && source /etc/ebwa/env && set +a && ./venv/bin/flask --app app test-mail your@address.com'
+   ```
+
+   Or use **Send a test email** on Settings → Email once the service has
+   restarted.
+
+Leave the file's permissions as `root:www-data` and `640` — readable by
+the service, by nobody else:
+
+```bash
+sudo chown root:www-data /etc/ebwa/env
+sudo chmod 640 /etc/ebwa/env
+```
+
 ## Enquiries from the contact form
 
 The contact page has a form under the address and map. When somebody
@@ -428,6 +483,31 @@ Stripe dashboard: `https://ebwa.org.uk/stripe/webhook`, listening for
 `STRIPE_WEBHOOK_SECRET`. Payments stay "pending" until the webhook
 confirms them.
 
+Secrets live in one environment file rather than in the unit, so they can
+be changed without editing systemd and so the file's permissions are the
+only thing guarding them. `/etc/ebwa/env`:
+
+```bash
+sudo mkdir -p /etc/ebwa
+sudo tee /etc/ebwa/env >/dev/null <<'EOF'
+SECRET_KEY='PUT-A-LONG-RANDOM-VALUE-HERE'
+STRIPE_SECRET_KEY='sk_live_PUT-REAL-KEY-HERE'
+STRIPE_WEBHOOK_SECRET='whsec_PUT-REAL-SECRET-HERE'
+SMTP_HOST='smtp.example.net'
+SMTP_PORT='587'
+SMTP_USER='website@ebwa.org.uk'
+SMTP_PASSWORD='PUT-THE-MAIL-PASSWORD-HERE'
+MAIL_FROM='website@ebwa.org.uk'
+MAIL_TO='enquiries@ebwa.org.uk'
+EOF
+sudo chown root:www-data /etc/ebwa/env
+sudo chmod 640 /etc/ebwa/env
+```
+
+Single quotes around every value: they protect `$`, `#`, `!` and spaces.
+`640 root:www-data` means the service can read the file and nobody else
+can.
+
 `/etc/systemd/system/ebwa.service`:
 
 ```ini
@@ -438,15 +518,18 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/opt/ebwa
-Environment="SECRET_KEY=PUT-A-LONG-RANDOM-VALUE-HERE"
-Environment="STRIPE_SECRET_KEY=sk_live_PUT-REAL-KEY-HERE"
-Environment="STRIPE_WEBHOOK_SECRET=whsec_PUT-REAL-SECRET-HERE"
+EnvironmentFile=/etc/ebwa/env
 ExecStart=/opt/ebwa/venv/bin/gunicorn -w 2 -b 127.0.0.1:8011 app:app
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+If a deployment puts these elsewhere, set `DEPLOY_ENV_FILE`,
+`DEPLOY_PATH`, `DEPLOY_SERVICE` and `DEPLOY_USER` too — the instructions
+the admin shows on the Settings page are built from them, so they follow
+the real paths instead of these.
 
 ```bash
 sudo chown -R www-data:www-data /opt/ebwa/instance /opt/ebwa/static/uploads

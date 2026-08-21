@@ -46,7 +46,48 @@
 
 <p class="admin-sub"><b>The password is deliberately not editable here.</b>
   It is read from <code>SMTP_PASSWORD</code> on the server and is never
-  stored in the database or shown on this page. Ask Netbus to change it.</p>
+  stored in the database or shown on this page. The database is included
+  in the nightly backups, and a mail password does not belong in a backup
+  — that is the whole reason this one box lives on the server instead.</p>
+
+{# Same accordion as the public FAQ: plain <details>, so the browser
+   brings the keyboard handling and it works with no script at all. Every
+   path below comes from the app's deployment settings, so an install
+   somewhere else prints its own paths rather than these. #}
+<details class="faq-item admin-help">
+  <summary>How to change the SMTP password</summary>
+  <div class="faq-answer">
+    <ol class="admin-steps">
+      <li>Connect to the server over SSH.</li>
+      <li>Open the environment file:
+        <pre><code>sudo nano {{ deploy.env_file }}</code></pre>
+      </li>
+      <li>Edit or add the line below. No spaces around the equals sign,
+        and single quotes around the value — the quotes protect
+        <code>$</code>, <code>#</code>, <code>!</code> and spaces:
+        <pre><code>SMTP_PASSWORD='new-password-here'</code></pre>
+      </li>
+      <li>Save and exit: <b>Ctrl+O</b>, <b>Enter</b>, <b>Ctrl+X</b>.</li>
+      <li>Check the file still parses. One malformed line stops the
+        service reading <em>any</em> of its settings, so this step is
+        worth the ten seconds:
+        <pre><code>sudo -u {{ deploy.user }} bash -c 'set -a; source {{ deploy.env_file }}; set +a; echo "env OK"'</code></pre>
+      </li>
+      <li>Restart the service so it picks up the change:
+        <pre><code>sudo systemctl restart {{ deploy.service }}</code></pre>
+      </li>
+      <li>Confirm it works — put your own address in:
+        <pre><code>sudo -u {{ deploy.user }} bash -c 'cd {{ deploy.path }} && set -a && source {{ deploy.env_file }} && set +a && ./venv/bin/flask --app app test-mail your@address.com'</code></pre>
+        Or use <b>Send a test email</b> below, once the service has
+        restarted.
+      </li>
+    </ol>
+    <p>Leave the file's permissions as <code>root:{{ deploy.user }}</code>
+      and <code>640</code> — readable by the service, by nobody else:</p>
+    <pre><code>sudo chown root:{{ deploy.user }} {{ deploy.env_file }}
+sudo chmod 640 {{ deploy.env_file }}</code></pre>
+  </div>
+</details>
 
 <form method="post" class="admin-form" style="margin-bottom:22px"
       action="{{ url_for('admin_mail_settings') }}">
