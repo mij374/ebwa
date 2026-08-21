@@ -59,6 +59,24 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Apply rich content to Our Journey
+
+**Nothing to run.** `milestone.layout` and `content_image` have both
+existed since the rich-content commit (7921130), so this is routes,
+templates and stylesheet only — confirmed with
+`flask --app app check-schema` ("Schema is up to date").
+
+Every milestone keeps its single image until someone opens the new
+manager on it, at which point that image becomes the lead attachment and
+the `image` column keeps its value. Nothing on the public page changes
+for a milestone nobody edits.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## dee0a38 + b7896d0 — 2026-08-21 — Rework the admin dashboard into an overview
 
 **Nothing to run.** Routes, one template and stylesheet rules only — no

@@ -77,6 +77,17 @@ Built and maintained by Netbus IT Support.
     that is the point of offering them. Reading width is capped at 68ch
     in all three. Any transition is already covered by the global
     prefers-reduced-motion rule at the top of the stylesheet.
+    - On a page carrying MANY owners the presets are scoped down to
+      entry scale rather than page scale (Our Journey). Rendered full
+      size they stop being layouts and become unrelated page designs
+      stacked, and the structure of the page — there, the year headings
+      — disappears into a wall of photographs. Scope with CSS on the
+      wrapper; never fork the macro.
+  - The "no photo yet" box in the classic preset is OPT-IN, via the
+    macro's `placeholder` argument. Only About passes one, because only
+    About's copy makes sense to a visitor. Everywhere else a piece of
+    content with no photo simply shows its words at full reading width
+    (`.rc-classic-top.is-textonly`).
 - Image uploads: always use the existing `save_upload()` /
   `delete_upload()` helpers (extension whitelist, UUID rename, 8 MB cap).
   When replacing an image, delete the old file after a successful save.
@@ -450,14 +461,18 @@ Built (post-signing variation, Jul 2026):
   text string in that section is editable. Deploy: new table only —
   `flask --app app init-db`.
 - Rich content system (rules above): `ContentImage` + the three layout
-  presets, behind the `rich_layouts` flag. **Applied to About, News and
-  Events.** Our Journey has its `layout` column and delete cascade but
-  still renders its own template — wiring it up is `rich_content_for()`
-  in the route, the macro in the detail template, and
-  `rich_admin_context()` + the partial on the admin form. Listing and
-  card views deliberately keep using the single `image` column, so a
-  post's lead photo is the one that appears in a card.
+  presets, behind the `rich_layouts` flag. **Rollout complete: About,
+  News, Events and Our Journey.** Listing and card views deliberately
+  keep using the single `image` column, so a post's lead photo is the
+  one that appears in a card.
   Deploy: table and columns landed with the About commit (see DEPLOY.md).
+  - Our Journey is the one page that renders MANY owners at once, so it
+    uses `rich_content_for_many()` (one query for every milestone's
+    images) rather than `rich_content_for()` per row, and each entry is
+    rendered by the same macro inside a `.journey-entry` frame. The
+    presets are scaled down there to an image treatment for one entry —
+    see the Our Journey block in the stylesheet for why. A future page
+    that lists rich owners should copy this, not add its own queries.
 - Partner cards can show a logo: `Partner.display_mode` ('text' |
   'image' | 'both', see `PARTNER_MODES`) plus an optional `logo` upload,
   with admin CRUD moved to the list + form-page pattern so logos can be

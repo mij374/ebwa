@@ -105,8 +105,11 @@ with app.app_context():
 
 html = client.get("/our-journey").data.decode("utf-8")
 check("plain milestone listed", "First community gathering" in html)
-plain_card = html.split("First community gathering")[0].rsplit("event-card", 1)[-1]
-check("no funded-by line on plain milestone", "Funded by" not in plain_card)
+# Milestones render as timeline entries now, not cards: take the entry
+# this title sits in and check the funder line is absent from it.
+plain_entry = (html.split("First community gathering")[0]
+               .rsplit('class="journey-entry"', 1)[-1])
+check("no funded-by line on plain milestone", "Funded by" not in plain_entry)
 
 # ---- grouped by year descending
 check("years grouped newest first", html.find(">2025<") < html.find(">2023<"),

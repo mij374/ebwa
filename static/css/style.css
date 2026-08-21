@@ -161,6 +161,8 @@ header{
 
 /* Classic — lead photo beside the text, the rest in a strip below */
 .rc-classic-top{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:56px;align-items:start}
+/* No photo and no placeholder: the words take the full reading width */
+.rc-classic-top.is-textonly{grid-template-columns:minmax(0,68ch)}
 .rc-lead{position:relative}
 .rc-lead::after{
   content:"";position:absolute;inset:auto -22px -22px auto;
@@ -219,6 +221,91 @@ header{
   .rc-gallery .rc-masonry{columns:1}
   .rc-strip{grid-template-columns:1fr 1fr}
   .rc-lead::after{display:none}
+}
+
+/* ---------- Our Journey ----------
+   Unlike About, a news post or an event, this page carries EVERY
+   milestone at once. Rendered at full page scale the three presets stop
+   being layouts and become three unrelated page designs stacked, and the
+   year headings vanish into a wall of photographs — so inside
+   .journey-entry each preset is scaled down to an image treatment for
+   one entry: shorter figures, tighter gaps, none of the page-scale
+   flourishes. Same macro, same markup, same three shapes; entry sized.
+   The sticky year keeps you oriented however long the timeline gets. */
+.journey-year{margin-top:56px}
+.journey-year-head{
+  position:sticky;top:var(--header-h);z-index:2;
+  font-size:clamp(24px,2.6vw,30px);color:var(--green);margin-bottom:0;
+  padding:10px 0 10px;border-bottom:2px solid var(--green);
+  background:var(--paper);
+}
+.journey-entry{padding:26px 0 4px}
+.journey-entry + .journey-entry{border-top:1px solid var(--line)}
+.journey-entry-title{font-size:clamp(20px,2vw,24px);margin:4px 0 0}
+.journey-entry .event-date{margin-bottom:2px}
+
+/* --- the presets, at entry scale --- */
+.journey-entry .rc{margin-top:16px}
+.journey-entry .rc-figure img{box-shadow:0 8px 20px rgba(2,56,42,.10)}
+.journey-entry .rc-figure figcaption{margin-top:8px;font-size:12.5px}
+
+/* Classic — lead beside the words, the rest as thumbnails underneath */
+.journey-entry .rc-classic-top{
+  grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:34px;
+}
+.journey-entry .rc-lead::after{display:none}       /* page-scale flourish */
+.journey-entry .rc-lead .rc-figure img{aspect-ratio:4 / 3}
+.journey-entry .rc-strip{
+  grid-template-columns:repeat(auto-fill,minmax(116px,1fr));
+  gap:12px;margin-top:18px;padding-top:0;border-top:none;
+}
+
+/* Gallery — a tidy grid of the entry's photos, not a page of masonry */
+.journey-entry .rc-gallery .rc-masonry{
+  columns:auto;display:grid;gap:14px;margin-top:20px;
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+}
+.journey-entry .rc-masonry .rc-figure{margin-bottom:0}
+/* Beats the staggered nth-child ratios above by order, not !important */
+.journey-entry .rc-masonry .rc-figure img{aspect-ratio:4 / 3}
+
+/* Alternating — compact rows inside the entry, rather than half-page
+   bands. The media column is a fixed width, so the swap between sides is
+   still obvious while the entry stays the size of an entry; the flipped
+   rows need the mirrored track order to keep it. */
+.journey-entry .rc-alt{gap:22px}
+.journey-entry .rc-alt-row{
+  grid-template-columns:minmax(0,1fr) minmax(0,320px);
+  gap:30px;align-items:start;
+}
+.journey-entry .rc-alt-row.is-flipped{
+  grid-template-columns:minmax(0,320px) minmax(0,1fr);
+}
+.journey-entry .rc-alt-row.is-textonly{grid-template-columns:minmax(0,68ch)}
+.journey-entry .rc-alt-row.is-mediaonly{grid-template-columns:minmax(0,320px)}
+.journey-entry .rc-alt-media::before{display:none}  /* tinted page panel */
+.journey-entry .rc-alt-media .rc-figure img{aspect-ratio:4 / 3}
+.journey-entry .rc-alt-row.is-mediaonly .rc-figure img{aspect-ratio:4 / 3}
+
+@media (max-width: 920px){
+  /* One column, and the lead photo leads — the same stacking the
+     presets use everywhere else at this width. Photos keep a ceiling
+     rather than going full-bleed: a page of full-width 4:3 photographs
+     is exactly the wall of images this layout exists to avoid, and one
+     tablet-width milestone was 2,400px tall before this. */
+  .journey-entry .rc-lead,
+  .journey-entry .rc-alt-media{max-width:440px}
+  .journey-entry .rc-classic-top{grid-template-columns:1fr;gap:22px}
+  .journey-entry .rc-alt-row,
+  .journey-entry .rc-alt-row.is-flipped,
+  .journey-entry .rc-alt-row.is-textonly,
+  .journey-entry .rc-alt-row.is-mediaonly{grid-template-columns:1fr;gap:18px}
+  .journey-entry .rc-alt{gap:26px}
+}
+@media (max-width: 640px){
+  .journey-year-head{position:static}   /* a phone screen is short enough */
+  .journey-entry .rc-strip{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+  .journey-entry .rc-gallery .rc-masonry{grid-template-columns:1fr 1fr}
 }
 
 /* ---------- Stats ---------- */

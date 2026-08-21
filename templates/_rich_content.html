@@ -6,9 +6,12 @@
     {% from "_rich_content.html" import rich_content %}
     {{ rich_content(paragraphs, images, layout) }}
 
-  paragraphs — list of strings (see paragraphs_of())
-  images     — ContentImage rows, or a LegacyLeadImage stand-in
-  layout     — 'classic' | 'gallery' | 'alternating'
+  paragraphs  — list of strings (see paragraphs_of())
+  images      — ContentImage rows, or a LegacyLeadImage stand-in
+  layout      — 'classic' | 'gallery' | 'alternating'
+  placeholder — optional copy for a "no photo yet" box in the classic
+                preset. Only About uses it; everywhere else a piece of
+                content with no photo simply shows its words.
 
   Every image is lazy-loaded and sits in a box with a fixed aspect-ratio,
   so nothing jumps around as the page loads.
@@ -23,7 +26,8 @@
 {% endmacro %}
 
 
-{% macro rich_content(paragraphs, images, layout='classic') %}
+{% macro rich_content(paragraphs, images, layout='classic',
+                      placeholder=none) %}
 {% set images = images or [] %}
 
 {#- ------------------------------------------------------- gallery -#}
@@ -59,15 +63,19 @@
 {#- ------------------------------------------------------- classic -#}
 {% else %}
 <div class="rc rc-classic">
-  <div class="rc-classic-top">
+  {#- With no images and no placeholder asked for, the text simply takes
+      the full reading width: an empty column beside it is worse than no
+      column, and only About wants a "put a photo here" box on the live
+      page. -#}
+  <div class="rc-classic-top{{ ' is-textonly' if not images and not placeholder }}">
     <div class="rc-text">
       {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
     </div>
     {% if images %}
     <div class="rc-lead">{{ _figure(images[0], '4 / 3.4') }}</div>
-    {% else %}
+    {% elif placeholder %}
     <div class="rc-lead">
-      <div class="img-placeholder">Upload a photo in Admin → Content → about</div>
+      <div class="img-placeholder">{{ placeholder }}</div>
     </div>
     {% endif %}
   </div>

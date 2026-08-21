@@ -701,6 +701,38 @@ def rich_content_for(owner_type, owner_id=0):
     return layout, images
 
 
+def rich_content_for_many(owner_type, objs):
+    """{id: (layout, images)} for a page that renders MANY owners at once.
+
+    The same answer as calling rich_content_for() per row, in one query
+    for the lot rather than two per row: Our Journey puts every published
+    milestone on a single page, so per-row lookups would be an N+1 that
+    grows with the charity's history.
+    """
+    if not objs:
+        return {}
+    rich = feature_enabled("rich_layouts")
+    by_owner = {}
+    if rich:
+        for img in (ContentImage.query
+                    .filter(ContentImage.owner_type == owner_type,
+                            ContentImage.owner_id.in_([o.id for o in objs]))
+                    .order_by(ContentImage.sort, ContentImage.id).all()):
+            by_owner.setdefault(img.owner_id, []).append(img)
+
+    out = {}
+    for obj in objs:
+        layout = getattr(obj, "layout", "") if rich else ""
+        images = by_owner.get(obj.id, [])
+        if not images and getattr(obj, "image", ""):
+            # Same fallback as rich_content_for: the old single image
+            # keeps working until someone opens the manager on this row.
+            images = [LegacyLeadImage(obj.image, obj.title or "Photograph")]
+        out[obj.id] = (layout if layout in CONTENT_LAYOUTS else "classic",
+                       images)
+    return out
+
+
 def paragraphs_of(text):
     """Body text into paragraphs — the existing blank-line convention."""
     return [p.strip() for p in (text or "").split("\n") if p.strip()]
@@ -1247,12 +1279,19 @@ def journey():
     rows = (Milestone.query.filter_by(published=True)
             .order_by(Milestone.year.desc(), Milestone.sort,
                       Milestone.title).all())
-    grouped = []   # [(year, [milestones])], in query order
+    rich = rich_content_for_many("milestone", rows)
+    grouped = []   # [(year, [entries])], in query order
     for m in rows:
+        layout, images = rich[m.id]
+        # The summary is the opening line of the entry, as it always was,
+        # with the outcome's paragraphs after it.
+        paragraphs = ([m.summary] if m.summary else []) +             paragraphs_of(m.outcome)
+        entry = {"m": m, "layout": layout, "images": images,
+                 "paragraphs": paragraphs}
         if grouped and grouped[-1][0] == m.year:
-            grouped[-1][1].append(m)
+            grouped[-1][1].append(entry)
         else:
-            grouped.append((m.year, [m]))
+            grouped.append((m.year, [entry]))
     return render_template("journey.html", c=blocks_for("journey"),
                            grouped=grouped)
 
@@ -2684,7 +2723,8 @@ def admin_milestone_form(milestone_id=None):
             flash("Milestone saved.", "ok")
             return redirect(url_for("admin_milestones"))
 
-    return render_template("admin/milestone_form.html", m=m)
+    return render_template("admin/milestone_form.html", m=m,
+                           **rich_admin_context("milestone", m))
 
 
 @app.route("/admin/journey/<int:milestone_id>/delete", methods=["POST"])
