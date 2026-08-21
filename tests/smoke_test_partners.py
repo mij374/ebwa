@@ -11,6 +11,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
 Run:  python tests/smoke_test_partners.py
 """
+import base64
 import io
 import os
 import re
@@ -25,6 +26,14 @@ from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
                  FeatureFlag, PARTNER_MODES, Partner, UPLOAD_DIR, User)
 
 app.config["TESTING"] = True
+
+# Uploads are decoded and optimised now, so a test upload has to be a
+# real image. This is a 1x1 transparent PNG: small enough to need no
+# thumbnail and, having an alpha channel, stored byte for byte as .png.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 
 PW = "partners-test-password"
 
@@ -123,7 +132,7 @@ check("the form takes a file upload",
 r = client.post("/admin/partners/new", data={
     "name": "Trust For London", "url": "https://trustforlondon.org.uk",
     "blurb": "Funds our advice work", "display_mode": "image", "sort": "1",
-    "logo": (io.BytesIO(b"fake-png-bytes"), "tfl.png")},
+    "logo": (io.BytesIO(TINY_PNG), "tfl.png")},
     content_type="multipart/form-data")
 check("create partner -> 302", r.status_code == 302, str(r.status_code))
 with app.app_context():
@@ -182,7 +191,7 @@ with app.app_context():
 r = client.post("/admin/partners/%d/edit" % tfl_id, data={
     "name": "Trust For London", "url": "https://trustforlondon.org.uk",
     "blurb": "Funds our advice work", "display_mode": "both", "sort": "1",
-    "logo": (io.BytesIO(b"new-png-bytes"), "tfl2.png")},
+    "logo": (io.BytesIO(TINY_PNG), "tfl2.png")},
     content_type="multipart/form-data")
 with app.app_context():
     new_logo = db.session.get(Partner, tfl_id).logo

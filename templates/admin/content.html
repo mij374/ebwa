@@ -21,7 +21,7 @@
       {% endif %}
     {% else %}
       {% if b.value %}
-      <img class="field-thumb" src="{{ url_for('static', filename='uploads/' + b.value) }}" alt="">
+      <img class="field-thumb" src="{{ thumb_url(b.value) }}" alt="">
       {% endif %}
       <input type="file" id="block_{{ b.id }}" name="block_{{ b.id }}" accept="image/*">
       <small>Leave empty to keep the current image. JPG, PNG or WebP, max 8&nbsp;MB.</small>

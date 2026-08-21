@@ -9,7 +9,7 @@
     <div class="gallery-grid">
       {% for img in images %}
       <figure>
-        <img src="{{ url_for('static', filename='uploads/' + img.filename) }}"
+        <img src="{{ thumb_url(img.filename) }}"
              alt="{{ img.caption or 'EBWA community photo' }}" loading="lazy">
         {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
       </figure>

@@ -7,7 +7,7 @@
     <h1 class="event-title">{{ camp.title }}</h1>
 
     {% if camp.image %}
-    <img class="event-hero" src="{{ url_for('static', filename='uploads/' + camp.image) }}" alt="">
+    <img class="event-hero" src="{{ upload_url(camp.image) }}" alt="">
     {% endif %}
 
     <div class="event-body">

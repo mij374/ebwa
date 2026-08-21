@@ -13,6 +13,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
 Run:  python tests/smoke_test_content.py
 """
+import base64
 import io
 import os
 import sys
@@ -27,6 +28,14 @@ from app import (app, db, Block, CONTENT_LAYOUTS, ContentImage,  # noqa: E402
                  User, images_for, interleave_content, layout_for)
 
 app.config["TESTING"] = True
+
+# Uploads are decoded and optimised now, so a test upload has to be a
+# real image. This is a 1x1 transparent PNG: small enough to need no
+# thumbnail and, having an alpha channel, stored byte for byte as .png.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 
 PW = "content-test-password"
 BODY = ("EBWA was founded to relieve hardship in Enfield.\n"
@@ -65,7 +74,7 @@ def upload(alt="A volunteer serving lunch", caption="", sort=0,
            owner="about", owner_id=0, name="photo.png"):
     return client.post(
         "/admin/content-images/%s/%d/add" % (owner, owner_id),
-        data={"image": (io.BytesIO(b"fake-png-bytes"), name),
+        data={"image": (io.BytesIO(TINY_PNG), name),
               "alt_text": alt, "caption": caption, "sort": str(sort)},
         content_type="multipart/form-data", follow_redirects=True)
 

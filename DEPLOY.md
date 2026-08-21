@@ -59,6 +59,32 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Optimise uploaded images
+
+**No schema change** — confirmed with `flask --app app check-schema`. Two
+things to run, in this order:
+
+```bash
+pip install -r requirements.txt      # adds Pillow
+flask --app app reprocess-images     # optimises what is already uploaded
+```
+
+`reprocess-images` rewrites oversized files in place, strips their EXIF
+(GPS included) and writes a `<name>-thumb.<ext>` beside each one. It
+never renames a file, so nothing in the database changes, and it is safe
+to re-run — a second pass reports "0 optimised". It can be run before or
+after the restart; until it has run, pages simply serve the full-size
+files as they do today.
+
+**Back up `static/uploads/` first.** The originals are re-encoded in
+place, so the pre-optimisation files only exist in your backup.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 9c1265f — 2026-08-21 — Apply rich content to Our Journey
 
 **Nothing to run.** `milestone.layout` and `content_image` have both

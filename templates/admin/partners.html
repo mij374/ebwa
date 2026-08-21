@@ -16,7 +16,7 @@
     {% for pt in rows %}
     <tr>
       <td class="nowrap">
-        {% if pt.logo %}<img class="admin-thumb" src="{{ url_for('static', filename='uploads/' + pt.logo) }}" alt="">{% endif %}
+        {% if pt.logo %}<img class="admin-thumb" src="{{ thumb_url(pt.logo) }}" alt="">{% endif %}
         <b>{{ pt.name }}</b>
       </td>
       <td class="nowrap">

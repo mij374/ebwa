@@ -9,7 +9,7 @@
     <div class="event-cards">
       {% for post in posts %}
       <a class="event-card" href="{{ url_for('news_detail', slug=post.slug) }}">
-        {% if post.image %}<img src="{{ url_for('static', filename='uploads/' + post.image) }}" alt="">{% endif %}
+        {% if post.image %}<img src="{{ thumb_url(post.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ post.published_date.strftime('%a %d %b %Y') }}</span>
           <h3>{{ post.title }}</h3>

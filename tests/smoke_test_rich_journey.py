@@ -19,6 +19,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
 Run:  python tests/smoke_test_rich_journey.py
 """
+import base64
 import io
 import os
 import sys
@@ -35,6 +36,14 @@ from app import (app, db, Block, CONTENT_LAYOUTS, ContentImage,  # noqa: E402
                  UPLOAD_DIR, User, images_for)
 
 app.config["TESTING"] = True
+
+# Uploads are decoded and optimised now, so a test upload has to be a
+# real image. This is a 1x1 transparent PNG: small enough to need no
+# thumbnail and, having an alpha channel, stored byte for byte as .png.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 
 PW = "rich-journey-password"
 OUTCOME = ("Thirty families came to the first session.\n"
@@ -75,7 +84,7 @@ def upload(owner_id, alt="Volunteers at the drop-in", name="rich.png",
            sort=0):
     return client.post(
         "/admin/content-images/milestone/%d/add" % owner_id,
-        data={"image": (io.BytesIO(b"fake-png-bytes"), name),
+        data={"image": (io.BytesIO(TINY_PNG), name),
               "alt_text": alt, "caption": "", "sort": str(sort)},
         content_type="multipart/form-data", follow_redirects=True)
 
@@ -118,7 +127,7 @@ with app.app_context():
                              outcome="Thirty children enrolled.")
     draft_id = make_milestone(2022, "Unpublished plan", published=False)
 
-open(os.path.join(UPLOAD_DIR, "legacy_journey.png"), "wb").write(b"legacy")
+open(os.path.join(UPLOAD_DIR, "legacy_journey.png"), "wb").write(TINY_PNG)
 made.append("legacy_journey.png")
 
 client = app.test_client()

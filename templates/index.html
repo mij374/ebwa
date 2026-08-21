@@ -14,7 +14,7 @@
     </div>
     <div class="hero-photo">
       {% if c.get('home_hero_image') %}
-      <img src="{{ url_for('static', filename='uploads/' + c['home_hero_image']) }}" alt="EBWA community members in Enfield">
+      <img src="{{ upload_url(c['home_hero_image']) }}" alt="EBWA community members in Enfield">
       {% else %}
       <div class="img-placeholder">Upload a hero photo in Admin → Content</div>
       {% endif %}
@@ -53,7 +53,7 @@
     <div class="event-cards">
       {% for ev in upcoming %}
       <a class="event-card" href="{{ url_for('event_detail', slug=ev.slug) }}">
-        {% if ev.image %}<img src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">{% endif %}
+        {% if ev.image %}<img src="{{ thumb_url(ev.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}{% if ev.start_time %} · {{ ev.start_time }}{% endif %}</span>
           <h3>{{ ev.title }}</h3>
@@ -75,7 +75,7 @@
     <div class="event-cards">
       {% for post in latest_news %}
       <a class="event-card" href="{{ url_for('news_detail', slug=post.slug) }}">
-        {% if post.image %}<img src="{{ url_for('static', filename='uploads/' + post.image) }}" alt="">{% endif %}
+        {% if post.image %}<img src="{{ thumb_url(post.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ post.published_date.strftime('%a %d %b %Y') }}</span>
           <h3>{{ post.title }}</h3>
@@ -97,7 +97,7 @@
     <div class="event-cards">
       {% for camp in campaigns %}
       <a class="event-card" href="{{ url_for('collection_detail', slug=camp.slug) }}">
-        {% if camp.image %}<img src="{{ url_for('static', filename='uploads/' + camp.image) }}" alt="">{% endif %}
+        {% if camp.image %}<img src="{{ thumb_url(camp.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <h3>{{ camp.title }}</h3>
           {% if camp.description %}<p>{{ camp.description|truncate(120) }}</p>{% endif %}
@@ -140,7 +140,7 @@
     <div class="partner-grid">
       {% for pt in partners %}
       {% set body %}
-        {% if pt.shows_logo %}<img class="partner-logo" src="{{ url_for('static', filename='uploads/' + pt.logo) }}" alt="{{ pt.name }}">{% endif %}
+        {% if pt.shows_logo %}<img class="partner-logo" src="{{ thumb_url(pt.logo) }}" alt="{{ pt.name }}">{% endif %}
         {% if pt.shows_text %}<b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}{% endif %}
       {% endset %}
       {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener">{{ body }}</a>

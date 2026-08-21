@@ -21,7 +21,7 @@
           {%- endif %}{% if e.m.amount_pence %}, {{ e.m.amount_pence|pounds }}{% endif %}</span>
         {% endif %}
         <h3 class="journey-entry-title">{{ e.m.title }}</h3>
-        {{ rich_content(e.paragraphs, e.images, e.layout) }}
+        {{ rich_content(e.paragraphs, e.images, e.layout, thumbs=true) }}
       </article>
       {% endfor %}
     </section>

@@ -28,6 +28,7 @@ import pyotp
 import qrcode
 import qrcode.image.svg
 import stripe
+from PIL import Image, ImageOps
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, abort, send_from_directory, has_request_context,
@@ -473,25 +474,200 @@ def unique_slug(model, title, obj_id=None):
         n += 1
 
 
+# ------------------------------------------------------- image pipeline
+# Every upload is normalised on the way in: orientation applied, EXIF
+# dropped, anything huge scaled down, and a 600px thumbnail written
+# alongside it. Phone photos are the reason — they arrive at 4000px and
+# several megabytes, sideways, with the street the photograph was taken
+# in recorded in the EXIF GPS tags.
+MAX_IMAGE_WIDTH = 1600     # full-size ceiling; plenty for a hero at 2x
+THUMB_WIDTH = 600          # listing cards, grids and admin previews
+JPEG_QUALITY = 82
+THUMB_SUFFIX = "-thumb"
+
+
+def thumb_name(filename):
+    """The thumbnail filename belonging to a stored upload."""
+    if not filename:
+        return ""
+    stem, _dot, ext = filename.rpartition(".")
+    return "%s%s.%s" % (stem or filename, THUMB_SUFFIX, ext)
+
+
+def is_thumb(filename):
+    stem = filename.rpartition(".")[0] or filename
+    return stem.endswith(THUMB_SUFFIX)
+
+
+def _has_alpha(im):
+    return (im.mode in ("RGBA", "LA")
+            or (im.mode == "P" and "transparency" in im.info))
+
+
+def _is_animated(im):
+    return getattr(im, "n_frames", 1) > 1
+
+
+def _encode(im, fmt):
+    """Encode an image to bytes, carrying no metadata of any kind."""
+    buf = io.BytesIO()
+    if fmt == "JPEG":
+        im = im.convert("RGB")
+        im.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True,
+                progressive=True)
+    elif fmt == "PNG":
+        im.save(buf, "PNG", optimize=True)
+    else:                              # WEBP
+        im.save(buf, "WEBP", quality=JPEG_QUALITY, method=6)
+    return buf.getvalue()
+
+
+def _scaled(im, width):
+    """A copy no wider than `width`, aspect ratio preserved."""
+    if im.width <= width:
+        return im
+    height = max(1, round(im.height * width / im.width))
+    return im.resize((width, height), Image.LANCZOS)
+
+
+def open_upload(raw):
+    """Decode bytes to an image with its orientation applied and its EXIF
+    gone, or None if this is not an image we can read.
+
+    exif_transpose() rotates the pixels the way the camera meant them to
+    be seen; dropping the tags afterwards takes the GPS coordinates with
+    it, which is the point.
+    """
+    try:
+        im = Image.open(io.BytesIO(raw))
+        im.load()
+    except Exception:
+        return None
+    if not _is_animated(im):
+        im = ImageOps.exif_transpose(im) or im
+    im.info.pop("exif", None)
+    return im
+
+
+def process_image(raw, ext):
+    """Normalise an uploaded image.
+
+    Returns (ext, full_bytes, thumb_bytes_or_None), or None if the bytes
+    are not a readable image.
+
+    An image with transparency stays PNG so logos keep their transparent
+    background; anything else becomes a progressive JPEG, unless the
+    original format encodes it smaller. An animated GIF is passed through
+    untouched rather than flattened to its first frame, and gets no
+    thumbnail — the original is what every view shows.
+    """
+    im = open_upload(raw)
+    if im is None:
+        return None
+    if _is_animated(im):
+        return ext, raw, None
+
+    had_exif = bool(im.getexif())
+    full = _scaled(im, MAX_IMAGE_WIDTH)     # `im` itself when it fits
+    too_wide = full is not im
+
+    # Already small enough, carrying nothing private, and in a format we
+    # would not change anyway: leave the bytes exactly as uploaded.
+    # Re-encoding here could only cost quality — a photo that arrived at
+    # quality 75 does not get better by being saved again at 82.
+    settled = ext in ("jpg", "gif") or _has_alpha(im)
+    if not too_wide and not had_exif and settled:
+        best_ext, best = ext, raw
+    else:
+        if _has_alpha(full):
+            best_ext, best = "png", _encode(full, "PNG")
+        else:
+            best_ext, best = "jpg", _encode(full, "JPEG")
+            if ext in ("png", "webp"):
+                # A flat graphic often survives better, and smaller, in
+                # its own format than as a JPEG. Let the bytes decide.
+                same = _encode(full, "PNG" if ext == "png" else "WEBP")
+                if len(same) < len(best):
+                    best_ext, best = ext, same
+        # Converting formats has to earn its place: a tenth off is worth
+        # having, a rounding error is not.
+        if not too_wide and not had_exif and len(best) > len(raw) * 0.9:
+            best_ext, best = ext, raw
+
+    thumb = None
+    if im.width > THUMB_WIDTH:
+        small = _scaled(full, THUMB_WIDTH)
+        thumb = _encode(small, "PNG" if _has_alpha(small) else "JPEG")
+    return best_ext, best, thumb
+
+
 def save_upload(file_storage):
-    """Validate and store an uploaded image; returns stored filename or None."""
+    """Validate, optimise and store an uploaded image.
+
+    Returns the stored filename, or None having flashed why not. The UUID
+    naming is unchanged; the extension is whatever the optimised image
+    ended up as, and the thumbnail sits beside it as <uuid>-thumb.<ext>.
+    """
     if not file_storage or not file_storage.filename:
         return None
     ext = file_storage.filename.rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXT:
         flash("Image must be one of: " + ", ".join(sorted(ALLOWED_EXT)), "error")
         return None
-    name = "%s.%s" % (uuid.uuid4().hex, ext)
-    file_storage.save(os.path.join(UPLOAD_DIR, secure_filename(name)))
+
+    raw = file_storage.read()
+    if not raw:
+        flash("That file was empty — please choose an image.", "error")
+        return None
+
+    processed = process_image(raw, "jpg" if ext == "jpeg" else ext)
+    if processed is None:
+        flash("That file could not be read as an image. Please upload a "
+              "JPG, PNG, WebP or GIF photo.", "error")
+        return None
+
+    final_ext, data, thumb = processed
+    stem = uuid.uuid4().hex
+    name = "%s.%s" % (stem, final_ext)
+    with open(os.path.join(UPLOAD_DIR, secure_filename(name)), "wb") as fh:
+        fh.write(data)
+    if thumb:
+        with open(os.path.join(UPLOAD_DIR,
+                               secure_filename(thumb_name(name))), "wb") as fh:
+            fh.write(thumb)
     return name
 
 
 def delete_upload(filename):
+    """Remove a stored upload and its thumbnail."""
     if not filename:
         return
-    path = os.path.join(UPLOAD_DIR, secure_filename(filename))
-    if os.path.isfile(path):
-        os.remove(path)
+    for name in (filename, thumb_name(filename)):
+        path = os.path.join(UPLOAD_DIR, secure_filename(name))
+        if os.path.isfile(path):
+            os.remove(path)
+
+
+@app.template_global("upload_url")
+def upload_url(filename):
+    """Full-size upload — detail views and anything that fills a page."""
+    return url_for("static", filename="uploads/" + filename)
+
+
+@app.template_global("thumb_url")
+def thumb_url(filename):
+    """The 600px variant for cards, grids and admin previews.
+
+    Falls back to the original when there is no thumbnail: an upload
+    small enough not to need one, an animated GIF, or a file that
+    predates `reprocess-images` having been run.
+    """
+    if not filename:
+        return ""
+    small = thumb_name(filename)
+    if os.path.isfile(os.path.join(UPLOAD_DIR, secure_filename(small))):
+        return url_for("static", filename="uploads/" + small)
+    return upload_url(filename)
 
 
 @app.template_filter("pounds")
@@ -3506,6 +3682,95 @@ def check_schema():
         raise SystemExit(1)
     print("Schema is up to date: %d tables, all columns present."
           % len(model_tables))
+
+
+@app.cli.command("reprocess-images")
+def reprocess_images():
+    """Optimise every existing upload and give it a thumbnail.
+
+    Safe to run as often as you like. A file already within the size
+    ceiling, carrying no EXIF and impossible to encode smaller is left
+    exactly as it is, and an existing thumbnail is never regenerated.
+
+    Filenames NEVER change here, so nothing in the database has to be
+    updated: unlike a fresh upload, a PNG stays a PNG even where a JPEG
+    would be smaller. Every write goes to a temporary file first and is
+    then moved into place, so an interrupted run cannot leave half an
+    image behind.
+    """
+    if not os.path.isdir(UPLOAD_DIR):
+        print("No uploads folder at %s — nothing to do." % UPLOAD_DIR)
+        return
+
+    files = sorted(f for f in os.listdir(UPLOAD_DIR)
+                   if os.path.isfile(os.path.join(UPLOAD_DIR, f))
+                   and f.rpartition(".")[2].lower() in ALLOWED_EXT
+                   and not is_thumb(f))
+    optimised = thumbed = skipped = unreadable = 0
+    saved = 0
+
+    for name in files:
+        path = os.path.join(UPLOAD_DIR, name)
+        ext = name.rpartition(".")[2].lower()
+        before = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        im = open_upload(raw)
+        if im is None:
+            print("  ? %-40s not a readable image, left alone" % name[:40])
+            unreadable += 1
+            continue
+
+        did_something = False
+        if not _is_animated(im):
+            full = _scaled(im, MAX_IMAGE_WIDTH)
+            fmt = ("PNG" if _has_alpha(full)
+                   else {"png": "PNG", "webp": "WEBP"}.get(ext, "JPEG"))
+            data = _encode(full, fmt)
+            # Rewrite when there is a real reason to: it was too wide, it
+            # carried EXIF, or the new bytes are MEANINGFULLY smaller.
+            # The 10% floor is what makes the command safe to re-run: a
+            # JPEG re-encoded from a JPEG comes out a few bytes shorter
+            # every single time, so "any saving at all" would keep
+            # rewriting the same files and quietly degrade them on each
+            # pass. Below the floor there is nothing worth having.
+            worthwhile = len(data) < before * 0.9
+            if full is not im or bool(im.getexif()) or worthwhile:
+                tmp = path + ".tmp"
+                with open(tmp, "wb") as fh:
+                    fh.write(data)
+                os.replace(tmp, path)
+                saved += before - len(data)
+                optimised += 1
+                did_something = True
+                print("  ~ %-40s %s -> %s" % (name[:40], _kb(before),
+                                              _kb(len(data))))
+
+            thumb_path = os.path.join(UPLOAD_DIR, thumb_name(name))
+            if im.width > THUMB_WIDTH and not os.path.isfile(thumb_path):
+                small = _scaled(full, THUMB_WIDTH)
+                thumb = _encode(small, "PNG" if _has_alpha(small) else "JPEG")
+                tmp = thumb_path + ".tmp"
+                with open(tmp, "wb") as fh:
+                    fh.write(thumb)
+                os.replace(tmp, thumb_path)
+                thumbed += 1
+                did_something = True
+                print("  + %-40s thumbnail %s" % (name[:40], _kb(len(thumb))))
+        if not did_something:
+            skipped += 1
+
+    print("\n%d file(s) looked at: %d optimised, %d thumbnail(s) created, "
+          "%d already done, %d unreadable."
+          % (len(files), optimised, thumbed, skipped, unreadable))
+    print("Space saved on the originals: %s%s"
+          % (_kb(saved), " (thumbnails add to disk, and save far more "
+                         "on the wire)" if thumbed else ""))
+
+
+def _kb(n):
+    return "%.0f KB" % (n / 1024.0) if abs(n) < 1024 * 1024 \
+        else "%.1f MB" % (n / 1024.0 / 1024.0)
 
 
 @app.cli.command("create-admin")

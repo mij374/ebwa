@@ -350,7 +350,10 @@ header{
 .event-title{font-size:clamp(30px,4.4vw,46px);font-weight:800;margin-bottom:16px}
 .event-meta{display:flex;flex-wrap:wrap;gap:18px;font-weight:600;font-size:15px;color:var(--ink-soft);margin-bottom:28px}
 .badge-past{background:var(--line);border-radius:999px;padding:2px 12px;font-size:13px}
-.event-hero{border-radius:var(--radius);margin-bottom:32px;width:100%;max-height:440px;object-fit:cover}
+.event-hero{
+  border-radius:var(--radius);margin-bottom:32px;width:100%;
+  aspect-ratio:16/7;max-height:440px;object-fit:cover;
+}
 .event-body p{margin-bottom:16px;max-width:68ch}
 
 /* ---------- About ---------- */
@@ -472,7 +475,10 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .field input:focus,.field textarea:focus{outline:none;border-color:var(--green)}
 .field small{display:block;color:var(--ink-soft);font-size:13px;margin-top:5px}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.field-thumb{width:180px;border-radius:10px;margin-bottom:10px;border:1px solid var(--line)}
+.field-thumb{
+  width:180px;aspect-ratio:4/3;object-fit:cover;border-radius:10px;
+  margin-bottom:10px;border:1px solid var(--line);
+}
 .field-check label{display:flex;align-items:center;gap:10px;font-weight:600}
 .form-actions{display:flex;gap:12px;margin-top:8px}
 
@@ -553,7 +559,7 @@ body.has-notice footer{padding-bottom:110px}
 }
 
 .admin-thumb{
-  max-height:34px;max-width:110px;width:auto;vertical-align:middle;
+  height:34px;width:64px;vertical-align:middle;
   margin-right:10px;object-fit:contain;
 }
 
@@ -673,7 +679,7 @@ body.has-notice footer{padding-bottom:110px}
 }
 a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56,42,.10)}
 .partner-logo{
-  display:block;max-width:100%;max-height:56px;width:auto;margin:0 auto 10px;
+  display:block;width:100%;height:56px;margin:0 auto 10px;
   object-fit:contain;
 }
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}

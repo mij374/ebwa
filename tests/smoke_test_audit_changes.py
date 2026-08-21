@@ -10,6 +10,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
 Run:  python tests/smoke_test_audit_changes.py
 """
+import base64
 import io
 import os
 import sys
@@ -24,6 +25,14 @@ from app import (app, db, AuditLog, Block, Campaign, Event,  # noqa: E402
                  NewsPost, Resource, Testimonial, User, UPLOAD_DIR)
 
 app.config["TESTING"] = True
+
+# Uploads are decoded and optimised now, so a test upload has to be a
+# real image. This is a 1x1 transparent PNG: small enough to need no
+# thumbnail and, having an alpha channel, stored byte for byte as .png.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 
 PW = "audit-changes-password"
 
@@ -152,7 +161,7 @@ client.post("/admin/events/%d/edit" % ev_id, data={
     "title": V["new_title"], "event_date": "2026-09-05",
     "venue": "Elsewhere", "description": "A different SECRETDESCRIPTION plan",
     "start_time": "6:30 PM", "summary": "Community meal",
-    "image": (io.BytesIO(b"fake-png"), "photo.png")},
+    "image": (io.BytesIO(TINY_PNG), "photo.png")},
     content_type="multipart/form-data")
 expect("event: uploading an image is listed", last_summary(), ["image"])
 with app.app_context():
@@ -234,7 +243,7 @@ expect("blocks: the changed block key is listed", last_summary(),
        ["home_hero_title"])
 client.post("/admin/content?group=home", data={
     "block_%d" % text_id: V["block_text"],
-    "block_%d" % image_id: (io.BytesIO(b"fake-png"), "hero.png")},
+    "block_%d" % image_id: (io.BytesIO(TINY_PNG), "hero.png")},
     content_type="multipart/form-data")
 expect("blocks: an uploaded image block is listed", last_summary(),
        ["home_hero_image"])

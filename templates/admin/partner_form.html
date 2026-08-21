@@ -42,7 +42,7 @@
   <div class="field">
     <label for="logo">Logo</label>
     {% if pt and pt.logo %}
-    <p><img class="admin-thumb" src="{{ url_for('static', filename='uploads/' + pt.logo) }}" alt="Current logo"></p>
+    <p><img class="admin-thumb" src="{{ thumb_url(pt.logo) }}" alt="Current logo"></p>
     {% endif %}
     <input type="file" id="logo" name="logo" accept="image/*">
     <small>A PNG with a transparent or white background works best.

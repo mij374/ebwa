@@ -12,6 +12,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
 Run:  python tests/smoke_test_rich_news_events.py
 """
+import base64
 import io
 import os
 import sys
@@ -27,6 +28,14 @@ from app import (app, db, Block, CONTENT_LAYOUTS, ContentImage,  # noqa: E402
                  UPLOAD_DIR, User, images_for)
 
 app.config["TESTING"] = True
+
+# Uploads are decoded and optimised now, so a test upload has to be a
+# real image. This is a 1x1 transparent PNG: small enough to need no
+# thumbnail and, having an alpha channel, stored byte for byte as .png.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 
 PW = "rich-ne-password"
 NEWS_BODY = "Coats were donated all winter.\nCollections continue Tuesdays."
@@ -68,7 +77,7 @@ def upload(owner, owner_id, alt="Volunteers sorting donations",
            name="rich.png", sort=0):
     return client.post(
         "/admin/content-images/%s/%d/add" % (owner, owner_id),
-        data={"image": (io.BytesIO(b"fake-png-bytes"), name),
+        data={"image": (io.BytesIO(TINY_PNG), name),
               "alt_text": alt, "caption": "", "sort": str(sort)},
         content_type="multipart/form-data", follow_redirects=True)
 
@@ -98,7 +107,7 @@ with app.app_context():
     db.session.commit()
     post_id, ev_id = post.id, ev.id
 for name in ("legacy_news.png", "legacy_ev.png"):
-    open(os.path.join(UPLOAD_DIR, name), "wb").write(b"legacy")
+    open(os.path.join(UPLOAD_DIR, name), "wb").write(TINY_PNG)
     made.append(name)
 
 client = app.test_client()

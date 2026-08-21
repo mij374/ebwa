@@ -9,7 +9,7 @@
     <div class="event-cards">
       {% for ev in upcoming %}
       <a class="event-card" href="{{ url_for('event_detail', slug=ev.slug) }}">
-        {% if ev.image %}<img src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">{% endif %}
+        {% if ev.image %}<img src="{{ thumb_url(ev.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}{% if ev.start_time %} · {{ ev.start_time }}{% endif %}</span>
           <h3>{{ ev.title }}</h3>
@@ -27,7 +27,7 @@
     <div class="event-cards">
       {% for ev in past %}
       <a class="event-card is-past" href="{{ url_for('event_detail', slug=ev.slug) }}">
-        {% if ev.image %}<img src="{{ url_for('static', filename='uploads/' + ev.image) }}" alt="">{% endif %}
+        {% if ev.image %}<img src="{{ thumb_url(ev.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}</span>
           <h3>{{ ev.title }}</h3>

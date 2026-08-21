@@ -12,14 +12,17 @@
   placeholder — optional copy for a "no photo yet" box in the classic
                 preset. Only About uses it; everywhere else a piece of
                 content with no photo simply shows its words.
+  thumbs      — render the 600px variants instead of the full-size
+                files. For a page carrying MANY owners at entry scale
+                (Our Journey); a detail page wants the full size.
 
   Every image is lazy-loaded and sits in a box with a fixed aspect-ratio,
   so nothing jumps around as the page loads.
 #}
 
-{% macro _figure(img, ratio) %}
+{% macro _figure(img, ratio, thumbs=false) %}
 <figure class="rc-figure" style="--rc-ratio: {{ ratio }}">
-  <img src="{{ url_for('static', filename='uploads/' + img.filename) }}"
+  <img src="{{ thumb_url(img.filename) if thumbs else upload_url(img.filename) }}"
        alt="{{ img.alt_text }}" loading="lazy" decoding="async">
   {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
 </figure>
@@ -27,7 +30,7 @@
 
 
 {% macro rich_content(paragraphs, images, layout='classic',
-                      placeholder=none) %}
+                      placeholder=none, thumbs=false) %}
 {% set images = images or [] %}
 
 {#- ------------------------------------------------------- gallery -#}
@@ -37,7 +40,7 @@
     {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
   </div>
   <div class="rc-masonry">
-    {% for img in images %}{{ _figure(img, '4 / 3') }}{% endfor %}
+    {% for img in images %}{{ _figure(img, '4 / 3', thumbs) }}{% endfor %}
   </div>
 </div>
 
@@ -54,7 +57,7 @@
     </div>
     {% endif %}
     {% if row.image %}
-    <div class="rc-alt-media">{{ _figure(row.image, '5 / 4') }}</div>
+    <div class="rc-alt-media">{{ _figure(row.image, '5 / 4', thumbs) }}</div>
     {% endif %}
   </div>
   {% endfor %}
@@ -72,7 +75,7 @@
       {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
     </div>
     {% if images %}
-    <div class="rc-lead">{{ _figure(images[0], '4 / 3.4') }}</div>
+    <div class="rc-lead">{{ _figure(images[0], '4 / 3.4', thumbs) }}</div>
     {% elif placeholder %}
     <div class="rc-lead">
       <div class="img-placeholder">{{ placeholder }}</div>
@@ -81,7 +84,7 @@
   </div>
   {% if images|length > 1 %}
   <div class="rc-strip">
-    {% for img in images[1:] %}{{ _figure(img, '1 / 1') }}{% endfor %}
+    {% for img in images[1:] %}{{ _figure(img, '1 / 1', thumbs) }}{% endfor %}
   </div>
   {% endif %}
 </div>

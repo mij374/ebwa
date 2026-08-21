@@ -91,6 +91,38 @@ Built and maintained by Netbus IT Support.
 - Image uploads: always use the existing `save_upload()` /
   `delete_upload()` helpers (extension whitelist, UUID rename, 8 MB cap).
   When replacing an image, delete the old file after a successful save.
+  - Every upload goes through Pillow on the way in (`process_image()`):
+    the EXIF orientation flag is APPLIED and then all EXIF is DROPPED,
+    anything wider than `MAX_IMAGE_WIDTH` (1600) is scaled down, and the
+    result is re-encoded as a progressive JPEG at quality 82. A 600px
+    `<uuid>-thumb.<ext>` is written beside it.
+  - **Stripping EXIF is a privacy measure, not just a size one.** A
+    photo taken on a phone carries GPS coordinates in its EXIF — often
+    a volunteer's or a member's home, or a venue that should not be
+    published to the metre. `static/uploads/` is PUBLIC, so anything
+    left in the file is published with it. Never add an "keep original
+    metadata" option, and never serve an unprocessed upload.
+  - Transparency is preserved (a logo stays PNG), and an animated GIF is
+    passed through untouched rather than flattened to its first frame.
+    An upload that will not decode is refused with a flash — never a
+    500, and nothing is written to disk.
+  - An image already within the ceiling, carrying no EXIF and in a
+    format we would not change is stored byte for byte. Re-encoding it
+    could only cost quality.
+  - Templates NEVER build an uploads URL by hand: `thumb_url(filename)`
+    for cards, grids and admin previews, `upload_url(filename)` for
+    detail views and the hero. `thumb_url()` falls back to the full size
+    when there is no thumbnail, so an upload from before this existed
+    still renders.
+  - `flask --app app reprocess-images` optimises and thumbnails
+    everything already on disk. It is idempotent and never renames a
+    file, so nothing in the database has to change; a file is only
+    rewritten when it is too wide, carries EXIF, or would be at least a
+    tenth smaller — "any saving at all" would re-encode the same JPEGs
+    on every run and degrade them a little each time.
+- Every `<img>` needs its box reserved before the bytes arrive
+  (`aspect-ratio` or explicit width/height in the stylesheet), or the
+  page reflows as photos load. Check this when adding an image class.
 - Editable page text/images live in the `Block` model. To add one, append
   to `DEFAULT_BLOCKS` (group, key, label, kind, default) — `init-db` is
   idempotent and inserts only missing keys. Read in routes with
@@ -365,6 +397,14 @@ This is the most sensitive module. Follow these rules exactly:
 Built: pages + Block CMS, events (slug pages, upcoming/past), gallery,
 testimonials, partners, newsletter subscribers (+ CSV export),
 sitemap.xml/robots.txt, animated stat counters, WAL mode.
+
+Image pipeline (rules above): Pillow-backed `save_upload()` — orientation
+applied, EXIF/GPS stripped, capped at 1600px, JPEG q82 — plus 600px
+thumbnails, `thumb_url()`/`upload_url()` template helpers and the
+`reprocess-images` CLI command. Measured on a homepage carrying eight
+photographs straight off a phone: 8,915 KB of images before, 926 KB
+after (90% less). Deploy: `pip install -r requirements.txt` for Pillow,
+then `flask --app app reprocess-images` once.
 
 Built (Phase 1, contract JUL112601, £3,000 — all client-confirmed):
 

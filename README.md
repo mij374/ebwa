@@ -196,8 +196,8 @@ proper consent flow, not this banner. Raise it with Netbus first.
 ## Page layouts and photos
 
 Available on the **About** page (Page content → About), and on every
-**news post** and **event** — open one for editing and the same two
-panels appear below the usual form. A brand-new post or event has to be
+**news post**, **event** and **Our Journey milestone** — open one for
+editing and the same two panels appear below the usual form. A brand-new post or event has to be
 saved once before its photos can be added, since there is nothing to
 attach them to until then.
 
@@ -228,6 +228,32 @@ photos appear on the full page.
 Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
+
+## What happens to a photo when you upload it
+
+You can upload straight off a phone — the site does the tidying up.
+Every photo is:
+
+- **turned the right way up.** Phones record "this was shot in
+  portrait" as a hidden flag rather than rotating the picture; the site
+  applies that flag, so photos don't end up sideways.
+- **stripped of hidden data.** A phone photo carries the camera model,
+  the date and, usually, **the GPS coordinates of where it was taken**.
+  Uploaded photos are public, so all of that is removed before the file
+  is saved. Nobody can read a member's street off a photograph on the
+  website.
+- **shrunk to a sensible size.** A 4,000-pixel, 5 MB photo is scaled to
+  1,600 pixels wide and re-saved — indistinguishable on screen, a
+  fraction of the size.
+- **given a small copy** for listing cards and grids, so a page of
+  thumbnails doesn't download a page of full-size photographs. On a
+  homepage carrying eight phone photos this took the images from about
+  8.9 MB to 0.9 MB — the difference between a slow page and an instant
+  one on a phone signal.
+
+Nothing is asked of you: upload the photo you have. If a file isn't a
+photo, or is damaged, you'll get a message saying so rather than a
+broken page.
 
 ## Partner logos
 

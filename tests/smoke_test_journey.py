@@ -6,6 +6,7 @@ Uploaded test images land in static/uploads and are cleaned up too.
 
 Run:  python tests/smoke_test_journey.py
 """
+import base64
 import io
 import os
 import sys
@@ -18,6 +19,14 @@ sys.path.insert(0, os.path.dirname(HERE))
 from app import app, db, User, Block, Milestone, UPLOAD_DIR  # noqa: E402
 
 app.config["TESTING"] = True
+
+# Uploads are decoded and optimised now, so a test upload has to be a
+# real image. This is a 1x1 transparent PNG: small enough to need no
+# thumbnail and, having an alpha channel, stored byte for byte as .png.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 
 failures = []
 
@@ -70,7 +79,7 @@ r = client.post("/admin/journey/new", data={
     "funder_name": "Enfield Council", "amount": "3000",
     "funder_url": "https://www.enfield.gov.uk", "sort": "0",
     "published": "on",
-    "image": (io.BytesIO(b"fake-png-bytes"), "photo.png")},
+    "image": (io.BytesIO(TINY_PNG), "photo.png")},
     content_type="multipart/form-data")
 check("create milestone -> 302", r.status_code == 302, str(r.status_code))
 with app.app_context():
@@ -130,7 +139,7 @@ r = client.post("/admin/journey/%d/edit" % m_id, data={
     "title": "Elderly Lunch Club launched", "year": "2025",
     "summary": "Weekly lunch club", "outcome": "Updated outcome text.",
     "funder_name": "Enfield Council", "amount": "3500.50", "published": "on",
-    "image": (io.BytesIO(b"new-png-bytes"), "photo2.png")},
+    "image": (io.BytesIO(TINY_PNG), "photo2.png")},
     content_type="multipart/form-data")
 check("edit milestone -> 302", r.status_code == 302, str(r.status_code))
 with app.app_context():

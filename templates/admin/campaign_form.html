@@ -34,7 +34,7 @@
   <div class="field">
     <label for="image">Photo</label>
     {% if camp and camp.image %}
-    <img class="field-thumb" src="{{ url_for('static', filename='uploads/' + camp.image) }}" alt="">
+    <img class="field-thumb" src="{{ thumb_url(camp.image) }}" alt="">
     {% endif %}
     <input type="file" id="image" name="image" accept="image/*">
     <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>

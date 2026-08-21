@@ -66,7 +66,7 @@
   <tbody>
     {% for img in images %}
     <tr>
-      <td><img class="admin-thumb" src="{{ url_for('static', filename='uploads/' + img.filename) }}" alt=""></td>
+      <td><img class="admin-thumb" src="{{ thumb_url(img.filename) }}" alt=""></td>
       <td>
         <form method="post" id="img{{ img.id }}"
               action="{{ url_for('admin_image_save', image_id=img.id) }}">
