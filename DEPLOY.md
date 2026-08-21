@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — A separate recipient for security alerts
+## 963f7fb — 2026-08-21 — A separate recipient for security alerts
 
 **No schema change** — confirmed with `flask --app app check-schema`. One
 new content Block, seeded empty:
