@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Send backups to the NAS over SFTP
+## a9d7c7d — 2026-08-21 — Send backups to the NAS over SFTP
 
 Five new columns on `backup_run`, eight new Blocks, two new packages and
 one new environment variable.
