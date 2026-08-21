@@ -59,6 +59,25 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — FAQ module
+
+New table, no `ALTER TABLE`.
+
+```bash
+flask --app app init-db     # creates faq, seeds the `faq` feature flag
+```
+
+`init-db` also inserts the new `faq` feature flag row, on by default. The
+page starts empty and says so until EBWA writes some questions; the nav
+and footer links appear as soon as the flag is on, whether or not there
+are questions yet, so add a few before the deploy is announced.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## f5d65e5 — 2026-08-21 — Gallery albums
 
 One new table and one new column.

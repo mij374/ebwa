@@ -120,6 +120,21 @@ Built and maintained by Netbus IT Support.
     rewritten when it is too wide, carries EXIF, or would be at least a
     tenth smaller — "any saving at all" would re-encode the same JPEGs
     on every run and degrade them a little each time.
+- FAQ: `Faq` follows the resources pattern; `category` is OPTIONAL and
+  an empty one is not a bug — those questions run ungrouped at the top of
+  the page (`""` sorts before any letter). Categories themselves are
+  alphabetical; `sort` orders questions within one.
+  - The accordions are plain `<details>`/`<summary>`: the browser brings
+    the keyboard handling, the ARIA and the open/closed state, and the
+    page still works with the script gone. Every question is rendered
+    `open` and the inline script collapses all but the first, so a
+    visitor without JavaScript reads the answers instead of a column of
+    headings that will not open. Do not swap this for buttons and
+    `aria-expanded` — it would be more code doing less.
+  - The page carries FAQPage JSON-LD built in the ROUTE from the same
+    rows the page renders, so the structured data cannot drift from what
+    is on screen, and an unpublished question is absent from both. Google
+    shows these under a search result, which is the point.
 - Gallery albums: `GalleryAlbum` groups `GalleryImage` rows through a
   NULLABLE `album_id`. Rules that matter:
   - **Deleting an album must never delete photographs.** The delete
@@ -308,6 +323,10 @@ Built and maintained by Netbus IT Support.
     lives in the mobile menu, the footer and /contact. Anything new
     competing for that row has to displace something — run
     `tests/check_header_layout.py` before assuming it fits.
+  - Adding the FAQ link cost 31px at 1024px, paid for by moving the
+    strapline step from 980px to 1100px (it is 165px wide). That is the
+    LAST easy payment: the next nav item has to take a label away, drop
+    one, or move the whole nav to the menu button sooner.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 - Cookies: the site sets exactly two, both first-party and strictly
@@ -443,6 +462,11 @@ thumbnails, `thumb_url()`/`upload_url()` template helpers and the
 photographs straight off a phone: 8,915 KB of images before, 926 KB
 after (90% less). Deploy: `pip install -r requirements.txt` for Pillow,
 then `flask --app app reprocess-images` once.
+
+FAQ module (rules above): `Faq` model, public /faq with accordions and
+FAQPage structured data, admin CRUD at /admin/faq, behind the `faq`
+feature flag, linked from the nav, the footer and the sitemap. Deploy:
+new table only — `flask --app app init-db`.
 
 Built (Phase 1, contract JUL112601, £3,000 — all client-confirmed):
 

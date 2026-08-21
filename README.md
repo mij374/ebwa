@@ -229,6 +229,25 @@ Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
 
+## Frequently asked questions
+
+**FAQ** in the sidebar manages the questions on the public /faq page.
+Each one has a question, an answer (blank lines make new paragraphs), an
+optional category and a sort number. Questions with no category appear
+at the top of the page; the rest are grouped under their category
+heading, alphabetically, with your sort numbers ordering the questions
+inside each group.
+
+Write the question the way somebody would say it out loud — "Do I have
+to be a member to come to the drop-in?" rather than "Membership
+eligibility". That is what people type into Google, and the page is set
+up so search engines can show your answers directly in their results.
+
+Untick **Published** to keep a question out of sight while you work on
+it. Netbus can hide the whole page with the **Frequently asked
+questions** flag in Settings; nothing is deleted, and switching it back
+on restores the page exactly as it was.
+
 ## The photo gallery
 
 The gallery is organised into **albums** — an event, a trip, a year.

@@ -1,0 +1,53 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit question' if faq else 'New question' }}</h1>
+<p class="admin-sub">Questions appear on the public FAQ page, grouped by category.</p>
+
+<form method="post" class="admin-form">
+  <div class="field">
+    <label for="question">Question *</label>
+    <input type="text" id="question" name="question" required maxlength="300"
+           value="{{ faq.question if faq else '' }}"
+           placeholder="e.g. Do I have to be a member to come to the drop-in?">
+    <small>Write it the way somebody would ask it out loud — that is what
+      people type into Google.</small>
+  </div>
+
+  <div class="field">
+    <label for="answer">Answer *</label>
+    <textarea id="answer" name="answer" rows="7" required
+              placeholder="Answer in full sentences. Blank lines create new paragraphs.">{{ faq.answer if faq else '' }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="category">Category</label>
+    <input type="text" id="category" name="category" list="categoryList"
+           maxlength="80" value="{{ faq.category if faq else '' }}"
+           placeholder="e.g. Membership">
+    <datalist id="categoryList">
+      {% for cat in categories %}<option value="{{ cat }}">{% endfor %}
+    </datalist>
+    <small>Optional. Start typing to reuse an existing one — matching
+      spelling keeps questions grouped together. With none, the question
+      sits at the top of the page.</small>
+  </div>
+
+  <div class="field">
+    <label for="sort">Sort order</label>
+    <input type="text" id="sort" name="sort" value="{{ faq.sort if faq else 0 }}">
+    <small>Lower numbers come first within a category.</small>
+  </div>
+
+  <div class="field field-check">
+    <label>
+      <input type="checkbox" name="published" {{ 'checked' if not faq or faq.published }}>
+      Published (visible on the website)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save question</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_faqs') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

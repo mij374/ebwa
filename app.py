@@ -14,6 +14,7 @@ After every deploy, before restarting (see DEPLOY.md):
 import base64
 import hmac
 import io
+import json
 import os
 import re
 import secrets
@@ -346,6 +347,23 @@ class Resource(db.Model):
     phone = db.Column(db.String(40), default="")
     url = db.Column(db.String(300), default="")
     sort = db.Column(db.Integer, default=0)
+
+
+class Faq(db.Model):
+    """One question and its answer on the public FAQ page.
+
+    `answer` holds paragraphs the same way `about_body` and event
+    descriptions do — split on newlines when rendering. Category is
+    optional: with none, the question sits in the ungrouped run at the
+    top rather than under an invented heading.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    question = db.Column(db.String(300), nullable=False)
+    answer = db.Column(db.Text, nullable=False, default="")
+    category = db.Column(db.String(80), default="")   # optional grouping
+    sort = db.Column(db.Integer, default=0)
+    published = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
 class Milestone(db.Model):
@@ -980,6 +998,8 @@ FEATURES = [
      "Whether the layout chooser and multi-image manager appear in the "
      "admin. With it off every page renders in the classic layout with "
      "its single image, exactly as before.", True),
+    ("faq", "Frequently asked questions",
+     "The /faq page and its links in the menu and footer.", True),
     ("audit_log", "Audit log (client visibility)",
      "Whether EBWA's own admins can see the audit log page. Recording "
      "never stops, and super admins can always read it — this only "
@@ -1371,6 +1391,7 @@ def sitemap():
         ("home", None), ("about", None), ("events", None),
         ("news", "news"), ("resources", "resources"),
         ("journey", "our_journey"), ("gallery", None),
+        ("faq", "faq"),
         ("membership", "membership_form"), ("contact", None),
         ("privacy", None), ("terms", None)]
     urls = [url_for(e) for e, f in pages if f is None or flags[f]]
@@ -1581,6 +1602,41 @@ def resources():
         else:
             grouped.append((r.category, [r]))
     return render_template("resources.html", grouped=grouped)
+
+
+@app.route("/faq")
+@feature_required("faq")
+def faq():
+    """Questions grouped by category, ungrouped ones first.
+
+    Ordering is category, then `sort`, then oldest first, so an admin can
+    lift the question everybody asks to the top of its group without
+    renumbering the rest.
+    """
+    rows = (Faq.query.filter_by(published=True)
+            .order_by(Faq.category, Faq.sort, Faq.id).all())
+    grouped = []   # [(category, [faqs])], "" first — see the ordering above
+    for row in rows:
+        if grouped and grouped[-1][0] == row.category:
+            grouped[-1][1].append(row)
+        else:
+            grouped.append((row.category, [row]))
+    # The same answers again, as FAQPage structured data. Google shows
+    # these under the search result, which is worth having for a charity
+    # nobody is searching for by name yet.
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question",
+             "name": row.question,
+             "acceptedAnswer": {
+                 "@type": "Answer",
+                 "text": " ".join(paragraphs_of(row.answer))}}
+            for row in rows],
+    }
+    return render_template("faq.html", grouped=grouped, count=len(rows),
+                           schema=json.dumps(schema, ensure_ascii=False))
 
 
 @app.route("/our-journey")
@@ -3111,6 +3167,72 @@ def admin_resource_delete(resource_id):
                summary="Deleted resource “%s”." % name)
     flash("Resource deleted.", "ok")
     return redirect(url_for("admin_resources"))
+
+
+# ---------------------------------------------------------------- admin: faq
+@app.route("/admin/faq")
+@login_required
+def admin_faqs():
+    rows = Faq.query.order_by(Faq.category, Faq.sort, Faq.id).all()
+    return render_template("admin/faqs_list.html", rows=rows)
+
+
+@app.route("/admin/faq/new", methods=["GET", "POST"])
+@app.route("/admin/faq/<int:faq_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_faq_form(faq_id=None):
+    faq_row = db.session.get(Faq, faq_id) if faq_id else None
+    if faq_id and not faq_row:
+        abort(404)
+
+    if request.method == "POST":
+        question = request.form.get("question", "").strip()
+        answer = request.form.get("answer", "").strip()
+        if not question or not answer:
+            flash("Question and answer are both required.", "error")
+        else:
+            is_new = faq_row is None
+            if is_new:
+                faq_row = Faq()
+            try:
+                sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                sort = 0
+            values = {
+                "question": question,
+                "answer": answer,
+                "category": request.form.get("category", "").strip(),
+                "sort": sort,
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(faq_row, values)
+            apply_values(faq_row, values)
+            if is_new:
+                db.session.add(faq_row)
+            db.session.commit()
+            log_action("create" if is_new else "edit", entity=faq_row,
+                       summary=save_summary("question", faq_row.question,
+                                            is_new, changed))
+            flash("Question saved.", "ok")
+            return redirect(url_for("admin_faqs"))
+
+    categories = [c[0] for c in db.session.query(Faq.category).distinct()
+                  .order_by(Faq.category) if c[0]]
+    return render_template("admin/faq_form.html", faq=faq_row,
+                           categories=categories)
+
+
+@app.route("/admin/faq/<int:faq_id>/delete", methods=["POST"])
+@login_required
+def admin_faq_delete(faq_id):
+    faq_row = db.session.get(Faq, faq_id) or abort(404)
+    gone, question = ("Faq", faq_row.id), faq_row.question
+    db.session.delete(faq_row)
+    db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted question “%s”." % question)
+    flash("Question deleted.", "ok")
+    return redirect(url_for("admin_faqs"))
 
 
 # ---------------------------------------------------------------- admin: milestones

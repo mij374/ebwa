@@ -1,0 +1,43 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Frequently asked questions</h1>
+    <p class="admin-sub">The questions and answers shown on the public FAQ page, grouped by category.</p>
+  </div>
+  <a class="btn btn-green" href="{{ url_for('admin_faq_form') }}">+ New question</a>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Category</th><th>Question</th><th>Sort</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td class="nowrap">{{ row.category or '—' }}</td>
+      <td><a href="{{ url_for('admin_faq_form', faq_id=row.id) }}">{{ row.question }}</a></td>
+      <td class="nowrap">{{ row.sort }}</td>
+      <td class="nowrap">
+        {% if row.published %}<span class="pill pill-green">Published</span>
+        {% else %}<span class="pill pill-grey">Draft</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('admin_faq_form', faq_id=row.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_faq_delete', faq_id=row.id) }}"
+              style="display:inline"
+              onsubmit="return confirm('Delete this question? This cannot be undone.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="admin-sub" style="margin-top:18px">Lower sort numbers come first
+  within a category. Questions with no category appear at the top of the page.</p>
+{% else %}
+<p class="admin-sub">No questions yet. Add the ones people ask you on the phone every week.</p>
+{% endif %}
+{% endblock %}

@@ -25,6 +25,7 @@
       <a href="{{ url_for('admin_gallery') }}" class="{{ 'active' if request.endpoint and ('gallery' in request.endpoint or 'album' in request.endpoint) }}">Gallery</a>
       <a href="{{ url_for('admin_testimonials') }}" class="{{ 'active' if request.endpoint and 'testimonial' in request.endpoint }}">Testimonials</a>
       <a href="{{ url_for('admin_partners') }}" class="{{ 'active' if request.endpoint and 'partner' in request.endpoint }}">Partners</a>
+      {% if features.faq %}<a href="{{ url_for('admin_faqs') }}" class="{{ 'active' if request.endpoint and 'faq' in request.endpoint }}">FAQ</a>{% endif %}
       {% if features.resources %}<a href="{{ url_for('admin_resources') }}" class="{{ 'active' if request.endpoint and 'resource' in request.endpoint }}">Resources</a>{% endif %}
       {% if features.our_journey %}<a href="{{ url_for('admin_milestones') }}" class="{{ 'active' if request.endpoint and 'milestone' in request.endpoint }}">Our Journey</a>{% endif %}
       <a href="{{ url_for('admin_subscribers') }}" class="{{ 'active' if request.endpoint and 'subscriber' in request.endpoint }}">Subscribers</a>

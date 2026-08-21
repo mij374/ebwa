@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Frequently asked questions — EBWA{% endblock %}
+{% block meta_description %}Answers to the questions we are asked most often at EBWA in Enfield — membership, our classes and services, visiting the centre, donations and volunteering.{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Questions <span class="bn">· সাধারণ জিজ্ঞাসা</span></p>
+    <h2>Frequently asked questions</h2>
+    <p class="lede">The things people ask us most. If your question is not
+      here, call the centre or send us a message — we are happy to help.</p>
+
+    {# Every <details> ships OPEN. The script below closes them once it
+       has run, so a visitor without JavaScript reads the whole page
+       rather than a column of headings that will not open. #}
+    {% for category, items in grouped %}
+    {% if category %}<h3 class="faq-group">{{ category }}</h3>{% endif %}
+    <div class="faq-list">
+      {% for row in items %}
+      <details class="faq-item" open>
+        <summary>{{ row.question }}</summary>
+        <div class="faq-answer">
+          {% for para in row.answer.split('\n') if para.strip() %}
+          <p>{{ para.strip() }}</p>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">Questions and answers are being written up — check back soon.</p>
+    {% endfor %}
+
+    <p class="faq-foot">Still stuck? <a href="{{ url_for('contact') }}">Get in touch</a> —
+      we would rather answer than have you wonder.</p>
+  </div>
+</section>
+
+{% if count %}
+{# FAQPage structured data: the same answers, in the form Google reads to
+   show them under the search result. Built server-side and dumped as
+   JSON so no quoting or escaping is done by hand here. #}
+<script type="application/ld+json">{{ schema|safe }}</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if count %}
+<script>
+(function () {
+  var items = document.querySelectorAll('.faq-item');
+  if (!items.length) { return; }
+  // Collapse them now that we know the accordion will work. The first
+  // question stays open so the page does not look like a list of links.
+  for (var i = 0; i < items.length; i++) {
+    if (i > 0) { items[i].removeAttribute('open'); }
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

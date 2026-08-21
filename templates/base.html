@@ -28,6 +28,7 @@
         {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
         {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Journey</a></li>{% endif %}
         <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
+        {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
         {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join</a></li>{% endif %}
         <li><a href="{{ url_for('contact') }}">Contact</a></li>
         {% if current_user.is_authenticated %}
@@ -83,6 +84,7 @@
           {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
           {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
           <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
+          {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
           {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join us</a></li>{% endif %}
           <li><a href="{{ url_for('contact') }}">Contact</a></li>
         </ul>
