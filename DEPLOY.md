@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — SMTP settings on the Settings page
+## 859171b — 2026-08-21 — SMTP settings on the Settings page
 
 **No schema change.** Six new content Blocks, all seeded empty:
 
