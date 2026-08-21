@@ -68,7 +68,11 @@ header{
 .brand{display:flex;align-items:center;gap:12px;text-decoration:none;flex:none}
 .brand-mark{display:inline-flex;align-items:center;flex:none}
 .brand-mark img{height:52px;width:auto;display:block}
-.login-card .brand-mark img{height:90px}
+/* The login badge is the only branding on an otherwise bare page, so it
+   carries it: roughly double the old 90px. Capped against the card's own
+   width so it shrinks with the card on a phone rather than pressing
+   against the padding. */
+.login-card .brand-mark img{height:180px;max-width:100%;object-fit:contain}
 /* White circular backing so the badge reads as a seal on the dark green */
 .foot-logo{
   width:96px;height:96px;border-radius:50%;background:#fff;flex:none;
@@ -749,6 +753,7 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   background:var(--white);border-radius:16px;padding:40px;width:min(400px,92vw);
   display:grid;gap:16px;text-align:center;
 }
+.login-card .brand-mark{justify-content:center}
 .login-card h1{font-size:24px}
 .login-card label{text-align:left;font-weight:700;font-size:14px;display:grid;gap:6px}
 .login-card input{

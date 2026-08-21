@@ -11,3 +11,8 @@ venv/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Backup archives: they contain the whole database, personal data and
+# all, plus every upload. They belong on the server and in whatever the
+# nightly job copies them to — never in the repository.
+backups/

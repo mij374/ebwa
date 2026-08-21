@@ -43,6 +43,13 @@ never in the database, never in this repository:
 | `MAIL_FROM` | The address email is sent from |
 | `MAIL_TO` | Where enquiries go, unless overridden in Settings |
 
+Backups use two more:
+
+| Variable | What it is |
+| --- | --- |
+| `BACKUP_DIR` | Where archives are written (default: `backups/` beside the app) |
+| `BACKUP_KEEP` | How many archives to keep (default: 7) |
+
 Check it works before anyone relies on it:
 
 ```bash
@@ -260,6 +267,56 @@ photos appear on the full page.
 Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
+
+## Backups
+
+The website can write a backup archive of itself: a consistent snapshot
+of the database plus every uploaded photo, zipped into `BACKUP_DIR` with
+a timestamped name. It keeps the newest `BACKUP_KEEP` archives (7 by
+default) and deletes older ones.
+
+By hand, on the server:
+
+```bash
+cd /opt/ebwa && ./venv/bin/flask --app app backup-now
+```
+
+Nightly, as a cron job for the service user:
+
+```cron
+15 2 * * * cd /opt/ebwa && set -a && . /etc/ebwa/env && set +a && ./venv/bin/flask --app app backup-now >> /var/log/ebwa-backup.log 2>&1
+```
+
+Or from the website: **Settings → Backups → Back up now** (Netbus only,
+twice an hour at most). The same page shows when the last backup ran, how
+big it was, how many archives are kept, the database and uploads sizes,
+and how much disk is free.
+
+### An archive on the server is not a backup
+
+It protects you from a mistake — a deleted album, a bad edit, a failed
+upgrade. It does **not** protect you from losing the server, which is the
+thing backups are for. A copy has to leave the machine.
+
+That copying is a **server-side job, not something this website does or
+can configure**. The site has no business holding a key to another
+machine, and nothing in the admin runs commands anybody typed into it.
+Set it up alongside the backup cron — for example, pushing the archives
+to a NAS or another host every night:
+
+```cron
+45 2 * * * rsync -az --delete -e 'ssh -i /root/.ssh/ebwa-backup -o StrictHostKeyChecking=yes' /opt/ebwa/backups/ backup@nas.example.net:/volume1/backups/ebwa/ >> /var/log/ebwa-offsite.log 2>&1
+```
+
+Points worth keeping:
+
+- the ssh key is on the server, in root's keyring — never in the
+  database, never in this repository, never in the admin;
+- run the copy *after* the backup job, not at the same time;
+- check the far end actually has files, and that they open. An untested
+  backup is a rumour;
+- keep more copies at the far end than on the server — the whole point
+  is surviving the server.
 
 ## Changing the SMTP password
 

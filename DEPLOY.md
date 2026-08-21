@@ -59,6 +59,49 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Backups, failed-sign-in visibility, bigger login badge
+
+New table:
+
+```bash
+flask --app app init-db     # creates backup_run, seeds the alert Block
+```
+
+Two optional environment variables, both with working defaults:
+
+```
+BACKUP_DIR=/opt/ebwa/backups     # default: backups/ beside the app
+BACKUP_KEEP=7                    # archives to keep
+```
+
+Then set the nightly jobs up — the app writes archives, it does NOT copy
+them anywhere:
+
+```cron
+15 2 * * * cd /opt/ebwa && set -a && . /etc/ebwa/env && set +a && ./venv/bin/flask --app app backup-now >> /var/log/ebwa-backup.log 2>&1
+45 2 * * * rsync -az --delete -e 'ssh -i /root/.ssh/ebwa-backup' /opt/ebwa/backups/ backup@nas.example.net:/volume1/backups/ebwa/ >> /var/log/ebwa-offsite.log 2>&1
+```
+
+**The second line is the one that makes it a backup.** Without it there
+is a copy of the database sitting on the same disk as the database.
+
+Check afterwards that `BACKUP_DIR` is writable by the service user, and
+that the first archive actually opens:
+
+```bash
+sudo -u www-data cd /opt/ebwa && ./venv/bin/flask --app app backup-now
+unzip -l /opt/ebwa/backups/ebwa-backup-*.zip | head
+```
+
+Failed-sign-in alert emails are off until a super admin ticks the box on
+Settings → Security; they use the SMTP settings already configured.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 859171b — 2026-08-21 — SMTP settings on the Settings page
 
 **No schema change.** Six new content Blocks, all seeded empty:

@@ -485,7 +485,11 @@ finally:
         sa_event.remove(db.engine, "before_cursor_execute", _record)
 check("dashboard query count does not grow with content",
       small == large, "%d -> %d" % (small, large))
-check("dashboard stays a modest number of queries", large < 40, str(large))
+# The ceiling is a sanity bound, not a target: the page is a fixed set of
+# COUNTs and grows only when a panel is added (enquiries and failed
+# sign-ins were the last two). The check above is the one that matters —
+# it proves the number does not move with the amount of content.
+check("dashboard stays a modest number of queries", large < 50, str(large))
 
 # ---- teardown: delete the throwaway db (incl. WAL sidecars)
 with app.app_context():

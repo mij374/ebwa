@@ -163,6 +163,87 @@ sudo chmod 640 {{ deploy.env_file }}</code></pre>
   <button class="btn btn-ghost" type="submit">Send test email</button>
 </form>
 
+<h2 class="admin-stats-head">Security</h2>
+<div class="admin-form" style="margin-bottom:22px">
+  <p class="admin-sub" style="margin-bottom:14px">
+    <b>{{ failed_logins }}</b> failed sign-in attempt{{ '' if failed_logins == 1 else 's' }}
+    in the last {{ failed_window }} hours.
+    <a href="{{ url_for('admin_audit', action='login_failed') }}">See them in the audit log →</a>
+  </p>
+  <form method="post" action="{{ url_for('admin_security_alerts') }}">
+    <div class="field field-check">
+      <label>
+        <input type="checkbox" name="enabled" {{ 'checked' if alerts_on }}>
+        Email me when sign-ins keep failing
+      </label>
+      <small>Sends one email when more than {{ alert_threshold }} attempts
+        come from the same address within an hour, and then stays quiet
+        for an hour however long the attack goes on. It contains the
+        addresses that were tried and the IP — never a password, because
+        the site does not record one.</small>
+    </div>
+    <button class="btn btn-ghost" type="submit">Save alert setting</button>
+  </form>
+</div>
+
+<h2 class="admin-stats-head">Backups</h2>
+<div class="admin-form" style="margin-bottom:22px">
+  <div class="table-scroll">
+  <table class="admin-table">
+    <tbody>
+      <tr>
+        <td class="nowrap"><b>Last backup</b></td>
+        <td>
+          {% if backup.last %}
+          {{ backup.last.started_at|uk_datetime }} —
+          {{ backup.last.size_bytes|filesize }},
+          {{ backup.last.file_count }} file{{ '' if backup.last.file_count == 1 else 's' }}
+          {% else %}<b>Never</b> — run one below, and check the nightly job exists{% endif %}
+        </td>
+      </tr>
+      {% if backup.last_failed and (not backup.last or backup.last_failed.started_at > backup.last.started_at) %}
+      <tr>
+        <td class="nowrap"><b>Last attempt</b></td>
+        <td><span class="pill pill-red">Failed</span>
+          {{ backup.last_failed.started_at|uk_datetime }} — {{ backup.last_failed.error }}</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td class="nowrap"><b>Archives kept</b></td>
+        <td>{{ backup.count }} on disk, keeping the newest {{ backup.keep }}</td>
+      </tr>
+      <tr><td class="nowrap"><b>Written to</b></td><td><code>{{ backup.dir }}</code></td></tr>
+      <tr><td class="nowrap"><b>Database</b></td><td>{{ backup.db_size|filesize }}</td></tr>
+      <tr>
+        <td class="nowrap"><b>Uploads</b></td>
+        <td>{{ backup.uploads_size|filesize }} across {{ backup.uploads_files }} file{{ '' if backup.uploads_files == 1 else 's' }}</td>
+      </tr>
+      <tr>
+        <td class="nowrap"><b>Free disk space</b></td>
+        <td>{{ backup.disk_free|filesize }}</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="admin-sub" style="margin:18px 0 0">
+    <b>An archive on this server is not a backup.</b> It protects against a
+    mistake — a deleted album, a bad edit — not against losing the server.
+    Copying archives off the machine to a NAS or another host is a
+    scheduled job on the server (cron with rsync or scp and a key), set up
+    by Netbus. <b>This page cannot configure that</b>, and deliberately
+    does not try: the website has no business holding keys to other
+    machines or running commands anybody typed into it.</p>
+
+  <form method="post" action="{{ url_for('admin_backup_now') }}"
+        style="margin-top:18px"
+        onsubmit="return confirm('Write a backup archive now?');">
+    <button class="btn btn-green" type="submit">Back up now</button>
+    <small style="display:block;margin-top:8px;color:var(--ink-soft)">
+      Twice an hour at most. The site keeps working while it runs.</small>
+  </form>
+</div>
+
 <h2 class="admin-stats-head">Optional modules</h2>
 {# Scrolls in its own box on a phone: the descriptions are long and the
    action column cannot wrap, and a table has no business dragging the

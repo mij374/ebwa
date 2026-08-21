@@ -18,11 +18,14 @@ import json
 import os
 import re
 import secrets
+import shutil
 import smtplib
 import socket
+import sqlite3
 import ssl
 import time
 import uuid
+import zipfile
 from email.message import EmailMessage
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -434,6 +437,23 @@ class MembershipApplication(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class BackupRun(db.Model):
+    """One run of the backup command, successful or not.
+
+    History matters more than the archive list on disk: retention deletes
+    old archives, but the record that a backup ran — or failed — stays.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+    finished_at = db.Column(db.DateTime)
+    filename = db.Column(db.String(255), default="")
+    size_bytes = db.Column(db.Integer, default=0)
+    file_count = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default="running")  # running|ok|failed
+    reason = db.Column(db.String(40), default="manual")   # manual|cli
+    error = db.Column(db.Text, default="")
+
+
 MESSAGE_STATUSES = ("new", "read", "replied")
 
 
@@ -788,7 +808,8 @@ CONTENT_OWNERS = {
 ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
 HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
-                     "smtp_port", "smtp_user", "smtp_security", "smtp_from")
+                     "smtp_port", "smtp_user", "smtp_security", "smtp_from",
+                     "security_alert_email")
 
 
 class LegacyLeadImage:
@@ -1368,6 +1389,9 @@ RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     # A "send a test to any address" button is a relay if it is not
     # limited, however few people can reach it.
     "test_mail": (5, 3600),
+    # Writing an archive is real disk work; twice an hour by hand is
+    # plenty, and the nightly cron does the rest.
+    "backup": (2, 3600),
 }
 _rate_buckets = {}       # (scope, ip) -> [attempt timestamps]
 
@@ -1611,6 +1635,296 @@ def _mail_failed(subject, to, reason):
         "Could not send the email “%s” to %s — %s. The message it was "
         "about is saved and can still be read in the admin."
         % (subject, to or "(nobody)", reason)))
+
+
+# -------------------------------------------------------------- security
+# Failed logins are already in the audit log; this makes them visible
+# without anybody thinking to go and look.
+#
+# NOTHING here ever records a password, an attempted password, or any
+# part of one. The audit entries hold the attempted EMAIL and the IP, and
+# that is all these functions read.
+FAILED_LOGIN_ACTION = "login_failed"
+FAILED_LOGIN_WINDOW_HOURS = 24     # dashboard: how far back to look
+FAILED_LOGIN_NOTICE = 5            # dashboard: show it above this many
+ALERT_IP_THRESHOLD = 10            # email: failures from ONE ip in an hour
+ALERT_COOLDOWN_MINUTES = 60        # email: never more often than this
+SECURITY_ALERT_KEY = "security_alert_email"   # Block: "1" to switch on
+
+
+def failed_logins_since(hours=FAILED_LOGIN_WINDOW_HOURS):
+    since = datetime.utcnow() - timedelta(hours=hours)
+    return db.session.query(db.func.count(AuditLog.id)).filter(
+        AuditLog.action == FAILED_LOGIN_ACTION,
+        AuditLog.created_at >= since).scalar() or 0
+
+
+def security_alerts_on():
+    block = Block.query.filter_by(key=SECURITY_ALERT_KEY).first()
+    return bool(block and (block.value or "").strip() == "1")
+
+
+def alert_cooldown_active():
+    """True if an alert went out recently.
+
+    Checked in the DATABASE rather than in memory: gunicorn runs several
+    workers, and an attacker hitting one worker after another must not
+    get one email per worker.
+    """
+    since = datetime.utcnow() - timedelta(minutes=ALERT_COOLDOWN_MINUTES)
+    return db.session.query(AuditLog.id).filter(
+        AuditLog.action == "security_alert",
+        AuditLog.created_at >= since).first() is not None
+
+
+def audit_log_link():
+    """A link to the failed-sign-in log, or the path if one cannot be built.
+
+    url_for(_external=True) needs a request or SERVER_NAME, and this runs
+    from a background caller as happily as from the login page. A
+    relative path in an email is not ideal; an exception that stops the
+    alert going out at all is worse.
+    """
+    try:
+        return url_for("admin_audit", action=FAILED_LOGIN_ACTION,
+                       _external=True)
+    except Exception:
+        return "/admin/audit?action=%s" % FAILED_LOGIN_ACTION
+
+
+def note_failed_login(attempted, ip):
+    """Called after a failed login is logged. Emails only if it is worth it.
+
+    The threshold is per IP within the hour, so one person mistyping their
+    password never triggers anything, and a machine working through a
+    password list does.
+    """
+    if not security_alerts_on() or not ip:
+        return
+    since = datetime.utcnow() - timedelta(hours=1)
+    recent = db.session.query(db.func.count(AuditLog.id)).filter(
+        AuditLog.action == FAILED_LOGIN_ACTION,
+        AuditLog.ip == ip,
+        AuditLog.created_at >= since).scalar() or 0
+    if recent < ALERT_IP_THRESHOLD or alert_cooldown_active():
+        return
+
+    tried = [row[0] for row in db.session.query(AuditLog.user_email)
+             .filter(AuditLog.action == FAILED_LOGIN_ACTION,
+                     AuditLog.ip == ip,
+                     AuditLog.created_at >= since).distinct().limit(10)]
+    addresses = ", ".join(a for a in tried if a) or attempted or "unknown"
+    body = (
+        "%d failed sign-in attempts have come from %s in the last hour.\n\n"
+        "Addresses tried: %s\n\n"
+        "No password is recorded anywhere in this site, and none is in "
+        "this email.\n\n"
+        "The full history is in the audit log:\n%s\n\n"
+        "If this was you, nothing needs doing. If it was not, the accounts "
+        "are still protected by their passwords and, where it is switched "
+        "on, two-factor authentication.\n"
+        % (recent, ip, addresses, audit_log_link()))
+    sent = send_mail(mail_recipient(),
+                     "EBWA website: repeated failed sign-ins", body)
+    # Logged either way — and this log line is what the cooldown reads,
+    # so a failed send still stops a flood.
+    log_action("security_alert",
+               summary=("Emailed a failed-sign-in alert: %d attempts from "
+                        "%s in the last hour." % (recent, ip) if sent else
+                        "Tried to email a failed-sign-in alert about %s "
+                        "(%d attempts) and could not." % (ip, recent)))
+
+
+# ---------------------------------------------------------------- backups
+# The app makes and tracks archives. GETTING THEM OFF THE SERVER IS NOT
+# THIS APP'S JOB and never will be: that is a cron job with an ssh key,
+# and an archive sitting on the same disk as the thing it backs up is not
+# a backup. The Settings panel and the README both say so.
+#
+# Nothing here shells out. The database is copied with sqlite3's own
+# backup API — which is consistent while the site is running, unlike
+# copying the file — and the archive is written with zipfile. There is no
+# command line anywhere for a web request to influence.
+BACKUP_DIR = os.environ.get("BACKUP_DIR",
+                            os.path.join(BASE_DIR, "backups"))
+try:
+    BACKUP_KEEP = max(1, int(os.environ.get("BACKUP_KEEP", "7") or 7))
+except ValueError:
+    BACKUP_KEEP = 7
+BACKUP_PREFIX = "ebwa-backup-"
+
+
+def backup_paths():
+    """Where the pieces live, resolved once so the panel and the CLI agree."""
+    uri = app.config["SQLALCHEMY_DATABASE_URI"]
+    db_path = uri[len("sqlite:///"):] if uri.startswith("sqlite:///") else ""
+    return {"dir": BACKUP_DIR, "database": db_path, "uploads": UPLOAD_DIR}
+
+
+def _dir_size(path):
+    total = files = 0
+    for root, _dirs, names in os.walk(path):
+        for name in names:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+                files += 1
+            except OSError:
+                pass
+    return total, files
+
+
+def run_backup(reason="manual"):
+    """Write one archive and record it. Returns the BackupRun row.
+
+    Every outcome is recorded, including a failure — a backup you believe
+    in but that never ran is worse than none at all.
+    """
+    paths = backup_paths()
+    run = BackupRun()
+    run.started_at = datetime.utcnow()
+    run.status = "running"
+    run.reason = reason
+    db.session.add(run)
+    db.session.commit()
+
+    stamp = utc_as_uk(run.started_at).strftime("%Y%m%d-%H%M%S")
+    name = "%s%s.zip" % (BACKUP_PREFIX, stamp)
+    # Two runs in the same second would otherwise write the same name and
+    # the second would silently replace the first — exactly the sort of
+    # quiet loss a backup system must never have.
+    suffix = 2
+    while os.path.exists(os.path.join(paths["dir"], name)):
+        name = "%s%s-%d.zip" % (BACKUP_PREFIX, stamp, suffix)
+        suffix += 1
+    target = os.path.join(paths["dir"], name)
+    snapshot = target + ".db-snapshot"
+    try:
+        os.makedirs(paths["dir"], exist_ok=True)
+        files = 0
+        # 1. A consistent copy of the database, taken through sqlite's
+        #    backup API so a write halfway through cannot tear it.
+        if paths["database"] and os.path.isfile(paths["database"]):
+            source = dest = None
+            try:
+                source = sqlite3.connect(paths["database"])
+                dest = sqlite3.connect(snapshot)
+                with dest:
+                    source.backup(dest)
+            finally:
+                # Closed even if the copy fails: a leaked handle keeps the
+                # database file locked, and the next thing to touch it is
+                # the site.
+                for conn in (dest, source):
+                    if conn is not None:
+                        conn.close()
+        # 2. That, plus every upload, into one archive.
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+            if os.path.isfile(snapshot):
+                archive.write(snapshot, "database/ebwa.db")
+                files += 1
+            if os.path.isdir(paths["uploads"]):
+                for root, _dirs, names in os.walk(paths["uploads"]):
+                    for entry in sorted(names):
+                        full = os.path.join(root, entry)
+                        rel = os.path.relpath(full, paths["uploads"])
+                        archive.write(full, os.path.join("uploads", rel))
+                        files += 1
+            archive.writestr("README.txt", BACKUP_README)
+        run.filename = name
+        run.size_bytes = os.path.getsize(target)
+        run.file_count = files
+        run.status = "ok"
+    except Exception as exc:
+        run.status = "failed"
+        run.error = "%s: %s" % (type(exc).__name__, exc)
+        if os.path.isfile(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+    finally:
+        if os.path.isfile(snapshot):
+            try:
+                os.remove(snapshot)
+            except OSError:
+                pass
+        run.finished_at = datetime.utcnow()
+        db.session.commit()
+
+    if run.status == "ok":
+        prune_backups()
+    return run
+
+
+BACKUP_README = (
+    "EBWA website backup\n"
+    "===================\n\n"
+    "database/ebwa.db  - the site's database, a consistent snapshot\n"
+    "uploads/          - every uploaded photograph and logo\n\n"
+    "To restore: stop the service, put ebwa.db in instance/ and the\n"
+    "contents of uploads/ in static/uploads/, then start it again.\n\n"
+    "This archive is only a backup once a COPY OF IT IS SOMEWHERE ELSE.\n"
+    "On the same server it protects against a mistake, not against the\n"
+    "server being lost.\n")
+
+
+def prune_backups(keep=None):
+    """Delete all but the newest `keep` archives. Returns how many went."""
+    keep = BACKUP_KEEP if keep is None else keep
+    try:
+        names = sorted(f for f in os.listdir(BACKUP_DIR)
+                       if f.startswith(BACKUP_PREFIX) and f.endswith(".zip"))
+    except OSError:
+        return 0
+    removed = 0
+    for name in names[:-keep] if keep else names:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, name))
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def backup_status():
+    """Everything the Settings panel shows. Read-only, no side effects."""
+    paths = backup_paths()
+    last = (BackupRun.query.filter_by(status="ok")
+            .order_by(BackupRun.started_at.desc()).first())
+    last_failed = (BackupRun.query.filter_by(status="failed")
+                   .order_by(BackupRun.started_at.desc()).first())
+    try:
+        archives = [f for f in os.listdir(paths["dir"])
+                    if f.startswith(BACKUP_PREFIX) and f.endswith(".zip")]
+    except OSError:
+        archives = []
+    uploads_size, uploads_files = _dir_size(paths["uploads"])
+    try:
+        free = shutil.disk_usage(paths["dir"] if os.path.isdir(paths["dir"])
+                                 else BASE_DIR).free
+    except OSError:
+        free = None
+    db_size = (os.path.getsize(paths["database"])
+               if paths["database"] and os.path.isfile(paths["database"])
+               else 0)
+    return {"last": last, "last_failed": last_failed,
+            "count": len(archives), "keep": BACKUP_KEEP,
+            "dir": paths["dir"], "database": paths["database"],
+            "db_size": db_size, "uploads_size": uploads_size,
+            "uploads_files": uploads_files, "disk_free": free}
+
+
+@app.template_filter("filesize")
+def filesize_filter(size):
+    """Bytes as something a person reads: 1.4 MB, 812 KB."""
+    if size is None:
+        return "unknown"
+    size = float(size)
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return ("%d %s" % (size, unit) if unit == "bytes"
+                    else "%.1f %s" % (size, unit))
+        size /= 1024.0
 
 
 # ---------------------------------------------------------------- public
@@ -2325,6 +2639,7 @@ def admin_login():
         # The attempted email is recorded; the password never is.
         log_action("login_failed",
                    summary="Attempted email: %s" % attempted)
+        note_failed_login(attempted, request.remote_addr)
         flash("Incorrect email or password.", "error")
     return render_template("admin/login.html")
 
@@ -2688,6 +3003,16 @@ def dashboard_attention(flags):
             add("The %s section still has %s of placeholder text."
                 % (group, _plural(n, "block")),
                 url_for("admin_content", group=group), "Edit")
+
+    # Failed sign-ins are already in the audit log; this is what makes
+    # anybody look. Below the threshold it stays quiet, because a
+    # trustee mistyping a password twice is not news.
+    failed = failed_logins_since()
+    if failed > FAILED_LOGIN_NOTICE:
+        add("%d failed sign-in attempts in the last %d hours."
+            % (failed, FAILED_LOGIN_WINDOW_HOURS),
+            url_for("admin_audit", action=FAILED_LOGIN_ACTION),
+            "See them", level="blocker" if failed >= 25 else "todo")
 
     # Enquiries are the ONE check that ignores its feature flag. The flag
     # stops new messages arriving; it does not answer the ones already
@@ -4328,6 +4653,10 @@ def admin_features():
         settings=mail_settings(), fields=MAIL_SETTINGS,
         modes=SECURITY_MODES, mail_ready=mail_configured(),
         password_set=password_is_set(),
+        backup=backup_status(), alerts_on=security_alerts_on(),
+        failed_logins=failed_logins_since(),
+        failed_window=FAILED_LOGIN_WINDOW_HOURS,
+        alert_threshold=ALERT_IP_THRESHOLD,
         # For the "how to change the password" instructions: real paths
         # for THIS deployment, never hardcoded in the template.
         deploy={"env_file": DEPLOY_ENV_FILE, "path": DEPLOY_PATH,
@@ -4447,6 +4776,57 @@ def admin_test_mail():
     return redirect(url_for("admin_features"))
 
 
+@app.route("/admin/settings/backup", methods=["POST"])
+@super_admin_required
+def admin_backup_now():
+    """Run a backup from the Settings page.
+
+    Calls the same Python that the CLI does — no shell, no command built
+    from anything a request supplied, nothing on this page that could
+    become one. Rate limited because writing an archive is real disk
+    work, and logged whichever way it goes.
+    """
+    if rate_limited("backup"):
+        flash("A backup has just run. The button is limited to twice an "
+              "hour; the nightly job is what keeps them current.", "error")
+        return redirect(url_for("admin_features"))
+    run = run_backup(reason="manual")
+    if run.status == "ok":
+        log_action("backup",
+                   summary="Ran a backup from the Settings page: %s (%s)."
+                           % (run.filename,
+                              filesize_filter(run.size_bytes)))
+        flash("Backup written: %s (%s, %d file(s)). Remember this is on "
+              "the same server — the nightly copy off the machine is what "
+              "protects against losing it."
+              % (run.filename, filesize_filter(run.size_bytes),
+                 run.file_count), "ok")
+    else:
+        log_action("backup", summary="Backup from the Settings page failed "
+                                     "— %s." % run.error)
+        flash("The backup failed: %s" % run.error, "error")
+    return redirect(url_for("admin_features"))
+
+
+@app.route("/admin/settings/security-alerts", methods=["POST"])
+@super_admin_required
+def admin_security_alerts():
+    """Switch the failed-sign-in alert email on or off."""
+    on = request.form.get("enabled") == "on"
+    block = Block.query.filter_by(key=SECURITY_ALERT_KEY).first()
+    if not block:
+        block = Block(key=SECURITY_ALERT_KEY, group="site", kind="text",
+                      label="Email alerts for failed sign-ins")
+        db.session.add(block)
+    block.value = "1" if on else ""
+    db.session.commit()
+    log_action("edit", entity=("Block", block.id),
+               summary="Turned failed-sign-in alert emails %s."
+                       % ("on" if on else "off"))
+    flash("Failed sign-in alerts are %s." % ("on" if on else "off"), "ok")
+    return redirect(url_for("admin_features"))
+
+
 @app.route("/admin/features/<name>/toggle", methods=["POST"])
 @super_admin_required
 def admin_feature_toggle(name):
@@ -4484,6 +4864,10 @@ DEFAULT_BLOCKS = [
     ("site", "smtp_user", "Mail server username", "text", ""),
     ("site", "smtp_security", "Mail server encryption", "text", ""),
     ("site", "smtp_from", "Email is sent from", "text", ""),
+    # "1" switches on the failed-sign-in alert email. Off by default:
+    # nobody wants a mailbox full of alerts they did not ask for.
+    ("site", "security_alert_email", "Email alerts for failed sign-ins",
+     "text", ""),
     ("home", "home_hero_title", "Hero headline", "text",
      "Empowering communities, enriching lives in Enfield."),
     ("home", "home_hero_text", "Hero paragraph", "text",
@@ -4809,6 +5193,48 @@ def test_mail(recipient):
         print("\nSent. Check %s (including the spam folder)." % to)
     else:
         print("\nFailed: %s" % reason)
+        raise SystemExit(1)
+
+
+@app.cli.command("backup-now")
+@click.option("--keep", type=int, default=None,
+              help="Archives to keep (default: the BACKUP_KEEP setting).")
+def backup_now(keep):
+    """Write a backup archive: flask --app app backup-now
+
+    Database snapshot plus every upload, into one timestamped zip in
+    BACKUP_DIR, with the oldest archives pruned to the retention setting.
+    Safe to run at any time and safe to run twice; the site keeps serving
+    throughout.
+
+    THIS DOES NOT COPY ANYTHING OFF THIS SERVER. A zip beside the
+    database survives a mistake, not a dead machine — see the README for
+    the rsync cron line that turns it into a real backup.
+    """
+    status = backup_status()
+    print("Database : %s (%s)" % (status["database"] or "—",
+                                  filesize_filter(status["db_size"])))
+    print("Uploads  : %s (%d files, %s)"
+          % (UPLOAD_DIR, status["uploads_files"],
+             filesize_filter(status["uploads_size"])))
+    print("Into     : %s" % status["dir"])
+    run = run_backup(reason="cli")
+    if run.status == "ok":
+        print("\nWrote %s — %s, %d file(s)."
+              % (run.filename, filesize_filter(run.size_bytes),
+                 run.file_count))
+        removed = prune_backups(keep) if keep is not None else 0
+        kept = keep if keep is not None else BACKUP_KEEP
+        print("Keeping the newest %d archive(s)%s."
+              % (kept, "; removed %d older" % removed if removed else ""))
+        log_action("backup",
+                   summary="Wrote backup %s (%s) from the command line."
+                           % (run.filename, filesize_filter(run.size_bytes)))
+    else:
+        print("\nBackup FAILED: %s" % run.error)
+        log_action("backup",
+                   summary="Backup from the command line failed — %s."
+                           % run.error)
         raise SystemExit(1)
 
 

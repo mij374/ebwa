@@ -164,6 +164,35 @@ Built and maintained by Netbus IT Support.
     answers them directly. There is deliberately NO auto-reply to the
     enquirer yet: it needs a decision on wording and on what happens
     when it bounces. Worth adding — ask before building it.
+- Backups: `run_backup()` writes a database snapshot (through sqlite3's
+  own backup API, so it is consistent while the site is serving) plus
+  every upload into one timestamped zip in `BACKUP_DIR`, and records a
+  `BackupRun` either way — a backup that failed silently is worse than
+  none. `prune_backups()` keeps the newest `BACKUP_KEEP`.
+  - **Nothing here shells out, and nothing ever will.** No subprocess, no
+    command built from anything a request supplied. The web button calls
+    the same Python the CLI does. A website that can run commands on its
+    own server is one vulnerability away from being a shell.
+  - **Copying archives off the server is NOT this app's job.** That is
+    cron plus rsync/scp with a key that lives on the server. The Settings
+    panel says so in as many words, and the README carries the cron line.
+    Do not add remote-destination settings, credentials or an "upload to
+    Dropbox" button — the app makes and tracks archives, and that is the
+    whole boundary.
+  - `backups/` is gitignored: an archive holds the entire database,
+    personal data and all.
+- Security visibility: failed logins were always in the audit log; the
+  dashboard now shows a count above `FAILED_LOGIN_NOTICE` in 24 hours,
+  and `note_failed_login()` can email once when one IP passes
+  `ALERT_IP_THRESHOLD` within the hour.
+  - The alert is OFF by default, switched on by a super admin, and its
+    cooldown is read from the AUDIT LOG rather than memory — gunicorn
+    runs several workers, and an attacker must not be able to earn one
+    email per worker.
+  - The email carries the addresses tried and the IP. It must never carry
+    a password, part of one, or anything derived from one: the site does
+    not record attempted passwords anywhere, and that is the reason it
+    can say so plainly.
 - Contact form: `ContactMessage` behind the `contact_form` flag. The
   /contact PAGE is core and stays whole with the flag off — address,
   phone and map are what somebody looking for us actually needs.
@@ -538,6 +567,13 @@ thumbnails, `thumb_url()`/`upload_url()` template helpers and the
 photographs straight off a phone: 8,915 KB of images before, 926 KB
 after (90% less). Deploy: `pip install -r requirements.txt` for Pillow,
 then `flask --app app reprocess-images` once.
+
+Backups and security visibility (rules above): `BackupRun` +
+`backup-now` CLI + a read-only Settings panel with a "Back up now"
+button, failed-sign-in counts on the dashboard and an optional alert
+email. Deploy: new table — `flask --app app init-db` — plus optional
+`BACKUP_DIR` / `BACKUP_KEEP`, and the off-server copy is a cron job
+Netbus sets up (README).
 
 Contact form and mail layer (rules above): `send_mail()` over smtplib
 with settings from the environment, `test-mail` CLI, a super-admin-only
