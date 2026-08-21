@@ -1,13 +1,13 @@
 {% extends "admin/base_admin.html" %}
 {% block content %}
 <h1 class="admin-h1">Dashboard</h1>
-<p class="admin-sub">Welcome back. Here's what is on the site, and anything
-  waiting for you.</p>
+<p class="admin-sub">Welcome back. Here is the whole site at a glance —
+  choose any card to manage that part of it.</p>
 
-{# Hidden entirely when there is nothing to act on. #}
+{# Not there at all when there is nothing to act on. #}
 {% if attention %}
 <section class="admin-attention">
-  <h2 class="admin-panel-h">Needs attention</h2>
+  <h2 class="admin-stats-head">Needs attention</h2>
   <ul class="attention-list">
     {% for item in attention %}
     <li class="attention-item{{ ' is-blocker' if item.level == 'blocker' }}">
@@ -19,22 +19,22 @@
 </section>
 {% endif %}
 
-<h2 class="admin-panel-h">Content at a glance</h2>
-<div class="admin-stats admin-overview">
-  {% for c in cards %}
-  <a class="admin-stat" href="{{ c.url }}">
-    <b>{{ c.count }}</b>
+{% for group in groups %}
+<h2 class="admin-stats-head">{{ group.heading }}</h2>
+<div class="admin-stats">
+  {% for c in group.cards %}
+  <a class="admin-stat{{ ' admin-stat-alert' if c.alert }}" href="{{ c.url }}">
+    <b>{{ c.value }}</b>
     <span>{{ c.label }}</span>
-    {% if c.note %}<small>{{ c.note }}</small>{% endif %}
-    {% if c.drafts %}
-    <small class="stat-draft">{{ c.drafts }} draft{{ '' if c.drafts == 1 else 's' }}</small>
-    {% endif %}
+    {% if c.note %}<em>{{ c.note }}</em>{% endif %}
+    {% if c.drafts %}<em class="stat-draft">{{ c.drafts }} unpublished</em>{% endif %}
   </a>
   {% endfor %}
 </div>
+{% endfor %}
 
 {% if recent %}
-<h2 class="admin-panel-h">Recent activity</h2>
+<h2 class="admin-stats-head">Recent activity</h2>
 <div class="table-scroll">
 <table class="admin-table activity-table">
   <tr><th>When</th><th>Who</th><th>What</th></tr>
@@ -50,7 +50,7 @@
 <p class="admin-more"><a href="{{ url_for('admin_audit') }}">View the full audit log →</a></p>
 {% endif %}
 
-<h2 class="admin-panel-h">Quick actions</h2>
+<h2 class="admin-stats-head">Quick actions</h2>
 <div class="admin-quick">
   <a class="btn btn-green" href="{{ url_for('admin_event_form') }}">+ New event</a>
   {% if features.news %}

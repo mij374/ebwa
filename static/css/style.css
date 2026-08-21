@@ -320,25 +320,41 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .admin-h1{font-size:30px;font-weight:700;margin-bottom:6px}
 .admin-sub{color:var(--ink-soft);margin-bottom:28px}
 .admin-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
-.admin-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:30px}
-.admin-stat{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:24px;text-align:center}
-.admin-stat b{display:block;font-family:var(--font-display);font-size:34px;color:var(--green)}
-.admin-stat span{font-size:14px;color:var(--ink-soft);font-weight:600}
-.admin-quick{display:flex;gap:14px;flex-wrap:wrap}
-
-/* ---------- Dashboard ---------- */
-.admin-panel-h{font-family:var(--font-body);font-size:16px;font-weight:700;margin:34px 0 14px}
-/* Auto-fill so a module switched off just leaves the row shorter */
-.admin-overview{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:14px}
-.admin-overview .admin-stat{padding:18px 14px}
-.admin-overview .admin-stat b{font-size:28px}
+.admin-stats-head{
+  font-family:var(--font-body);font-size:13px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);
+  margin:0 0 12px;
+}
+/* auto-fit rather than a fixed 3: the row of cards changes with the
+   feature flags, and 220px keeps three to a row both on the admin's
+   900px column and on a tablet, folding to two on smaller screens. */
+.admin-stats{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:18px;margin-bottom:30px;
+}
+.admin-stat{
+  background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:24px;text-align:center;
+  display:flex;flex-direction:column;justify-content:center;
+}
 a.admin-stat{
   text-decoration:none;color:inherit;
-  transition:transform .15s ease, box-shadow .15s ease;
+  transition:border-color .15s ease,box-shadow .15s ease;
 }
-a.admin-stat:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(2,56,42,.10)}
-.admin-stat small{display:block;margin-top:6px;font-size:12.5px;color:var(--ink-soft)}
-.admin-stat small.stat-draft{color:var(--red);font-weight:700}
+a.admin-stat:hover{border-color:var(--green);box-shadow:0 6px 18px rgba(0,86,63,.10)}
+a.admin-stat:focus-visible{outline:3px solid var(--green);outline-offset:2px}
+.admin-stat b{display:block;font-family:var(--font-display);font-size:34px;color:var(--green);line-height:1.15}
+.admin-stat span{font-size:14px;color:var(--ink-soft);font-weight:600}
+.admin-stat em{font-style:normal;font-size:12.5px;color:var(--ink-soft);opacity:.8;margin-top:6px}
+/* Something is actually waiting on the admin — the only card that shouts. */
+.admin-stat-alert{border-color:var(--red);background:#FFF7F7}
+.admin-stat-alert b{color:var(--red)}
+a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,51,63,.12)}
+.admin-quick{display:flex;gap:14px;flex-wrap:wrap}
+
+/* ---------- Dashboard: needs attention + recent activity ---------- */
+/* Unpublished work is the one thing on a card worth colouring in. */
+.admin-stat em.stat-draft{color:var(--red);font-weight:700;opacity:1}
 .admin-attention{
   background:var(--white);border:1px solid var(--line);border-left:4px solid var(--red);
   border-radius:var(--radius);padding:22px 24px;margin-bottom:30px;
@@ -355,7 +371,7 @@ a.admin-stat:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(2,56,4
    own box rather than taking the page sideways on a phone. */
 .table-scroll{overflow-x:auto}
 .activity-table td{overflow-wrap:anywhere}
-.admin-more{margin-top:14px;font-size:14.5px}
+.admin-more{margin:14px 0 30px;font-size:14.5px}
 .admin-more a{color:var(--green);font-weight:700;text-decoration:none}
 
 .admin-form{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:30px;max-width:680px}
@@ -522,13 +538,16 @@ body.has-notice footer{padding-bottom:110px}
 }
 @media (max-width: 640px){
   section{padding:60px 0}
+  /* Two cards to a row rather than one: there is a card per module now,
+     and a single column made the dashboard a very long scroll. */
+  .admin-stats{grid-template-columns:1fr 1fr;gap:12px}
+  .admin-stat{padding:18px 12px}
+  .admin-stat b{font-size:28px}
+  .admin-stat em{font-size:12px}
   .cards,.event-cards,.gallery-grid{grid-template-columns:1fr}
   .brand-mark img{height:44px}      /* keeps the brand off the menu button */
   .brand-name{font-size:20px}
   .field-row{grid-template-columns:1fr}
-  .admin-stats{grid-template-columns:1fr}
-  /* two across still reads fine on a phone, and keeps the page short */
-  .admin-overview{grid-template-columns:repeat(auto-fill,minmax(124px,1fr))}
   /* Three columns is too narrow to read on a phone, so each entry becomes
      a small card: who and when on one line, what it was underneath. */
   .activity-table{display:block;border:none;background:none;border-radius:0}

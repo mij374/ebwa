@@ -28,6 +28,43 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+## The dashboard
+
+`/admin` is the first page you land on after logging in, and it shows a
+card for every part of the site, grouped into three rows:
+
+- **Pages and content** — upcoming events, news and projects, gallery
+  photos, "What we do" cards, testimonials, partners, community
+  resources and journey milestones. The small line under each number
+  tells you what is not live yet ("2 unpublished", "1 hidden"), so a
+  draft you meant to publish does not sit there unnoticed.
+- **People** — newsletter subscribers, and membership applications.
+  Applications still marked *new* get their own card, outlined in red
+  whenever any are waiting for a reply.
+- **Donations and collections** — raised this year (and since the site
+  opened), how many collections are open, and the Gift Aid you can
+  claim. That last figure counts only donation portions with a complete
+  declaration, so it always matches the Gift Aid claim page exactly.
+
+Every card is a link to the page that manages it. Cards for optional
+modules disappear when a super admin switches that feature off in
+Settings, exactly as the menu links do.
+
+Above the cards, a **Needs attention** panel appears when something is
+waiting: membership applications nobody has answered, events that have
+now passed but are still published, pages still holding the placeholder
+privacy notice or terms (called out as a launch blocker), collections or
+published pages with no photo, and payments left unfinished for more
+than a day. Each line links to where the fix happens, and the whole
+panel disappears when there is nothing to say.
+
+Below the cards, super admins see the six most recent entries from the
+audit log, in UK local time, with a link to the full page.
+
+The dashboard deliberately shows numbers only — never a donor's name, an
+applicant's address or any other personal detail. For those you go to
+the relevant page, which records that you looked in the audit log.
+
 ## Audit log
 
 **Audit log** in the sidebar (`/admin/audit`) shows what has been done in

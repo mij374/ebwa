@@ -1,13 +1,15 @@
 """Smoke test for the admin dashboard overview (/admin).
 
 Covers: anonymous access redirects; the page renders for a client admin
-and a super admin; the content cards count correctly and link to their
-section; modules whose feature flag is off are absent from both the cards
-and the quick actions; the "needs attention" panel is hidden when there
-is nothing to say and each condition raises it on its own; recent
-activity is super-admin only, newest first, capped at six and shown in UK
-local time; and the whole page stays a fixed number of queries however
-much content the site holds (no N+1).
+and a super admin; every card counts correctly and links to its section;
+modules whose feature flag is off are absent from the cards, the quick
+actions and the checks; the "needs attention" panel is hidden when there
+is nothing to say and each condition raises it on its own; money renders
+in pounds and the Gift Aid figure agrees with the claim page; nothing
+personal (a donor's name, an applicant's address) ever reaches the page;
+recent activity is super-admin only, newest first, capped at six and
+shown in UK local time; and the whole page stays a fixed number of
+queries however much content the site holds (no N+1).
 
 Runs against a throwaway SQLite db in this folder via DATABASE_URL,
 so the real instance/ebwa.db is never touched. Deletes the db afterwards.
@@ -45,10 +47,18 @@ def check(name, cond, detail=""):
 
 
 def card(html, label):
-    """(url, count, extra text) for one overview card, or None."""
-    m = re.search(r'<a class="admin-stat" href="([^"]+)">\s*<b>(\d+)</b>\s*'
-                  r'<span>%s</span>(.*?)</a>' % re.escape(label), html, re.S)
-    return (m.group(1), int(m.group(2)), m.group(3)) if m else None
+    """(url, headline value, extra text) for one card, or None.
+
+    The value is an int for a count and the rendered string for money.
+    """
+    m = re.search(r'<a class="admin-stat([^"]*)" href="([^"]+)">\s*'
+                  r'<b>([^<]+)</b>\s*<span>%s</span>(.*?)</a>'
+                  % re.escape(label), html, re.S)
+    if not m:
+        return None
+    value = m.group(3).strip()
+    return (m.group(2), int(value) if value.isdigit() else value,
+            m.group(1) + m.group(4))
 
 
 def dashboard(cl):
@@ -129,33 +139,41 @@ status, html = dashboard(client)
 check("client admin GET /admin -> 200", status == 200, str(status))
 
 EXPECTED = [("Events", 3, "/admin/events"),
-            ("News posts", 3, "/admin/news"),
-            ("Milestones", 1, "/admin/journey"),
-            ("Resources", 1, "/admin/resources"),
-            ("What we do", 2, "/admin/services"),
+            ("News &amp; projects", 3, "/admin/news"),
+            ("Journey milestones", 1, "/admin/journey"),
+            ("Community resources", 1, "/admin/resources"),
+            ("“What we do” cards", 2, "/admin/services"),
             ("Partners", 1, "/admin/partners"),
             ("Testimonials", 1, "/admin/testimonials"),
             ("Gallery photos", 1, "/admin/gallery"),
-            ("Subscribers", 1, "/admin/subscribers"),
+            ("Newsletter subscribers", 1, "/admin/subscribers"),
             ("Membership applications", 1, "/admin/membership"),
-            ("Collections", 1, "/admin/campaigns")]
+            ("Collections open", 1, "/admin/campaigns"),
+            ("Raised this year", "£0", "/admin/campaigns"),
+            ("Gift Aid to claim", "£0", "/admin/gift-aid")]
 for label, count, url in EXPECTED:
     c = card(html, label)
     check("card: %s" % label, c is not None)
     if c:
-        check("card %s counts %d" % (label, count), c[1] == count,
+        check("card %s reads %s" % (label, count), c[1] == count,
               str(c[1]))
         check("card %s links to %s" % (label, url), c[0] == url, c[0])
 
 check("events card splits upcoming and past",
       "2 upcoming · 0 past" in card(html, "Events")[2])
-check("events card shows its draft", "1 draft<" in card(html, "Events")[2])
-check("news card shows its draft", "1 draft<" in card(html, "News posts")[2])
-check("draft count singular reads 'draft'", "1 drafts" not in html)
-check("collections card shows active count",
-      "1 active" in card(html, "Collections")[2])
-check("card with no drafts says nothing about drafts",
-      "draft" not in card(html, "Partners")[2])
+check("events card shows its unpublished one",
+      "1 unpublished" in card(html, "Events")[2])
+check("news card shows its unpublished one",
+      "1 unpublished" in card(html, "News &amp; projects")[2])
+check("collections card shows the total",
+      "1 in total" in card(html, "Collections open")[2])
+check("card with nothing unpublished says nothing about it",
+      "unpublished" not in card(html, "Partners")[2])
+check("cards are grouped", all(h in html for h in
+                               ("Pages and content", "People",
+                                "Donations and collections")))
+check("membership card is not shouting while nothing waits",
+      "admin-stat-alert" not in html)
 
 # ---- quick actions
 for label, url in (("+ New event", "/admin/events/new"),
@@ -301,8 +319,9 @@ for name in ("news", "resources", "our_journey", "membership_form",
              "donations"):
     set_flag(name, False)
 _s, html = dashboard(client)
-for label in ("News posts", "Milestones", "Resources",
-              "Membership applications", "Collections"):
+for label in ("News &amp; projects", "Journey milestones",
+              "Community resources", "Membership applications",
+              "Collections open", "Raised this year", "Gift Aid to claim"):
     check("flag off: %s card absent" % label, card(html, label) is None)
 check("flag off: news quick action absent", "+ New news post" not in html)
 check("flag off: milestone quick action absent",
@@ -310,6 +329,8 @@ check("flag off: milestone quick action absent",
 check("flag off: membership warning absent",
       "membership application" not in html)
 check("flag off: collection warning absent", "with no photo" not in html)
+check("flag off: the donations group heading goes too",
+      "Donations and collections" not in html)
 check("flag off: unfinished payment warning absent",
       "still unfinished" not in html)
 check("flag off: core cards still there", card(html, "Events") is not None)
@@ -321,8 +342,10 @@ for name in ("news", "resources", "our_journey", "membership_form",
     set_flag(name, True)
 _s, html = dashboard(client)
 check("flags back on: cards return",
-      all(card(html, l) for l in ("News posts", "Milestones", "Resources",
-                                  "Membership applications", "Collections")))
+      all(card(html, l) for l in ("News &amp; projects", "Journey milestones",
+                                  "Community resources",
+                                  "Membership applications",
+                                  "Collections open", "Gift Aid to claim")))
 check("flags back on: warnings return", "Needs attention" in html)
 client.get("/admin/logout")
 
@@ -353,6 +376,81 @@ check("recent activity is capped at %d" % RECENT_ACTIVITY,
       "Audit entry 0." not in html and "Audit entry 1." not in html)
 check("recent activity uses UK local time", uk in html, uk)
 check("recent activity is not raw UTC", raw == uk or raw not in html, raw)
+
+# ---- money: the totals are worked out here by hand, not from the code.
+#   complete this year : 1500+500 (fee+gift) + 2000 (general, Gift Aid)
+#                        + 1000 (general, no declaration)   = £50
+#   plus a complete one from a previous year: 4000           = £40
+#   the pending one must not count at all.
+#   Gift Aid claimable = 500 + 2000 = £25 -> reclaim £6.25
+with app.app_context():
+    Payment.query.delete()          # start the money maths from nothing
+    trip = Campaign.query.filter_by(slug="seaside-trip").first()
+    last_year = datetime.utcnow().replace(year=datetime.utcnow().year - 1)
+    rows = [
+        # campaign, fee, donation, gift_aid, status, created_at
+        (trip, 1500, 500, True, "complete", None),
+        (None, 0, 2000, True, "complete", None),
+        (None, 0, 1000, False, "complete", None),
+        (None, 0, 4000, False, "complete", last_year),
+        (trip, 1500, 0, False, "pending", None),
+    ]
+    for camp, fee, donation, ga, status, created in rows:
+        pay = Payment()
+        pay.campaign_id = camp.id if camp else None
+        pay.name = "Donor Nasrin"
+        pay.email = "donor@example.com"
+        pay.fee_pence = fee
+        pay.donation_pence = donation
+        pay.status = status
+        if ga:
+            pay.gift_aid = True
+            pay.gift_aid_name = "Donor Nasrin"
+            pay.gift_aid_address = "12"
+            pay.gift_aid_postcode = "EN3 4AB"
+        if created:
+            pay.created_at = created
+        db.session.add(pay)
+    db.session.commit()
+
+_s, html = dashboard(client)
+check("raised this year is right", card(html, "Raised this year")[1] == "£50")
+check("raised since the site opened is right",
+      "£90 since the site opened" in card(html, "Raised this year")[2])
+check("Gift Aid to claim is right",
+      card(html, "Gift Aid to claim")[1] == "£6.25")
+check("Gift Aid card shows what it is claimed on",
+      "on £25 of eligible donations" in card(html, "Gift Aid to claim")[2])
+ga = client.get("/admin/gift-aid").data.decode("utf-8")
+check("Gift Aid reclaim matches the claim page", "£6.25" in ga)
+check("the fresh pending payment is not called stale",
+      "still unfinished" not in html)
+
+# ---- aggregates only: nothing personal reaches the page
+with app.app_context():
+    add(MembershipApplication(), name="Applicant Nadia",
+        email="applicant@example.com", address="12 Ponders End Road, EN3",
+        status="new")
+    db.session.commit()
+_s, html = dashboard(client)
+check("membership card shouts while an application waits",
+      "admin-stat-alert" in card(html, "Membership applications")[2])
+for leak in ("Donor Nasrin", "donor@example.com", "Applicant Nadia",
+             "applicant@example.com", "Ponders End Road", "EN3 4AB"):
+    check("no personal data on the dashboard: %s" % leak, leak not in html)
+
+# ---- an empty site still renders rather than dividing by zero anywhere
+with app.app_context():
+    for model in (Payment, Campaign, Event, NewsPost, GalleryImage, Service,
+                  Testimonial, Partner, Resource, Milestone, Subscriber,
+                  MembershipApplication):
+        model.query.delete()
+    db.session.commit()
+status, html = dashboard(client)
+check("empty site still renders", status == 200, str(status))
+check("empty site shows zeroes", "£0" in html)
+check("empty site has nothing needing attention",
+      "Needs attention" not in html)
 
 # ---- the page does not get slower as content grows (no N+1)
 statements = []

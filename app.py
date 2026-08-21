@@ -1700,6 +1700,14 @@ def admin_2fa_disable():
 # The dashboard is the first page after every login, so it is counted
 # rather than loaded: nothing here fetches rows to len() them, and every
 # "needs attention" check is a single query, never one per record.
+#
+# The cards are AGGREGATE ONLY — a count or a total, never a name, an
+# address or an amount tied to a person, so the page is safe to have open
+# in a room. The one exception is the recent-activity list, which is the
+# audit log's own summaries and is shown to super admins only. Neither is
+# a view of personal data, so the page does not log_action(); the
+# contributor, Gift Aid and membership pages are where that happens, and
+# those do log.
 PLACEHOLDER_MARK = "PLACEHOLDER"   # seeded copy EBWA still has to replace
 RECENT_ACTIVITY = 6                # audit entries shown on the dashboard
 STALE_PAYMENT_DAYS = 1
@@ -1739,71 +1747,130 @@ def _no_photo_count(model, owner_type):
                   model.id.notin_(attached))
 
 
-def dashboard_cards(flags):
-    """Content counts for the overview, honouring the feature flags.
+def _card(group, label, value, url, note="", drafts=0, alert=False):
+    return {"group": group, "label": label, "value": value, "url": url,
+            "note": note, "drafts": drafts, "alert": alert}
 
-    A card is: label, count, url, note (a readable breakdown) and drafts
-    (unpublished rows — 0 for models with no `published` flag). A module
-    that is switched off is simply absent.
+
+def dashboard_cards(flags):
+    """The overview cards, grouped, honouring the feature flags.
+
+    Every module has a card, so a new one means a card here — a module
+    with no card is a module the admin forgets exists. A flagged module's
+    card is built inside `if flags[...]`, so cards appear and disappear
+    exactly as the nav links do.
     """
     today = date.today()
+    cards = []
+    content, people = "Pages and content", "People"
+
     total, drafts = _published_split(Event)
-    cards = [{"label": "Events", "count": total, "drafts": drafts,
-              "url": url_for("admin_events"),
-              "note": "%d upcoming · %d past"
-                      % (_count(Event, Event.event_date >= today,
-                                Event.published == True),      # noqa: E712
-                         _count(Event, Event.event_date < today,
-                                Event.published == True))}]    # noqa: E712
+    cards.append(_card(
+        content, "Events", total, url_for("admin_events"), drafts=drafts,
+        note="%d upcoming · %d past"
+             % (_count(Event, Event.event_date >= today,
+                       Event.published == True),                # noqa: E712
+                _count(Event, Event.event_date < today,
+                       Event.published == True))))              # noqa: E712
 
     if flags["news"]:
         total, drafts = _published_split(NewsPost)
-        cards.append({"label": "News posts", "count": total, "drafts": drafts,
-                      "url": url_for("admin_news"), "note": ""})
+        cards.append(_card(content, "News & projects", total,
+                           url_for("admin_news"), drafts=drafts))
 
     if flags["our_journey"]:
         total, drafts = _published_split(Milestone)
-        cards.append({"label": "Milestones", "count": total, "drafts": drafts,
-                      "url": url_for("admin_milestones"), "note": ""})
+        funded = _count(Milestone, Milestone.funder_name != "")
+        cards.append(_card(content, "Journey milestones", total,
+                           url_for("admin_milestones"), drafts=drafts,
+                           note=("%s with a funder" % _plural(funded, "one",
+                                                              "ones"))
+                                if funded else ""))
 
     if flags["resources"]:
-        cards.append({"label": "Resources", "count": _count(Resource),
-                      "drafts": 0, "url": url_for("admin_resources"),
-                      "note": ""})
+        categories = db.session.query(Resource.category).distinct().count()
+        cards.append(_card(content, "Community resources", _count(Resource),
+                           url_for("admin_resources"),
+                           note="across %s" % _plural(categories,
+                                                      "category",
+                                                      "categories")))
 
     total, drafts = _published_split(Service)
-    cards.append({"label": "What we do", "count": total, "drafts": drafts,
-                  "url": url_for("admin_services"), "note": ""})
+    cards.append(_card(content, "“What we do” cards", total,
+                       url_for("admin_services"), drafts=drafts))
 
-    cards.append({"label": "Partners", "count": _count(Partner), "drafts": 0,
-                  "url": url_for("admin_partners"), "note": ""})
+    logos = _count(Partner, Partner.logo != "",
+                   Partner.display_mode.in_(("image", "both")))
+    cards.append(_card(content, "Partners", _count(Partner),
+                       url_for("admin_partners"),
+                       note=("%s with a logo" % _plural(logos, "one", "ones"))
+                            if logos else "name and text only"))
 
     total, drafts = _published_split(Testimonial)
-    cards.append({"label": "Testimonials", "count": total, "drafts": drafts,
-                  "url": url_for("admin_testimonials"), "note": ""})
+    cards.append(_card(content, "Testimonials", total,
+                       url_for("admin_testimonials"), drafts=drafts))
 
-    cards.append({"label": "Gallery photos", "count": _count(GalleryImage),
-                  "drafts": 0, "url": url_for("admin_gallery"), "note": ""})
+    cards.append(_card(content, "Gallery photos", _count(GalleryImage),
+                       url_for("admin_gallery")))
 
-    cards.append({"label": "Subscribers", "count": _count(Subscriber),
-                  "drafts": 0, "url": url_for("admin_subscribers"),
-                  "note": ""})
+    cards.append(_card(people, "Newsletter subscribers", _count(Subscriber),
+                       url_for("admin_subscribers")))
 
     if flags["membership_form"]:
         new = _count(MembershipApplication,
                      MembershipApplication.status == "new")
-        cards.append({"label": "Membership applications",
-                      "count": _count(MembershipApplication), "drafts": 0,
-                      "url": url_for("admin_membership"),
-                      "note": ("%d awaiting review" % new) if new else ""})
+        approved = _count(MembershipApplication,
+                          MembershipApplication.status == "approved")
+        # The one card that shouts, and only while something is actually
+        # waiting on a human. Keep it to that.
+        cards.append(_card(people, "Membership applications",
+                           _count(MembershipApplication),
+                           url_for("admin_membership"), alert=bool(new),
+                           note=("%d waiting for a reply · %d approved"
+                                 % (new, approved)) if new
+                                else ("%d approved · nothing waiting"
+                                      % approved)))
 
     if flags["donations"]:
-        cards.append({"label": "Collections", "count": _count(Campaign),
-                      "drafts": 0, "url": url_for("admin_campaigns"),
-                      "note": "%d active"
-                              % _count(Campaign,
-                                       Campaign.active == True)})  # noqa: E712
-    return cards
+        money = "Donations and collections"
+        total = db.func.coalesce(
+            db.func.sum(Payment.fee_pence + Payment.donation_pence), 0)
+        done = Payment.query.filter(Payment.status == "complete")
+        raised = done.with_entities(total).scalar()
+        # "This year" is the UK calendar year to date: admin-facing
+        # figures are Europe/London, storage stays naive UTC.
+        year = done.filter(
+            Payment.created_at >= uk_midnight_as_utc(date(today.year, 1, 1))
+        ).with_entities(total).scalar()
+        cards.append(_card(money, "Raised this year",
+                           pounds_filter(year), url_for("admin_campaigns"),
+                           note="%s since the site opened"
+                                % pounds_filter(raised)))
+
+        cards.append(_card(money, "Collections open",
+                           _count(Campaign, Campaign.active == True),  # noqa: E712
+                           url_for("admin_campaigns"),
+                           note="%d in total" % _count(Campaign)))
+
+        # The claim page's own filter, summed in SQL rather than fetching
+        # the rows — order_by is dropped because this is an aggregate.
+        claimable = (gift_aid_claimable_query().order_by(None)
+                     .with_entities(db.func.coalesce(
+                         db.func.sum(Payment.donation_pence), 0)).scalar())
+        # 25p per pound, rounded half-up in integer maths — the same sum
+        # the Gift Aid claim page shows, so the two never disagree.
+        cards.append(_card(money, "Gift Aid to claim",
+                           pounds_filter((claimable * 25 + 50) // 100),
+                           url_for("admin_gift_aid"),
+                           note="on %s of eligible donations"
+                                % pounds_filter(claimable)))
+
+    groups = []
+    for c in cards:
+        if not groups or groups[-1]["heading"] != c["group"]:
+            groups.append({"heading": c["group"], "cards": []})
+        groups[-1]["cards"].append(c)
+    return groups
 
 
 def dashboard_attention(flags):
@@ -1896,7 +1963,7 @@ def admin_dashboard():
                   .limit(RECENT_ACTIVITY).all())
     flags = feature_flags()
     return render_template("admin/dashboard.html",
-                           cards=dashboard_cards(flags),
+                           groups=dashboard_cards(flags),
                            attention=dashboard_attention(flags),
                            recent=recent)
 
