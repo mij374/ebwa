@@ -181,6 +181,19 @@ Built and maintained by Netbus IT Support.
     hides), so content is never stranded. It is a tidiness feature, not
     a security boundary — anything that must actually be protected needs
     an auth check of its own.
+- Dashboard: every module has a card at /admin, so a new one means a
+  count in `dashboard_counts()` and a card in `admin/dashboard.html` —
+  a module with no card is a module the admin forgets exists.
+  - Counts for a flagged module go inside an `if feature_enabled(...)`
+    and the card inside `{% if features.<name> %}`, so cards appear and
+    disappear exactly as the nav links do.
+  - AGGREGATE ONLY. A count or a total, never a name, an address or an
+    amount tied to a person — which is also why the page does not
+    `log_action()`: it is not a view of personal data, unlike the
+    contributor, Gift Aid and membership pages, which are and do log.
+  - The one red card (`.admin-stat-alert`) is for something actually
+    waiting on a human — today, membership applications still at 'new'.
+    Keep it to that; a dashboard where everything shouts says nothing.
 - CSS: extend `static/css/style.css` using the existing custom properties
   (`--green`, `--red`, `--paper`, etc.) and class naming style. Design
   identity: Bangladeshi flag bottle green + red circle motif, Bengali
@@ -443,6 +456,14 @@ Built (post-signing variation, Jul 2026):
   page at /admin/audit with who/action/date filters, gated by the
   `audit_log` flag for client admins only. Deploy: new table only —
   `flask --app app init-db`.
+
+- Dashboard cards for every module (rules above): the three original
+  KPI cards became grouped rows — pages and content, people, donations
+  and collections — with a card per module, drafts/hidden counts noted
+  underneath, each card a link to its admin page, money via the
+  `pounds` filter and the Gift Aid figure taken from
+  `gift_aid_claimable_query()` so it can never disagree with the claim
+  page. No schema change.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.

@@ -1697,16 +1697,89 @@ def admin_2fa_disable():
 
 
 # ---------------------------------------------------------------- admin: dashboard
+def dashboard_counts():
+    """One number per module, so the dashboard shows the whole site.
+
+    Everything here is aggregate — a count or a total, never a name, an
+    address or an amount tied to a person — so the page is safe to have
+    open in a room and does not count as a view of personal data (the
+    contributor, Gift Aid and membership pages are where that happens,
+    and those log an export). Flagged modules are only counted when
+    their flag is on, so the cards appear and disappear with the nav.
+    """
+    today = date.today()
+    c = {
+        "events": Event.query.count(),
+        "upcoming": Event.query.filter(Event.event_date >= today,
+                                       Event.published == True).count(),  # noqa: E712
+        "events_draft": Event.query.filter(
+            Event.published == False).count(),                            # noqa: E712
+        "gallery": GalleryImage.query.count(),
+        "services": Service.query.filter(
+            Service.published == True).count(),                           # noqa: E712
+        "services_hidden": Service.query.filter(
+            Service.published == False).count(),                          # noqa: E712
+        "testimonials": Testimonial.query.filter(
+            Testimonial.published == True).count(),                       # noqa: E712
+        "testimonials_hidden": Testimonial.query.filter(
+            Testimonial.published == False).count(),                      # noqa: E712
+        "partners": Partner.query.count(),
+        "partners_logo": Partner.query.filter(
+            Partner.logo != "",
+            Partner.display_mode.in_(("image", "both"))).count(),
+        "subscribers": Subscriber.query.count(),
+    }
+    if feature_enabled("news"):
+        c["news"] = NewsPost.query.filter(
+            NewsPost.published == True).count()                           # noqa: E712
+        c["news_draft"] = NewsPost.query.filter(
+            NewsPost.published == False).count()                          # noqa: E712
+    if feature_enabled("resources"):
+        c["resources"] = Resource.query.count()
+        c["resource_categories"] = (db.session.query(Resource.category)
+                                    .distinct().count())
+    if feature_enabled("our_journey"):
+        c["milestones"] = Milestone.query.filter(
+            Milestone.published == True).count()                          # noqa: E712
+        c["milestones_draft"] = Milestone.query.filter(
+            Milestone.published == False).count()                         # noqa: E712
+        c["milestones_funded"] = Milestone.query.filter(
+            Milestone.funder_name != "").count()
+    if feature_enabled("membership_form"):
+        c["members"] = MembershipApplication.query.count()
+        c["members_new"] = MembershipApplication.query.filter_by(
+            status="new").count()
+        c["members_approved"] = MembershipApplication.query.filter_by(
+            status="approved").count()
+    if feature_enabled("donations"):
+        c["campaigns"] = Campaign.query.count()
+        c["campaigns_active"] = Campaign.query.filter(
+            Campaign.active == True).count()                              # noqa: E712
+        total = db.func.coalesce(
+            db.func.sum(Payment.fee_pence + Payment.donation_pence), 0)
+        done = Payment.query.filter(Payment.status == "complete")
+        c["raised_pence"] = done.with_entities(total).scalar()
+        # "This year" is the UK calendar year to date: admin-facing
+        # figures are Europe/London, storage stays naive UTC.
+        c["raised_year_pence"] = done.filter(
+            Payment.created_at >= uk_midnight_as_utc(date(today.year, 1, 1))
+        ).with_entities(total).scalar()
+        # The claim page's own filter, summed in SQL rather than fetching
+        # the rows — order_by is dropped because this is an aggregate.
+        claimable = (gift_aid_claimable_query().order_by(None)
+                     .with_entities(db.func.coalesce(
+                         db.func.sum(Payment.donation_pence), 0)).scalar())
+        c["gift_aid_pence"] = claimable
+        # 25p per pound, rounded half-up in integer maths — the same sum
+        # the Gift Aid claim page shows, so the two never disagree.
+        c["gift_aid_reclaim_pence"] = (claimable * 25 + 50) // 100
+    return c
+
+
 @app.route("/admin")
 @login_required
 def admin_dashboard():
-    counts = {
-        "events": Event.query.count(),
-        "upcoming": Event.query.filter(Event.event_date >= date.today(),
-                                       Event.published == True).count(),  # noqa: E712
-        "gallery": GalleryImage.query.count(),
-    }
-    return render_template("admin/dashboard.html", counts=counts)
+    return render_template("admin/dashboard.html", counts=dashboard_counts())
 
 
 # ---------------------------------------------------------------- admin: content blocks

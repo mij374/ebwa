@@ -1,16 +1,102 @@
 {% extends "admin/base_admin.html" %}
 {% block content %}
 <h1 class="admin-h1">Dashboard</h1>
-<p class="admin-sub">Welcome back. Here's a quick overview of the site.</p>
+<p class="admin-sub">Welcome back. Here is the whole site at a glance — choose any card to manage that part of it.</p>
 
+<h2 class="admin-stats-head">Pages and content</h2>
 <div class="admin-stats">
-  <div class="admin-stat"><b>{{ counts.upcoming }}</b><span>upcoming events</span></div>
-  <div class="admin-stat"><b>{{ counts.events }}</b><span>events total</span></div>
-  <div class="admin-stat"><b>{{ counts.gallery }}</b><span>gallery photos</span></div>
+  <a class="admin-stat" href="{{ url_for('admin_events') }}">
+    <b>{{ counts.upcoming }}</b>
+    <span>upcoming events</span>
+    <em>{{ counts.events }} in total{% if counts.events_draft %} · {{ counts.events_draft }} unpublished{% endif %}</em>
+  </a>
+  {% if features.news %}
+  <a class="admin-stat" href="{{ url_for('admin_news') }}">
+    <b>{{ counts.news }}</b>
+    <span>news &amp; projects</span>
+    <em>{% if counts.news_draft %}{{ counts.news_draft }} unpublished{% else %}all published{% endif %}</em>
+  </a>
+  {% endif %}
+  <a class="admin-stat" href="{{ url_for('admin_gallery') }}">
+    <b>{{ counts.gallery }}</b>
+    <span>gallery photos</span>
+  </a>
+  <a class="admin-stat" href="{{ url_for('admin_services') }}">
+    <b>{{ counts.services }}</b>
+    <span>“What we do” cards</span>
+    <em>{% if counts.services_hidden %}{{ counts.services_hidden }} hidden{% else %}all showing{% endif %}</em>
+  </a>
+  <a class="admin-stat" href="{{ url_for('admin_testimonials') }}">
+    <b>{{ counts.testimonials }}</b>
+    <span>testimonials</span>
+    <em>{% if counts.testimonials_hidden %}{{ counts.testimonials_hidden }} hidden{% else %}all showing{% endif %}</em>
+  </a>
+  <a class="admin-stat" href="{{ url_for('admin_partners') }}">
+    <b>{{ counts.partners }}</b>
+    <span>partners</span>
+    <em>{% if counts.partners_logo %}{{ counts.partners_logo }} with a logo{% else %}name and text only{% endif %}</em>
+  </a>
+  {% if features.resources %}
+  <a class="admin-stat" href="{{ url_for('admin_resources') }}">
+    <b>{{ counts.resources }}</b>
+    <span>community resources</span>
+    <em>across {{ counts.resource_categories }} categor{{ 'y' if counts.resource_categories == 1 else 'ies' }}</em>
+  </a>
+  {% endif %}
+  {% if features.our_journey %}
+  <a class="admin-stat" href="{{ url_for('admin_milestones') }}">
+    <b>{{ counts.milestones }}</b>
+    <span>journey milestones</span>
+    <em>{{ counts.milestones_funded }} with a funder{% if counts.milestones_draft %} · {{ counts.milestones_draft }} unpublished{% endif %}</em>
+  </a>
+  {% endif %}
 </div>
 
+<h2 class="admin-stats-head">People</h2>
+<div class="admin-stats">
+  <a class="admin-stat" href="{{ url_for('admin_subscribers') }}">
+    <b>{{ counts.subscribers }}</b>
+    <span>newsletter subscribers</span>
+  </a>
+  {% if features.membership_form %}
+  <a class="admin-stat{{ ' admin-stat-alert' if counts.members_new }}" href="{{ url_for('admin_membership') }}">
+    <b>{{ counts.members_new }}</b>
+    <span>applications to answer</span>
+    <em>{% if counts.members_new %}waiting for a reply{% else %}nothing waiting{% endif %}</em>
+  </a>
+  <a class="admin-stat" href="{{ url_for('admin_membership') }}">
+    <b>{{ counts.members }}</b>
+    <span>membership applications</span>
+    <em>{{ counts.members_approved }} approved so far</em>
+  </a>
+  {% endif %}
+</div>
+
+{% if features.donations %}
+<h2 class="admin-stats-head">Donations and collections</h2>
+<div class="admin-stats">
+  <a class="admin-stat" href="{{ url_for('admin_campaigns') }}">
+    <b>{{ counts.raised_year_pence|pounds }}</b>
+    <span>raised this year</span>
+    <em>{{ counts.raised_pence|pounds }} since the site opened</em>
+  </a>
+  <a class="admin-stat" href="{{ url_for('admin_campaigns') }}">
+    <b>{{ counts.campaigns_active }}</b>
+    <span>collections open</span>
+    <em>{{ counts.campaigns }} in total</em>
+  </a>
+  <a class="admin-stat" href="{{ url_for('admin_gift_aid') }}">
+    <b>{{ counts.gift_aid_reclaim_pence|pounds }}</b>
+    <span>Gift Aid to claim</span>
+    <em>on {{ counts.gift_aid_pence|pounds }} of eligible donations</em>
+  </a>
+</div>
+{% endif %}
+
+<h2 class="admin-stats-head">Quick actions</h2>
 <div class="admin-quick">
   <a class="btn btn-green" href="{{ url_for('admin_event_form') }}">+ New event</a>
+  {% if features.news %}<a class="btn btn-green" href="{{ url_for('admin_news_form') }}">+ New news post</a>{% endif %}
   <a class="btn btn-ghost" href="{{ url_for('admin_content') }}">Edit page content</a>
   <a class="btn btn-ghost" href="{{ url_for('admin_gallery') }}">Manage gallery</a>
 </div>
