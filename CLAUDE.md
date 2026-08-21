@@ -193,6 +193,16 @@ Built and maintained by Netbus IT Support.
     a password, part of one, or anything derived from one: the site does
     not record attempted passwords anywhere, and that is the reason it
     can say so plainly.
+  - Alerts have their OWN recipient (`site_security_alert_to`,
+    comma-separated), falling back to the enquiries address only until
+    somebody sets one. They are different audiences: an enquiry is for
+    EBWA, "somebody is working through passwords on your admin" is for
+    whoever runs the server. They look identical while both fall back to
+    MAIL_TO and stop being identical the day enquiries move to an
+    @ebwa.org.uk mailbox — which is exactly when nobody would notice the
+    alerts had followed them there. Any future alerting (disk full,
+    backup failed, certificate expiring) belongs on this address, not the
+    enquiries one.
 - Contact form: `ContactMessage` behind the `contact_form` flag. The
   /contact PAGE is core and stays whole with the flag off — address,
   phone and map are what somebody looking for us actually needs.

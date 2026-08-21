@@ -268,6 +268,25 @@ Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
 
+## Security alerts
+
+**Settings → Security** shows how many sign-ins have failed in the last
+24 hours and can email an alert when one address keeps trying: more than
+ten failures within an hour sends one email, and then nothing for an hour
+however long it goes on.
+
+Alerts have their own recipient — **Send security alerts to** — because
+they are not for the same person as a contact enquiry. An enquiry is for
+EBWA; "somebody is trying passwords against your admin" is for whoever
+looks after the server. Put Netbus (or several addresses, separated by
+commas) in that box. Leave it empty and alerts follow the enquiries
+address, which is fine until that becomes an @ebwa.org.uk mailbox — at
+which point the alerts would quietly follow it there.
+
+**Send a test alert** proves the route without waiting for a real attack.
+Alerts name the addresses that were tried and the IP they came from, and
+never a password: the site does not record attempted passwords at all.
+
 ## Backups
 
 The website can write a backup archive of itself: a consistent snapshot

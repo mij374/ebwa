@@ -809,7 +809,7 @@ ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
 HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
                      "smtp_port", "smtp_user", "smtp_security", "smtp_from",
-                     "security_alert_email")
+                     "security_alert_email", "site_security_alert_to")
 
 
 class LegacyLeadImage:
@@ -1652,6 +1652,48 @@ ALERT_COOLDOWN_MINUTES = 60        # email: never more often than this
 SECURITY_ALERT_KEY = "security_alert_email"   # Block: "1" to switch on
 
 
+SECURITY_ALERT_TO_KEY = "site_security_alert_to"
+
+
+def parse_addresses(raw):
+    """A comma-separated list of addresses, cleaned up."""
+    parts = (raw or "").replace(";", ",").split(",")
+    return [p.strip() for p in parts if p.strip()]
+
+
+def security_alert_setting():
+    """Where security alerts go, and where that address came from.
+
+    Alerts and contact enquiries are DIFFERENT audiences: an enquiry is
+    for EBWA, and "somebody is working through passwords on your admin"
+    is for whoever looks after the server. They only look like the same
+    address while both fall back to MAIL_TO, and they stop looking alike
+    the day enquiries move to an @ebwa.org.uk mailbox — which is exactly
+    when nobody would notice the alerts had followed them.
+    """
+    block = Block.query.filter_by(key=SECURITY_ALERT_TO_KEY).first()
+    chosen = (block.value or "").strip() if block else ""
+    if chosen:
+        return {"value": chosen, "recipients": parse_addresses(chosen),
+                "source": "database", "label": "This page"}
+    # Falling back: say WHICH fallback, since the enquiries address is
+    # itself either typed here or set on the server.
+    enquiries = mail_settings()["recipient"]
+    label = ("Same as enquiries (this page)"
+             if enquiries["source"] == "database"
+             else "Same as enquiries (MAIL_TO)"
+             if enquiries["source"] == "environment" else "Not set")
+    return {"value": enquiries["value"],
+            "recipients": parse_addresses(enquiries["value"]),
+            "source": "fallback" if enquiries["value"] else "unset",
+            "label": label}
+
+
+def security_alert_to():
+    """The recipients as one header value, or "" if there are none."""
+    return ", ".join(security_alert_setting()["recipients"])
+
+
 def failed_logins_since(hours=FAILED_LOGIN_WINDOW_HOURS):
     since = datetime.utcnow() - timedelta(hours=hours)
     return db.session.query(db.func.count(AuditLog.id)).filter(
@@ -1724,7 +1766,7 @@ def note_failed_login(attempted, ip):
         "are still protected by their passwords and, where it is switched "
         "on, two-factor authentication.\n"
         % (recent, ip, addresses, audit_log_link()))
-    sent = send_mail(mail_recipient(),
+    sent = send_mail(security_alert_to(),
                      "EBWA website: repeated failed sign-ins", body)
     # Logged either way — and this log line is what the cooldown reads,
     # so a failed send still stops a flood.
@@ -4654,6 +4696,7 @@ def admin_features():
         modes=SECURITY_MODES, mail_ready=mail_configured(),
         password_set=password_is_set(),
         backup=backup_status(), alerts_on=security_alerts_on(),
+        alert_to=security_alert_setting(),
         failed_logins=failed_logins_since(),
         failed_window=FAILED_LOGIN_WINDOW_HOURS,
         alert_threshold=ALERT_IP_THRESHOLD,
@@ -4811,19 +4854,75 @@ def admin_backup_now():
 @app.route("/admin/settings/security-alerts", methods=["POST"])
 @super_admin_required
 def admin_security_alerts():
-    """Switch the failed-sign-in alert email on or off."""
+    """Switch the failed-sign-in alert on or off, and say where it goes."""
     on = request.form.get("enabled") == "on"
+    raw = request.form.get("alert_to", "").strip()
+    addresses = parse_addresses(raw)
+    bad = [a for a in addresses if not valid_address(a)]
+    if bad:
+        flash("These do not look like email addresses: %s. Separate several "
+              "with commas." % ", ".join(bad), "error")
+        return redirect(url_for("admin_features"))
+
     block = Block.query.filter_by(key=SECURITY_ALERT_KEY).first()
     if not block:
         block = Block(key=SECURITY_ALERT_KEY, group="site", kind="text",
                       label="Email alerts for failed sign-ins")
         db.session.add(block)
     block.value = "1" if on else ""
+    set_mail_block(SECURITY_ALERT_TO_KEY, ", ".join(addresses))
     db.session.commit()
+
+    setting = security_alert_setting()
     log_action("edit", entity=("Block", block.id),
-               summary="Turned failed-sign-in alert emails %s."
-                       % ("on" if on else "off"))
-    flash("Failed sign-in alerts are %s." % ("on" if on else "off"), "ok")
+               summary=("Failed-sign-in alerts %s; alerts go to %s."
+                        % ("on" if on else "off",
+                           setting["value"] or "nobody — no address set")))
+    if on and not setting["recipients"]:
+        flash("Alerts are on, but there is no address to send them to — "
+              "set one here or an enquiries address under Email.", "error")
+    else:
+        flash("Saved. Alerts are %s%s."
+              % ("on" if on else "off",
+                 ", going to %s" % setting["value"] if on
+                 and setting["recipients"] else ""), "ok")
+    return redirect(url_for("admin_features"))
+
+
+@app.route("/admin/settings/test-alert", methods=["POST"])
+@super_admin_required
+def admin_test_alert():
+    """Send a sample security alert, so the route can be proved.
+
+    Worth having separately from the mail test: this one goes to the
+    SECURITY address, which is the whole point of the setting, and it
+    proves it without anybody having to fail ten sign-ins to find out.
+    """
+    setting = security_alert_setting()
+    to = ", ".join(setting["recipients"])
+    if not to:
+        flash("There is no address to send alerts to yet.", "error")
+        return redirect(url_for("admin_features"))
+    if rate_limited("test_mail"):
+        flash("That is enough test emails for one hour.", "error")
+        return redirect(url_for("admin_features"))
+
+    ok, reason = send_mail_result(
+        to, "EBWA website: test security alert",
+        "This is a TEST alert from the EBWA website, sent from the "
+        "Settings page.\n\n"
+        "A real one is sent when %d or more sign-ins fail from the same "
+        "address within an hour, and looks like this — with the addresses "
+        "that were tried and the IP they came from. It never contains a "
+        "password: the site does not record one.\n\n"
+        "If you are reading this, alerts will reach you.\n"
+        % ALERT_IP_THRESHOLD)
+    log_action("test_mail",
+               summary=("Sent a test security alert to %s." % to if ok else
+                        "Test security alert to %s failed — %s."
+                        % (to, reason)))
+    flash("Test alert sent to %s." % to if ok else
+          "Could not send to %s — %s." % (to, reason), "ok" if ok else "error")
     return redirect(url_for("admin_features"))
 
 
@@ -4868,6 +4967,9 @@ DEFAULT_BLOCKS = [
     # nobody wants a mailbox full of alerts they did not ask for.
     ("site", "security_alert_email", "Email alerts for failed sign-ins",
      "text", ""),
+    # Empty means "wherever enquiries go". Set it once EBWA's own address
+    # is in use, so alerts keep reaching whoever runs the server.
+    ("site", "site_security_alert_to", "Security alerts go to", "text", ""),
     ("home", "home_hero_title", "Hero headline", "text",
      "Empowering communities, enriching lives in Enfield."),
     ("home", "home_hero_text", "Hero paragraph", "text",

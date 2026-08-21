@@ -8,7 +8,10 @@ Settings panel is super-admin only and shows a client admin no paths at
 all; the failed-sign-in count appears on the dashboard only above the
 threshold; and the alert email fires only above ITS threshold, respects
 its cooldown, and contains the addresses tried and the IP but nothing
-resembling a password.
+resembling a password; and that alerts go to the SECURITY address when
+one is set, fall back to the enquiries address when it is not, accept
+several addresses, refuse rubbish, and never reach anyone but a super
+admin.
 
 Runs against a throwaway SQLite db, uploads folder and backup folder, so
 nothing real is touched. Deletes all three afterwards.
@@ -38,8 +41,10 @@ import app as appmod                                           # noqa: E402
 from app import (app, db, ALERT_IP_THRESHOLD, AuditLog, Block,  # noqa: E402
                  BackupRun, ContactMessage, DEFAULT_BLOCKS, FEATURES,
                  FAILED_LOGIN_NOTICE, FeatureFlag, SECURITY_ALERT_KEY,
-                 User, backup_status, note_failed_login, prune_backups,
-                 run_backup, security_alerts_on)
+                 SECURITY_ALERT_TO_KEY, User, backup_status,
+                 note_failed_login, prune_backups, run_backup,
+                 security_alert_setting, security_alert_to,
+                 security_alerts_on)
 
 app.config["TESTING"] = True
 appmod.UPLOAD_DIR = UPLOADS
@@ -362,7 +367,150 @@ with app.app_context():
     note_failed_login("someone@example.org", "203.0.113.9")
 check("an IP with no failures does not trigger an alert", not sent)
 
+# ---- the security alert address: its own setting, not the enquiries one
+with app.app_context():
+    check("with nothing set, alerts follow the enquiries address",
+          security_alert_to() == "netbus@example.org", security_alert_to())
+    check("and the badge says so",
+          security_alert_setting()["source"] == "fallback",
+          security_alert_setting()["source"])
+
+client.get("/admin/logout")
+appmod._rate_buckets.clear()
+client.post("/admin/login", data={"email": "netbus@example.com",
+                                  "password": PW})
+r = client.post("/admin/settings/security-alerts",
+                data={"enabled": "on", "alert_to": "it@netbus.co.uk"},
+                follow_redirects=True)
+check("security address saved", b"Saved. Alerts are on" in r.data)
+with app.app_context():
+    check("stored in its own Block",
+          Block.query.filter_by(key=SECURITY_ALERT_TO_KEY).first().value
+          == "it@netbus.co.uk")
+    check("in force now", security_alert_to() == "it@netbus.co.uk")
+    check("badge says it came from this page",
+          security_alert_setting()["source"] == "database")
+
+# an alert now goes THERE, not to the enquiries address
+sent.clear()
+with app.app_context():
+    AuditLog.query.delete()
+    db.session.commit()
+add_failures(ALERT_IP_THRESHOLD + 2)
+with app.app_context():
+    note_failed_login("target@example.org", "203.0.113.9")
+check("alert sent", len(sent) == 1, str(len(sent)))
+check("ALERT GOES TO THE SECURITY ADDRESS",
+      sent and sent[0]["To"] == "it@netbus.co.uk",
+      sent[0]["To"] if sent else "nothing sent")
+check("and NOT to the enquiries address",
+      "netbus@example.org" not in str(sent[0]["To"]))
+
+# several recipients
+r = client.post("/admin/settings/security-alerts",
+                data={"enabled": "on",
+                      "alert_to": "it@netbus.co.uk, oncall@netbus.co.uk"},
+                follow_redirects=True)
+check("several addresses accepted", b"Saved. Alerts are on" in r.data)
+with app.app_context():
+    check("both kept", security_alert_setting()["recipients"]
+          == ["it@netbus.co.uk", "oncall@netbus.co.uk"],
+          str(security_alert_setting()["recipients"]))
+sent.clear()
+with app.app_context():
+    AuditLog.query.filter_by(action="security_alert").delete()
+    db.session.commit()
+    note_failed_login("target@example.org", "203.0.113.9")
+check("the alert addresses both",
+      sent and "it@netbus.co.uk" in sent[0]["To"]
+      and "oncall@netbus.co.uk" in sent[0]["To"],
+      sent[0]["To"] if sent else "nothing sent")
+
+# rubbish is refused, and does not overwrite what was there
+r = client.post("/admin/settings/security-alerts",
+                data={"enabled": "on",
+                      "alert_to": "it@netbus.co.uk, nonsense"},
+                follow_redirects=True)
+check("an invalid address in the list is refused",
+      b"do not look like email addresses" in r.data)
+with app.app_context():
+    check("the good setting survived the bad save",
+          security_alert_setting()["recipients"]
+          == ["it@netbus.co.uk", "oncall@netbus.co.uk"])
+r = client.post("/admin/settings/security-alerts",
+                data={"enabled": "on", "alert_to": "no-at-sign.example.com"},
+                follow_redirects=True)
+check("a single bad address is refused too",
+      b"do not look like email addresses" in r.data)
+
+# clearing it falls back again
+r = client.post("/admin/settings/security-alerts",
+                data={"enabled": "on", "alert_to": ""},
+                follow_redirects=True)
+with app.app_context():
+    check("cleared: back to the enquiries address",
+          security_alert_to() == "netbus@example.org", security_alert_to())
+    check("and the badge says it is a fallback",
+          security_alert_setting()["source"] == "fallback")
+
+# the test-alert button
+client.post("/admin/settings/security-alerts",
+            data={"enabled": "on", "alert_to": "it@netbus.co.uk"},
+            follow_redirects=True)
+sent.clear()
+appmod._rate_buckets.clear()
+r = client.post("/admin/settings/test-alert", follow_redirects=True)
+check("test alert sent", b"Test alert sent to it@netbus.co.uk" in r.data)
+check("it went to the security address",
+      sent and sent[0]["To"] == "it@netbus.co.uk",
+      sent[0]["To"] if sent else "nothing sent")
+check("the test alert carries no password",
+      SECRET_PASSWORD not in sent[0].get_content())
+with app.app_context():
+    entry = (AuditLog.query.filter_by(action="test_mail")
+             .order_by(AuditLog.id.desc()).first())
+    check("test alert logged", entry is not None
+          and "test security alert" in entry.summary,
+          entry.summary if entry else "none")
+accepted = 1
+for _i in range(6):
+    r = client.post("/admin/settings/test-alert", follow_redirects=True)
+    if b"Test alert sent" in r.data:
+        accepted += 1
+check("test alerts are rate limited", accepted == 5, "%d accepted" % accepted)
+appmod._rate_buckets.clear()
+
+# the page shows it; a client admin sees neither page nor address
+page = client.get("/admin/features").data.decode("utf-8")
+check("panel shows the security address", "it@netbus.co.uk" in page)
+check("panel labels where it came from", "This page" in page)
+check("the checkbox no longer says 'me'",
+      "Email an alert when sign-ins keep failing" in page
+      and "Email me when sign-ins" not in page)
+check("panel names the recipients in the helper text",
+      "Alerts currently go to" in page)
+client.get("/admin/logout")
+
+client.post("/admin/login", data={"email": "client@example.com",
+                                  "password": PW})
+r = client.get("/admin/features")
+check("client admin still refused the page", r.status_code == 403)
+check("THE SECURITY ADDRESS IS NOT RENDERED TO THEM",
+      b"it@netbus.co.uk" not in r.data)
+for path in ("/admin/settings/security-alerts", "/admin/settings/test-alert"):
+    r = client.post(path, data={"enabled": "on",
+                                "alert_to": "attacker@example.com"})
+    check("client admin refused %s" % path, r.status_code == 403,
+          str(r.status_code))
+with app.app_context():
+    check("and nothing was changed", security_alert_to() == "it@netbus.co.uk")
+r = client.get("/admin")
+check("address not leaked onto the dashboard either",
+      b"it@netbus.co.uk" not in r.data)
+client.get("/admin/logout")
+
 # ---- teardown
+
 with app.app_context():
     db.session.remove()
     db.engine.dispose()

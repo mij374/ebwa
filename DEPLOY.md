@@ -59,6 +59,29 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — A separate recipient for security alerts
+
+**No schema change** — confirmed with `flask --app app check-schema`. One
+new content Block, seeded empty:
+
+```bash
+flask --app app init-db     # seeds site_security_alert_to
+```
+
+Empty means alerts follow the enquiries address, so nothing changes for
+an existing install until somebody sets one. **Set one before enquiries
+move to an @ebwa.org.uk mailbox**, or the alerts will follow them there
+and the people who need to see them will not.
+
+Settings → Security → *Send security alerts to* takes one address or
+several separated by commas, and *Send a test alert* proves it.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 2b42358 — 2026-08-21 — Backups, failed-sign-in visibility, bigger login badge
 
 New table:

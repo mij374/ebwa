@@ -174,16 +174,54 @@ sudo chmod 640 {{ deploy.env_file }}</code></pre>
     <div class="field field-check">
       <label>
         <input type="checkbox" name="enabled" {{ 'checked' if alerts_on }}>
-        Email me when sign-ins keep failing
+        Email an alert when sign-ins keep failing
       </label>
       <small>Sends one email when more than {{ alert_threshold }} attempts
-        come from the same address within an hour, and then stays quiet
-        for an hour however long the attack goes on. It contains the
-        addresses that were tried and the IP — never a password, because
-        the site does not record one.</small>
+        come from the same address within an hour, then stays quiet for an
+        hour however long the attack goes on. It names the addresses that
+        were tried and the IP they came from — never a password, because
+        the site does not record one.
+        {% if alert_to.recipients %}
+        Alerts currently go to <b>{{ alert_to.value }}</b>.
+        {% else %}
+        <b>There is nowhere to send them yet</b> — put an address below.
+        {% endif %}</small>
     </div>
-    <button class="btn btn-ghost" type="submit">Save alert setting</button>
+
+    <div class="field">
+      <label for="alert_to">Send security alerts to</label>
+      <input type="text" id="alert_to" name="alert_to" maxlength="400"
+             value="{{ alert_to.value if alert_to.source == 'database' else '' }}"
+             placeholder="{{ alert_to.value or 'it@netbus.co.uk' }}">
+      <small>
+        In force now: <b>{{ alert_to.value or '—' }}</b>
+        {% if alert_to.source == 'database' %}
+        <span class="pill pill-green">This page</span>
+        {% elif alert_to.source == 'fallback' %}
+        <span class="pill pill-grey">{{ alert_to.label }}</span>
+        {% else %}
+        <span class="pill pill-red">Not set</span>
+        {% endif %}
+        <br>
+        These go to whoever looks after the server, which is not
+        necessarily where enquiries go — leave it empty and they follow
+        the enquiries address. Separate several with commas.</small>
+    </div>
+
+    <button class="btn btn-ghost" type="submit">Save alert settings</button>
   </form>
+
+  {% if alert_to.recipients %}
+  <form method="post" action="{{ url_for('admin_test_alert') }}"
+        style="margin-top:14px"
+        onsubmit="return confirm('Send a test security alert now?');">
+    <button class="table-link" type="submit">Send a test alert →</button>
+    <small style="display:block;color:var(--ink-soft);margin-top:4px">
+      Sends a sample alert to {{ alert_to.value }}, so you can prove it
+      arrives without waiting for a real attack. Limited to five an
+      hour.</small>
+  </form>
+  {% endif %}
 </div>
 
 <h2 class="admin-stats-head">Backups</h2>
