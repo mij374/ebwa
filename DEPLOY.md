@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Gallery albums
+## f5d65e5 — 2026-08-21 — Gallery albums
 
 One new table and one new column.
 
