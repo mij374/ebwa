@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Backups, failed-sign-in visibility, bigger login badge
+## 2b42358 — 2026-08-21 — Backups, failed-sign-in visibility, bigger login badge
 
 New table:
 
