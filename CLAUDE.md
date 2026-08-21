@@ -210,6 +210,20 @@ Built and maintained by Netbus IT Support.
   (`--green`, `--red`, `--paper`, etc.) and class naming style. Design
   identity: Bangladeshi flag bottle green + red circle motif, Bengali
   script accents in section eyebrows (`.eyebrow .bn`).
+- Browser-tab icons live in ONE place: `templates/_icons.html`, included
+  by every template that owns a `<head>` (`base.html`,
+  `admin/base_admin.html`, `admin/login.html`, `admin/login_2fa.html`).
+  Add an icon or a `theme-color` there, never in a single template — the
+  admin pages went months with no tab icon because the block was only
+  ever in the public base. A new standalone page with its own `<head>`
+  must include it too.
+  - The icons are generated from `ebwa-mark.png` (the simplified lily) —
+    NOT `ebwa-logo.png`, the full badge, whose lettering and Bengali
+    script are illegible below about 64px. The set is 16x16 and 32x32
+    PNGs plus a 180x180 apple-touch-icon (opaque white background, as
+    iOS ignores transparency). Regenerate by trimming the mark to its
+    alpha bounding box and scaling with LANCZOS; the 16px one gets its
+    edge opacity lifted (alpha gamma ~0.7) or the thin strokes wash out.
 - Header: the nav must never wrap to a second line. It sheds things in
   order as the viewport narrows — brand strapline at 980px, whole nav to
   the menu button at 899px — so a new nav item means re-checking those

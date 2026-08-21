@@ -1,0 +1,12 @@
+{# Browser-tab and home-screen icons, plus the mobile browser chrome
+   colour. Included by EVERY template that owns a <head> — the public
+   base, the admin base and both login pages — so the set cannot drift
+   apart again. Add an icon here, never in one template.
+
+   The icons are the simplified lily mark (ebwa-mark.png), not the full
+   badge (ebwa-logo.png): the badge's lettering and Bengali script turn
+   to mush below about 64px. See CLAUDE.md if they ever need regenerating. #}
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32x32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16x16.png') }}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
+<meta name="theme-color" content="#00563F">
