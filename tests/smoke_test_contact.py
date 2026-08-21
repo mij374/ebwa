@@ -18,6 +18,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 Run:  python tests/smoke_test_contact.py
 """
 import os
+import smtplib
 import sys
 import time
 
@@ -76,6 +77,12 @@ class FakeSMTP:
 class FakeSMTPModule:
     SMTP = FakeSMTP
     SMTP_SSL = FakeSMTP
+    # The app names these classes when it works out WHY a send failed, so
+    # a stand-in that lacks them is not a faithful stand-in.
+    SMTPAuthenticationError = smtplib.SMTPAuthenticationError
+    SMTPSenderRefused = smtplib.SMTPSenderRefused
+    SMTPRecipientsRefused = smtplib.SMTPRecipientsRefused
+    SMTPNotSupportedError = smtplib.SMTPNotSupportedError
 
 
 appmod.smtplib = FakeSMTPModule
@@ -169,7 +176,7 @@ check("NO auto-reply to the enquirer",
 
 # ---- SMTP down: the enquiry survives, the failure is recorded
 sent.clear()
-FakeSMTP.fail_with = OSError("connection refused")
+FakeSMTP.fail_with = ConnectionRefusedError("connection refused")
 reset_limiter()
 r = submit(name="Karim Uddin", email="karim@example.com",
            message="Is the drop-in open on Fridays?")
@@ -185,7 +192,7 @@ with app.app_context():
     if entry:
         check("audit says what failed and where it went",
               "enquiries@example.org" in entry.summary
-              and "connection refused" in entry.summary, entry.summary)
+              and "nothing is listening" in entry.summary, entry.summary)
         check("audit reassures that the message is kept",
               "saved" in entry.summary, entry.summary)
         check("audit leaks NO credentials",
@@ -331,8 +338,8 @@ with app.app_context():
           entry.summary)
 
 # ---- the recipient address: super admins only
-r = client.post("/admin/settings/mail-to",
-                data={"mail_to": "hijack@example.com"})
+r = client.post("/admin/settings/mail",
+                data={"recipient": "hijack@example.com"})
 check("a client admin cannot change the recipient", r.status_code == 403,
       str(r.status_code))
 with app.app_context():
@@ -345,10 +352,12 @@ r = client.get("/admin/features")
 check("settings page shows the recipient", b"enquiries@example.org" in r.data)
 check("settings page never shows the password", b"hunter2" not in r.data)
 check("settings page says credentials live on the server",
-      b"set in the environment" in r.data and b"test-mail" in r.data)
-r = client.post("/admin/settings/mail-to",
-                data={"mail_to": "info@ebwa.org.uk"}, follow_redirects=True)
-check("super admin can change the recipient", b"Saved." in r.data)
+      b"SMTP_PASSWORD" in r.data and b"not editable here" in r.data)
+r = client.post("/admin/settings/mail",
+                data={"recipient": "info@ebwa.org.uk"},
+                follow_redirects=True)
+check("super admin can change the recipient",
+      b"Email settings saved" in r.data)
 with app.app_context():
     check("override stored in a Block",
           Block.query.filter_by(key=MAIL_TO_KEY).first().value
@@ -361,10 +370,10 @@ submit(name="After Switch", email="after@example.com",
 check("the next enquiry goes to the new address",
       sent and sent[0]["To"] == "info@ebwa.org.uk",
       sent[0]["To"] if sent else "nothing sent")
-r = client.post("/admin/settings/mail-to", data={"mail_to": "nonsense"},
+r = client.post("/admin/settings/mail", data={"recipient": "nonsense"},
                 follow_redirects=True)
 check("an invalid address is refused", b"does not look like" in r.data)
-r = client.post("/admin/settings/mail-to", data={"mail_to": ""},
+r = client.post("/admin/settings/mail", data={"recipient": ""},
                 follow_redirects=True)
 with app.app_context():
     check("clearing it falls back to the environment",

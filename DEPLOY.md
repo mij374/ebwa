@@ -59,6 +59,41 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — SMTP settings on the Settings page
+
+**No schema change.** Six new content Blocks, all seeded empty:
+
+```bash
+flask --app app init-db     # seeds smtp_host/port/user/security/from
+```
+
+Empty means "use the environment variable", so **an existing deployment
+behaves exactly as it did** — the variables set in the last release stay
+in force until a super admin types something into Settings → Email. The
+page shows, per setting, whether the value in force came from the page or
+from the server.
+
+`SMTP_PASSWORD` stays in the environment. It is not stored in the
+database, not rendered, and has no input on the page; the page shows only
+whether it is set. There is nothing to migrate.
+
+`init-db` is not strictly required — the rows are created on first save,
+and a missing row already falls back to the environment — but running it
+keeps a fresh install and an upgraded one identical.
+
+After deploying, prove email from the Settings page ("Send a test email",
+five an hour) or from the command line:
+
+```bash
+flask --app app test-mail            # now prints where each value came from
+```
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 75d95e4 — 2026-08-21 — Contact form and outgoing email
 
 New table, no `ALTER TABLE`, plus the first environment variables for

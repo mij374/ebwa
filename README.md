@@ -53,6 +53,13 @@ flask --app app test-mail you@example.com
 With none of this set the form still works and still saves every enquiry
 — they are just not emailed, and each attempt is noted in the audit log.
 
+Everything except the password can also be set through the web, under
+**Settings → Email** (Netbus only). A value typed there overrides the
+environment variable; leaving a box empty falls back to it, and the page
+shows which of the two is in force for every setting. The password is
+read from `SMTP_PASSWORD` only: it is never stored in the database, never
+shown, and there is no box to type it into.
+
 ## The dashboard
 
 `/admin` is the first page you land on after logging in, and it shows a

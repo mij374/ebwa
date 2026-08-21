@@ -566,7 +566,11 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 
 /* ================= ADMIN ================= */
 .admin-body{background:#EFF2EE}
-.admin-shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+/* minmax(0,1fr), not 1fr: a grid track sized `auto` at the bottom takes
+   its MIN-CONTENT width, so one long unbreakable value in the main
+   column could drag the whole shell — sidebar and all — wider than the
+   screen. This keeps the main column shrinkable and the page honest. */
+.admin-shell{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
 .admin-side{
   background:var(--green-deep);color:#fff;padding:26px 20px;
   display:flex;flex-direction:column;gap:30px;
@@ -647,7 +651,15 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:10px;
   font:inherit;background:var(--paper);
 }
-.field input:focus,.field textarea:focus{outline:none;border-color:var(--green)}
+/* Selects were never styled, so a long option (“Use the server setting
+   (starttls)”) sized the box to its content and pushed the page
+   sideways on a phone. They now match the inputs and stay in their
+   column. */
+.field select{
+  width:100%;max-width:100%;padding:11px 14px;border:1.5px solid var(--line);
+  border-radius:10px;font:inherit;background:var(--paper);
+}
+.field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--green)}
 .field small{display:block;color:var(--ink-soft);font-size:13px;margin-top:5px}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .field-thumb{
@@ -845,7 +857,7 @@ body.has-notice footer{padding-bottom:110px}
   .photo-masonry{columns:2}
   .stats-grid{grid-template-columns:1fr 1fr;gap:34px}
   .foot-grid{grid-template-columns:1fr 1fr}
-  .admin-shell{grid-template-columns:1fr}
+  .admin-shell{grid-template-columns:minmax(0,1fr)}
   .admin-side{flex-direction:row;align-items:center;gap:18px;flex-wrap:wrap}
   .admin-side nav{display:flex;gap:4px;flex-wrap:wrap}
   .admin-side-foot{margin:0;display:flex;gap:16px}

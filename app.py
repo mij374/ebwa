@@ -19,6 +19,8 @@ import os
 import re
 import secrets
 import smtplib
+import socket
+import ssl
 import time
 import uuid
 from email.message import EmailMessage
@@ -775,7 +777,8 @@ CONTENT_OWNERS = {
 }
 ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
-HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to")
+HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
+                     "smtp_port", "smtp_user", "smtp_security", "smtp_from")
 
 
 class LegacyLeadImage:
@@ -1352,6 +1355,9 @@ RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     "subscribe": (5, 3600),
     "donate": (10, 3600),
     "contact": (5, 3600),   # enough for a genuine follow-up, not a flood
+    # A "send a test to any address" button is a relay if it is not
+    # limited, however few people can reach it.
+    "test_mail": (5, 3600),
 }
 _rate_buckets = {}       # (scope, ip) -> [attempt timestamps]
 
@@ -1370,17 +1376,42 @@ def rate_limited(scope):
 
 
 # ------------------------------------------------------------------ mail
-# The first outbound email in the app, written generically because the
-# membership and ticketing modules will send through it too.
+# The app's outbound email, written generically because the membership and
+# ticketing modules will send through it too.
 #
-# Credentials come from the environment and live NOWHERE else: not in the
-# database, not in a settings page, not in this repository. Only the
-# recipient is editable through the web (see mail_recipient), so EBWA can
-# move enquiries to an @ebwa.org.uk address without a redeploy.
-MAIL_ENV_VARS = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD",
-                 "SMTP_USE_TLS", "MAIL_FROM", "MAIL_TO")
-MAIL_TO_KEY = "site_mail_to"     # Block holding the override, if set
+# Every setting resolves the same way: a Block a super admin filled in on
+# the Settings page WINS, and the matching environment variable is the
+# fallback. So a deployment that only ever set environment variables
+# carries on exactly as it did, and anything set through the web overrides
+# it without a redeploy.
+#
+# THE PASSWORD IS THE ONE EXCEPTION. It is read from SMTP_PASSWORD and
+# from nowhere else: never stored in the database, never rendered, never
+# editable through the web. Encrypting it at rest would still need a key
+# in the environment, so it would add a moving part without removing the
+# dependency it was meant to remove — and a settings page that can write
+# the password is a settings page that can leak it.
 MAIL_TIMEOUT = 10                # seconds; a hung server must not hang a page
+MAIL_TO_KEY = "site_mail_to"     # kept: the recipient's Block key
+
+# field -> (Block key, env var, label)
+MAIL_SETTINGS = (
+    ("host", "smtp_host", "SMTP_HOST", "Server"),
+    ("port", "smtp_port", "SMTP_PORT", "Port"),
+    ("user", "smtp_user", "SMTP_USER", "Username"),
+    ("security", "smtp_security", "SMTP_USE_TLS", "Encryption"),
+    ("sender", "smtp_from", "MAIL_FROM", "From address"),
+    ("recipient", MAIL_TO_KEY, "MAIL_TO", "Enquiries go to"),
+)
+MAIL_SETTING_KEYS = tuple(key for _f, key, _e, _l in MAIL_SETTINGS)
+MAIL_ENV_VARS = tuple(env for _f, _k, env, _l in MAIL_SETTINGS) \
+    + ("SMTP_PASSWORD",)
+SECURITY_MODES = (
+    ("starttls", "STARTTLS — upgrade the connection (usual, port 587)"),
+    ("ssl", "SSL/TLS — encrypted from the start (port 465)"),
+    ("none", "None — unencrypted (only for a relay on this machine)"),
+)
+DEFAULT_PORT = 587
 
 
 def _env_flag(name, default=True):
@@ -1390,34 +1421,77 @@ def _env_flag(name, default=True):
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
-def mail_config():
-    """SMTP settings, read from the environment at call time.
+def _security_from_env(port):
+    """The old SMTP_USE_TLS flag, expressed as one of SECURITY_MODES."""
+    if port == 465:
+        return "ssl"
+    return "starttls" if _env_flag("SMTP_USE_TLS", True) else "none"
 
-    Read per call rather than at import so a deploy can change them with
-    a restart, and so tests can set them without reimporting the app.
+
+def mail_blocks():
+    """{block key: value} for the mail settings, in one query."""
+    rows = Block.query.filter(Block.key.in_(MAIL_SETTING_KEYS)).all()
+    return {b.key: (b.value or "").strip() for b in rows}
+
+
+def mail_settings():
+    """Every setting, with where it came from.
+
+    Returns {field: {"value", "source", "env", "key", "label"}} where
+    source is 'database', 'environment' or 'unset' — the Settings page
+    shows that, because "which of the two is actually in force?" is the
+    question you have when email is misbehaving.
     """
+    stored = mail_blocks()
+    out = {}
+    for field, key, env, label in MAIL_SETTINGS:
+        saved = stored.get(key, "")
+        from_env = (os.environ.get(env, "") or "").strip()
+        if field == "port":
+            from_env = from_env or ""
+        if field == "security" and not saved:
+            # The environment expresses this as a boolean, so translate
+            # rather than showing a raw 1/0 that means nothing here.
+            try:
+                port = int(stored.get("smtp_port")
+                           or os.environ.get("SMTP_PORT") or DEFAULT_PORT)
+            except ValueError:
+                port = DEFAULT_PORT
+            from_env = _security_from_env(port)
+        value = saved or from_env
+        out[field] = {"value": value, "env": env, "key": key, "label": label,
+                      "source": ("database" if saved
+                                 else "environment" if from_env else "unset")}
+    return out
+
+
+def mail_config():
+    """The settings as the sending code wants them: database over env."""
+    settings = mail_settings()
     try:
-        port = int(os.environ.get("SMTP_PORT", "587") or 587)
+        port = int(settings["port"]["value"] or DEFAULT_PORT)
     except ValueError:
-        port = 587
-    return {"host": os.environ.get("SMTP_HOST", "").strip(),
+        port = DEFAULT_PORT
+    security = settings["security"]["value"] or _security_from_env(port)
+    if security not in dict(SECURITY_MODES):
+        security = "starttls"
+    return {"host": settings["host"]["value"],
             "port": port,
-            "user": os.environ.get("SMTP_USER", "").strip(),
+            "user": settings["user"]["value"],
+            # From the environment ONLY. See the note at the top.
             "password": os.environ.get("SMTP_PASSWORD", ""),
-            "use_tls": _env_flag("SMTP_USE_TLS", True),
-            "sender": os.environ.get("MAIL_FROM", "").strip()}
+            "security": security,
+            "sender": settings["sender"]["value"]}
 
 
 def mail_recipient():
-    """Where site email goes: the address a super admin set, else the env.
+    """Where site email goes: the address on Settings, else MAIL_TO."""
+    return mail_settings()["recipient"]["value"]
 
-    The Block wins when it holds anything, so switching the destination is
-    a form submission rather than a deploy; MAIL_TO stays as the fallback
-    and as the value a fresh install starts from.
-    """
-    block = Block.query.filter_by(key=MAIL_TO_KEY).first()
-    chosen = (block.value or "").strip() if block else ""
-    return chosen or os.environ.get("MAIL_TO", "").strip()
+
+def password_is_set():
+    """Whether SMTP_PASSWORD has a value. Never the value itself."""
+    return bool(os.environ.get("SMTP_PASSWORD", ""))
 
 
 def mail_configured():
@@ -1425,23 +1499,59 @@ def mail_configured():
     return bool(cfg["host"] and cfg["sender"])
 
 
-def send_mail(to, subject, body, reply_to=None):
-    """Send one plain-text email. Returns True if a server accepted it.
+def _scrubbed(text, cfg):
+    """Belt and braces: no password can ever reach a page or the log."""
+    secret = cfg.get("password") or ""
+    text = str(text)
+    return text.replace(secret, "***") if secret else text
+
+
+def describe_mail_failure(exc, cfg):
+    """A plain sentence saying what went wrong, safe to show and to log.
+
+    Specific enough to fix the problem — refused, rejected credentials,
+    TLS — because "sending failed" tells whoever is configuring this
+    nothing at all.
+    """
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return ("the server rejected the username or password "
+                "(check SMTP_USER and SMTP_PASSWORD)")
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return "the server refused the from address (%s)" % cfg["sender"]
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return "the server refused the recipient address"
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return ("the server does not support what was asked of it — "
+                "usually the wrong encryption setting for this port")
+    if isinstance(exc, ssl.SSLError):
+        return ("the encrypted connection failed — usually SSL/TLS on a "
+                "STARTTLS port, or the other way round")
+    if isinstance(exc, ConnectionRefusedError):
+        return ("nothing is listening on %s port %d — check the server "
+                "and port" % (cfg["host"], cfg["port"]))
+    if isinstance(exc, socket.timeout) or isinstance(exc, TimeoutError):
+        return ("the server did not answer within %d seconds"
+                % MAIL_TIMEOUT)
+    if isinstance(exc, socket.gaierror):
+        return "the server name %s could not be looked up" % cfg["host"]
+    return "%s: %s" % (type(exc).__name__, _scrubbed(exc, cfg))
+
+
+def send_mail_result(to, subject, body, reply_to=None):
+    """Send one plain-text email. Returns (sent, reason).
 
     THIS NEVER RAISES. Everything that calls it has already saved the
     thing the visitor typed, and an SMTP server that is down, slow or
     misconfigured must not turn somebody's thank-you page into an error
-    page. Failures are recorded in the audit log instead, so a silence
-    nobody noticed is still visible after the fact.
+    page. `reason` is a sentence fit to show an admin or write to the
+    audit log, and never contains the password.
     """
     to = (to or "").strip()
     cfg = mail_config()
     if not to:
-        _mail_failed(subject, to, "no recipient address is set")
-        return False
+        return False, "no recipient address is set"
     if not cfg["host"] or not cfg["sender"]:
-        _mail_failed(subject, to, "email is not configured on this server")
-        return False
+        return False, "email is not configured on this server"
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -1452,24 +1562,38 @@ def send_mail(to, subject, body, reply_to=None):
     message.set_content(body)
 
     try:
-        if cfg["port"] == 465:          # implicit TLS
+        if cfg["security"] == "ssl":
             server = smtplib.SMTP_SSL(cfg["host"], cfg["port"],
                                       timeout=MAIL_TIMEOUT)
         else:
             server = smtplib.SMTP(cfg["host"], cfg["port"],
                                   timeout=MAIL_TIMEOUT)
         with server:
-            if cfg["port"] != 465 and cfg["use_tls"]:
+            if cfg["security"] == "starttls":
                 server.starttls()
             if cfg["user"]:
                 server.login(cfg["user"], cfg["password"])
             server.send_message(message)
     except Exception as exc:
-        # The class and message only — never the credentials that were
-        # used, and never the body of what somebody wrote.
-        _mail_failed(subject, to, "%s: %s" % (type(exc).__name__, exc))
-        return False
-    return True
+        try:
+            return False, describe_mail_failure(exc, cfg)
+        except Exception:
+            # Even working out WHY it failed must not raise: this
+            # function's whole promise is that it cannot break a page.
+            return False, "sending failed"
+    return True, "sent"
+
+
+def send_mail(to, subject, body, reply_to=None):
+    """send_mail_result(), for callers that only need to know if it went.
+
+    A failure is recorded in the audit log here, so a silence nobody
+    noticed is still visible after the fact.
+    """
+    ok, reason = send_mail_result(to, subject, body, reply_to=reply_to)
+    if not ok:
+        _mail_failed(subject, to, reason)
+    return ok
 
 
 def _mail_failed(subject, to, reason):
@@ -4189,43 +4313,123 @@ def admin_user_delete(user_id):
 @app.route("/admin/features")
 @super_admin_required
 def admin_features():
-    cfg = mail_config()
     return render_template(
         "admin/features.html", rows=FEATURES, flags=feature_flags(),
-        mail_to=mail_recipient(), mail_env=os.environ.get("MAIL_TO", ""),
-        mail_from=cfg["sender"], mail_host=cfg["host"],
-        mail_ready=mail_configured())
+        settings=mail_settings(), fields=MAIL_SETTINGS,
+        modes=SECURITY_MODES, mail_ready=mail_configured(),
+        password_set=password_is_set())
 
 
-@app.route("/admin/settings/mail-to", methods=["POST"])
-@super_admin_required
-def admin_mail_to():
-    """Change where enquiries are emailed.
+def valid_address(value):
+    """Good enough for a form: one @, something either side, no spaces."""
+    if not value or len(value) > 200 or " " in value:
+        return False
+    local, _, domain = value.partition("@")
+    return bool(local) and "." in domain and not domain.startswith(".")
 
-    The ADDRESS only. Host, username and password stay in the
-    environment: a settings page that can edit credentials is a settings
-    page that can leak them, and anyone who can change them can already
-    reach the server.
-    """
-    value = request.form.get("mail_to", "").strip()
-    if value and ("@" not in value or len(value) > 200):
-        flash("That does not look like an email address.", "error")
-        return redirect(url_for("admin_features"))
-    block = Block.query.filter_by(key=MAIL_TO_KEY).first()
+
+def set_mail_block(key, value):
+    block = Block.query.filter_by(key=key).first()
     if not block:
-        block = Block(key=MAIL_TO_KEY, label="Where enquiries are emailed",
-                      kind="text", group="site")
+        label = dict((k, l) for _f, k, _e, l in MAIL_SETTINGS).get(key, key)
+        block = Block(key=key, label=label, kind="text", group="site")
         db.session.add(block)
     block.value = value
+
+
+@app.route("/admin/settings/mail", methods=["POST"])
+@super_admin_required
+def admin_mail_settings():
+    """Save the SMTP settings a super admin typed.
+
+    Every field may be left blank, and blank means "fall back to the
+    environment variable" rather than "no value" — that is what keeps an
+    existing deployment working after this page appears.
+    """
+    host = request.form.get("host", "").strip()
+    port = request.form.get("port", "").strip()
+    user = request.form.get("user", "").strip()
+    security = request.form.get("security", "").strip()
+    sender = request.form.get("sender", "").strip()
+    recipient = request.form.get("recipient", "").strip()
+
+    errors = []
+    if port:
+        if not port.isdigit() or not (1 <= int(port) <= 65535):
+            errors.append("The port must be a number between 1 and 65535.")
+    if security and security not in dict(SECURITY_MODES):
+        errors.append("Choose one of the encryption options.")
+    if sender and not valid_address(sender):
+        errors.append("The from address does not look like an email address.")
+    if recipient and not valid_address(recipient):
+        errors.append("The enquiries address does not look like an email "
+                      "address.")
+    # A username, port or encryption setting with no server anywhere is a
+    # half-configured mailer that will fail at the worst moment.
+    if not host and (port or user or security) \
+            and not os.environ.get("SMTP_HOST", "").strip():
+        errors.append("Set the mail server as well — the other settings "
+                      "have nothing to connect to without it.")
+
+    if errors:
+        for message in errors:
+            flash(message, "error")
+        return redirect(url_for("admin_features"))
+
+    before = {f: v["value"] for f, v in mail_settings().items()}
+    for key, value in (("smtp_host", host), ("smtp_port", port),
+                       ("smtp_user", user), ("smtp_security", security),
+                       ("smtp_from", sender), (MAIL_TO_KEY, recipient)):
+        set_mail_block(key, value)
     db.session.commit()
-    log_action("edit", entity=("Block", block.id),
-               summary=("Set the enquiry email address to %s." % value
-                        if value else
-                        "Cleared the enquiry email address — it falls back "
-                        "to the MAIL_TO setting on the server."))
-    flash("Saved. Enquiries now go to %s." % (mail_recipient() or
-                                              "nobody — set an address"),
+
+    after = {f: v["value"] for f, v in mail_settings().items()}
+    changed = sorted(f for f in after if after[f] != before[f])
+    log_action("edit", entity=("Block", None),
+               summary=("Changed the email settings (%s). The password is "
+                        "not stored here." % describe_changes(changed))
+               if changed else "Saved the email settings; nothing changed.")
+    flash("Email settings saved. Enquiries go to %s."
+          % (mail_recipient() or "nobody — set an address"),
           "ok" if mail_recipient() else "error")
+    return redirect(url_for("admin_features"))
+
+
+@app.route("/admin/settings/test-mail", methods=["POST"])
+@super_admin_required
+def admin_test_mail():
+    """Send one test email and say exactly what happened.
+
+    Rate limited: a button that emails an address somebody types is a
+    relay otherwise, however few people can reach it. Every attempt is
+    logged with the recipient and the outcome — and never the password,
+    which describe_mail_failure() and _scrubbed() both take care of.
+    """
+    to = request.form.get("to", "").strip() or mail_recipient()
+    if not valid_address(to):
+        flash("Give a valid address to send the test to.", "error")
+        return redirect(url_for("admin_features"))
+    if rate_limited("test_mail"):
+        flash("That is enough test emails for one hour — the button is "
+              "limited so it cannot be used to send mail to strangers.",
+              "error")
+        log_action("test_mail", summary="Test email to %s refused: too many "
+                                        "attempts in an hour." % to)
+        return redirect(url_for("admin_features"))
+
+    ok, reason = send_mail_result(
+        to, "EBWA website test email",
+        "This is a test from the EBWA website, sent from the Settings "
+        "page.\n\nIf you are reading it, outgoing email works and "
+        "enquiries from the contact form will arrive.\n")
+    log_action("test_mail",
+               summary=("Sent a test email to %s." % to if ok else
+                        "Test email to %s failed — %s." % (to, reason)))
+    if ok:
+        flash("Test email sent to %s. If it does not arrive, check the "
+              "spam folder before changing anything." % to, "ok")
+    else:
+        flash("Could not send to %s — %s." % (to, reason), "error")
     return redirect(url_for("admin_features"))
 
 
@@ -4255,9 +4459,17 @@ DEFAULT_BLOCKS = [
     # group, key, label, kind, default value
     ("site", "site_phone", "Phone number", "text", "020 8804 4006"),
     ("site", "site_address", "Address", "text", "180 High Street, Ponders End, Enfield EN3 4EU"),
-    # Set from Settings by a super admin; blank means "use MAIL_TO from
-    # the environment". Hidden from the ordinary content editor below.
+    # Mail settings, all set from the super-admin Settings page and all
+    # seeded EMPTY: blank means "use the environment variable", so an
+    # existing deployment carries on exactly as it was. Hidden from the
+    # ordinary content editor below. The PASSWORD is deliberately absent
+    # — it lives in SMTP_PASSWORD and nowhere else.
     ("site", "site_mail_to", "Where enquiries are emailed", "text", ""),
+    ("site", "smtp_host", "Mail server", "text", ""),
+    ("site", "smtp_port", "Mail server port", "text", ""),
+    ("site", "smtp_user", "Mail server username", "text", ""),
+    ("site", "smtp_security", "Mail server encryption", "text", ""),
+    ("site", "smtp_from", "Email is sent from", "text", ""),
     ("home", "home_hero_title", "Hero headline", "text",
      "Empowering communities, enriching lives in Enfield."),
     ("home", "home_hero_text", "Hero paragraph", "text",
@@ -4550,27 +4762,39 @@ def test_mail(recipient):
     the SMTP variables, so configuration is proved before a visitor's
     question is the thing that discovers it is wrong.
     """
-    cfg = mail_config()
+    settings = mail_settings()
     to = (recipient or mail_recipient()).strip()
-    print("SMTP host : %s" % (cfg["host"] or "(not set — SMTP_HOST)"))
-    print("SMTP port : %d%s" % (cfg["port"],
-                                " (TLS)" if cfg["use_tls"] else ""))
-    print("Username  : %s" % (cfg["user"] or "(none — unauthenticated)"))
-    print("From      : %s" % (cfg["sender"] or "(not set — MAIL_FROM)"))
-    print("To        : %s" % (to or "(not set — MAIL_TO)"))
+    # Say where each value came from: the commonest email problem is not
+    # a wrong setting but the wrong ONE of the two being in force.
+    for field in ("host", "port", "user", "security", "sender"):
+        info = settings[field]
+        source = {"database": "Settings page",
+                  "environment": info["env"],
+                  "unset": "not set"}[info["source"]]
+        print("%-14s: %-26s (%s)"
+              % (info["label"], info["value"] or "—", source))
+    print("%-14s: %-26s (%s)"
+          % ("Password", "set" if password_is_set() else "not set",
+             "SMTP_PASSWORD"))
+    print("%-14s: %s" % ("Sending to", to or "—"))
     if not to or not mail_configured():
-        print("\nNot enough configuration to send. Set the missing "
-              "environment variables and try again.")
+        print("\nNot enough configuration to send. Fill in the Settings "
+              "page, or set the missing environment variables.")
         raise SystemExit(1)
-    ok = send_mail(to, "EBWA website test email",
-                   "This is a test from the EBWA website.\n\n"
-                   "If you are reading it, outgoing email works and "
-                   "enquiries from the contact form will arrive here.\n")
+    ok, reason = send_mail_result(
+        to, "EBWA website test email",
+        "This is a test from the EBWA website.\n\n"
+        "If you are reading it, outgoing email works and enquiries from "
+        "the contact form will arrive here.\n")
+    log_action("test_mail",
+               summary=("Sent a test email to %s from the command line."
+                        % to if ok else
+                        "Test email to %s from the command line failed — %s."
+                        % (to, reason)))
     if ok:
         print("\nSent. Check %s (including the spam folder)." % to)
     else:
-        print("\nFailed to send — the reason is in the audit log at "
-              "/admin/audit.")
+        print("\nFailed: %s" % reason)
         raise SystemExit(1)
 
 

@@ -7,38 +7,126 @@
   deleted, and switching it back on restores everything exactly as it was.
   The core pages (home, about us, events, gallery, contact) are always on.</p>
 
-<h2 class="admin-stats-head" style="margin-top:0">Where enquiries are emailed</h2>
-<form method="post" class="admin-form" style="margin-bottom:34px"
-      action="{{ url_for('admin_mail_to') }}">
-  <div class="field">
-    <label for="mail_to">Recipient address</label>
-    <input type="text" id="mail_to" name="mail_to" maxlength="200"
-           value="{{ mail_to }}" placeholder="info@ebwa.org.uk">
-    <small>Where the contact form sends enquiries. Leave it empty to use
-      the address set on the server{% if mail_env %} ({{ mail_env }}){% endif %}.
-      Change it here when EBWA moves to its own domain — no redeploy needed.</small>
-  </div>
-  <button class="btn btn-green" type="submit">Save address</button>
-</form>
+<h2 class="admin-stats-head" style="margin-top:0">Email</h2>
+<p class="admin-sub">How the website sends email — enquiries from the
+  contact form today, membership and bookings later. Every box may be left
+  empty: an empty box means “use the setting on the server”, and the table
+  below always shows which one is actually in force.</p>
 
-<div class="admin-form" style="margin-bottom:34px">
-  <h2 class="admin-stats-head" style="margin-top:0">Outgoing email</h2>
-  {% if mail_ready %}
-  <p class="admin-sub" style="margin-bottom:8px">Sending through
-    <b>{{ mail_host }}</b> as <b>{{ mail_from }}</b>.</p>
-  {% else %}
-  <p class="admin-sub" style="margin-bottom:8px"><b>Not configured.</b>
-    Enquiries are still saved and listed under Enquiries, but no email is
-    sent about them.</p>
-  {% endif %}
-  <p class="admin-sub" style="margin-bottom:0">The server, username and
-    password are set in the environment on the server and cannot be
-    edited here — that is deliberate. To check they work, Netbus runs
-    <code>flask --app app test-mail</code>; failures are recorded in the
-    audit log.</p>
+<div class="table-scroll" style="margin-bottom:22px">
+<table class="admin-table">
+  <thead><tr><th>Setting</th><th>In force now</th><th>Coming from</th></tr></thead>
+  <tbody>
+    {% for field, key, env, label in fields %}
+    <tr>
+      <td class="nowrap"><b>{{ label }}</b></td>
+      <td>{{ settings[field].value or '—' }}</td>
+      <td class="nowrap">
+        {% if settings[field].source == 'database' %}
+        <span class="pill pill-green">This page</span>
+        {% elif settings[field].source == 'environment' %}
+        <span class="pill pill-grey">Server ({{ env }})</span>
+        {% else %}
+        <span class="pill pill-red">Not set</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td class="nowrap"><b>Password</b></td>
+      <td>
+        {% if password_set %}••••••••  <small>set on the server</small>
+        {% else %}<b>Not set</b>{% endif %}
+      </td>
+      <td class="nowrap"><span class="pill pill-grey">Server (SMTP_PASSWORD)</span></td>
+    </tr>
+  </tbody>
+</table>
 </div>
 
+<p class="admin-sub"><b>The password is deliberately not editable here.</b>
+  It is read from <code>SMTP_PASSWORD</code> on the server and is never
+  stored in the database or shown on this page. Ask Netbus to change it.</p>
+
+<form method="post" class="admin-form" style="margin-bottom:22px"
+      action="{{ url_for('admin_mail_settings') }}">
+  <div class="field-row">
+    <div class="field">
+      <label for="host">Mail server</label>
+      <input type="text" id="host" name="host" maxlength="200"
+             value="{{ settings.host.value if settings.host.source == 'database' else '' }}"
+             placeholder="{{ settings.host.value or 'smtp.example.net' }}">
+      <small>Empty uses <code>SMTP_HOST</code> from the server.</small>
+    </div>
+    <div class="field">
+      <label for="port">Port</label>
+      <input type="text" id="port" name="port" maxlength="5"
+             value="{{ settings.port.value if settings.port.source == 'database' else '' }}"
+             placeholder="{{ settings.port.value or '587' }}">
+      <small>587 for STARTTLS, 465 for SSL/TLS.</small>
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label for="user">Username</label>
+      <input type="text" id="user" name="user" maxlength="200"
+             value="{{ settings.user.value if settings.user.source == 'database' else '' }}"
+             placeholder="{{ settings.user.value or 'leave empty if none' }}">
+    </div>
+    <div class="field">
+      <label for="security">Encryption</label>
+      <select id="security" name="security">
+        <option value="">Use the server setting ({{ settings.security.value or 'starttls' }})</option>
+        {% for value, label in modes %}
+        <option value="{{ value }}" {{ 'selected' if settings.security.source == 'database' and settings.security.value == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label for="sender">Email is sent from</label>
+      <input type="text" id="sender" name="sender" maxlength="200"
+             value="{{ settings.sender.value if settings.sender.source == 'database' else '' }}"
+             placeholder="{{ settings.sender.value or 'website@ebwa.org.uk' }}">
+      <small>Use an address on a domain this server may send for, or the
+        mail will be treated as spam.</small>
+    </div>
+    <div class="field">
+      <label for="recipient">Enquiries go to</label>
+      <input type="text" id="recipient" name="recipient" maxlength="200"
+             value="{{ settings.recipient.value if settings.recipient.source == 'database' else '' }}"
+             placeholder="{{ settings.recipient.value or 'info@ebwa.org.uk' }}">
+    </div>
+  </div>
+  <button class="btn btn-green" type="submit">Save email settings</button>
+</form>
+
+<form method="post" class="admin-form" style="margin-bottom:34px"
+      action="{{ url_for('admin_test_mail') }}"
+      onsubmit="return confirm('Send a test email now?');">
+  <h2 class="admin-stats-head" style="margin-top:0">Send a test email</h2>
+  {% if not mail_ready %}
+  <p class="admin-sub">Email is <b>not configured</b> yet — set at least a
+    mail server and a from address above. Enquiries are still saved and
+    listed under Enquiries in the meantime.</p>
+  {% endif %}
+  <div class="field">
+    <label for="to">Send it to</label>
+    <input type="text" id="to" name="to" maxlength="200"
+           value="{{ settings.recipient.value }}">
+    <small>The result — success, or exactly what the mail server said —
+      appears at the top of this page and goes into the audit log. Limited
+      to five an hour.</small>
+  </div>
+  <button class="btn btn-ghost" type="submit">Send test email</button>
+</form>
+
 <h2 class="admin-stats-head">Optional modules</h2>
+{# Scrolls in its own box on a phone: the descriptions are long and the
+   action column cannot wrap, and a table has no business dragging the
+   whole admin sideways. #}
+<div class="table-scroll">
 <table class="admin-table">
   <thead><tr><th>Feature</th><th>What it covers</th><th>Status</th><th></th></tr></thead>
   <tbody>
@@ -60,4 +148,5 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

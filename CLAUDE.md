@@ -128,19 +128,36 @@ Built and maintained by Netbus IT Support.
     500. Failures go to the audit log (`mail_failed`) instead, naming
     the recipient and the error — never a credential, never the body of
     what somebody wrote.
-  - SMTP settings come from the environment (`SMTP_HOST`, `SMTP_PORT`,
-    `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `MAIL_FROM`,
-    `MAIL_TO`), read per call so a restart is enough to change them.
-    Credentials are NEVER in the database, a settings page or this
-    repository. Port 465 uses SMTP_SSL, anything else STARTTLS when
-    `SMTP_USE_TLS` is on, and every connection has a timeout — a hung
-    mail server must not hang a page.
-  - Only the RECIPIENT is editable through the web: `mail_recipient()`
-    prefers the `site_mail_to` Block (super admins, on Settings) and
-    falls back to `MAIL_TO`, so moving enquiries to an @ebwa.org.uk
-    address is a form submission, not a redeploy. That Block is in
-    `HIDDEN_BLOCK_KEYS` so it never appears in the ordinary content
-    editor.
+  - Every setting resolves the same way, in `mail_settings()`: the Block
+    a super admin filled in WINS, the environment variable is the
+    fallback. So a deployment that only ever set env vars is unchanged,
+    and anything typed on Settings overrides it without a redeploy. Add
+    a setting by extending `MAIL_SETTINGS` — field, Block key, env var,
+    label — and it appears on the page, in the source table and in
+    `test-mail` automatically.
+  - The Blocks are all seeded EMPTY and all listed in
+    `HIDDEN_BLOCK_KEYS`: empty means "use the environment", and none of
+    them belongs in the ordinary content editor.
+  - **THE PASSWORD IS THE EXCEPTION.** `SMTP_PASSWORD` is read from the
+    environment and nowhere else: never written to the database, never
+    rendered (the page shows set/not set via `password_is_set()`), and
+    with no input to type it into. Encrypting it at rest with Fernet
+    would still need a key in the environment, so it adds a moving part
+    without removing the dependency it was meant to remove. If that ever
+    changes, the key management has to be designed first.
+  - `describe_mail_failure()` turns an exception into a sentence an
+    admin can act on — refused, credentials rejected, TLS mismatch,
+    timeout, name lookup — and `_scrubbed()` removes the password from
+    anything that reaches a page or the log, in case a server quotes it
+    back. Failure text must always go through both.
+  - Encryption is a three-way choice (`SECURITY_MODES`: starttls / ssl /
+    none), not a boolean. With no Block set it is derived from the old
+    `SMTP_USE_TLS` flag and the port, so existing deployments keep the
+    behaviour they had.
+  - The "send a test email" button is super-admin only, rate limited
+    (`test_mail` scope) because a button that emails a typed address is
+    a relay otherwise, and logs every attempt — success, failure and
+    refusal — with the recipient.
   - `flask --app app test-mail [address]` proves the configuration
     without waiting for a visitor to discover it is wrong.
   - Notifications set Reply-To to the person who wrote, so hitting reply
