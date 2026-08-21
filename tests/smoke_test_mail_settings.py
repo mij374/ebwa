@@ -188,8 +188,13 @@ check("page marks env values as coming from the server",
 check("page names the password variable", "SMTP_PASSWORD" in html)
 check("PASSWORD IS NEVER RENDERED", SECRET not in html)
 check("password shown only as set/not set", "••••••••" in html)
-check("no input for the password",
-      'name="password"' not in html and 'type="password"' not in html)
+# The page has gained a NAS password field, which is a different thing
+# entirely — it is encrypted at rest because the backup archive contains
+# the database. What must not exist is a box for the SMTP password.
+email_form = html.split("Send a test email")[0]
+check("no input for the SMTP password",
+      'name="smtp_password"' not in html
+      and 'type="password"' not in email_form)
 check("page says the password is not editable here",
       "not editable here" in html)
 

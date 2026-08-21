@@ -273,6 +273,31 @@ sudo chmod 640 {{ deploy.env_file }}</code></pre>
     does not try: the website has no business holding keys to other
     machines or running commands anybody typed into it.</p>
 
+  <div class="table-scroll">
+  <table class="admin-table" style="margin-top:18px">
+    <tbody>
+      <tr>
+        <td class="nowrap"><b>Sent to the NAS</b></td>
+        <td>
+          {% if not sftp.enabled %}<span class="pill pill-grey">Off</span>
+            Archives stay on this server.
+          {% elif last_transfer and last_transfer.transfer_status == 'ok' %}
+            <span class="pill pill-green">Working</span>
+            last sent {{ last_transfer.transferred_at|uk_datetime }} —
+            {{ last_transfer.remote_filename }}
+          {% elif last_transfer and last_transfer.transfer_status == 'failed' %}
+            <span class="pill pill-red">Failed</span>
+            {{ last_transfer.started_at|uk_datetime }} —
+            {{ last_transfer.transfer_error }}
+          {% else %}<span class="pill pill-grey">Not yet</span>
+            On, but nothing has been sent yet.
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
   <form method="post" action="{{ url_for('admin_backup_now') }}"
         style="margin-top:18px"
         onsubmit="return confirm('Write a backup archive now?');">
@@ -280,6 +305,107 @@ sudo chmod 640 {{ deploy.env_file }}</code></pre>
     <small style="display:block;margin-top:8px;color:var(--ink-soft)">
       Twice an hour at most. The site keeps working while it runs.</small>
   </form>
+</div>
+
+<h2 class="admin-stats-head">Send backups to the NAS</h2>
+<div class="admin-form" style="margin-bottom:22px">
+  <p class="admin-sub" style="margin-bottom:16px">Copies each archive to
+    the NAS over SFTP, across Tailscale. This is what makes the backups
+    real: until a copy is on another machine, a lost server is lost
+    data.</p>
+
+  {% if not sftp.key_present %}
+  <p class="admin-sub"><b>No encryption key on the server.</b> The NAS
+    password is stored encrypted, so <code>FERNET_KEY</code> has to be set
+    in the environment before one can be saved. Ask Netbus.</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('admin_sftp_settings') }}">
+    <div class="field field-check">
+      <label>
+        <input type="checkbox" name="enabled" {{ 'checked' if sftp.enabled }}>
+        Send backups to the NAS
+      </label>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="sftp_host">NAS address</label>
+        <input type="text" id="sftp_host" name="host" maxlength="200"
+               value="{{ sftp.host }}" placeholder="nas.tailnet-name.ts.net">
+        <small>The Tailscale name or address. Tailscale must be running on
+          this server and on the NAS.</small>
+      </div>
+      <div class="field">
+        <label for="sftp_port">Port</label>
+        <input type="text" id="sftp_port" name="port" maxlength="5"
+               value="{{ sftp.port }}">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="sftp_user">Username</label>
+        <input type="text" id="sftp_user" name="user" maxlength="200"
+               value="{{ sftp.user }}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sftp_password">Password</label>
+        <input type="password" id="sftp_password" name="password"
+               maxlength="200" autocomplete="new-password"
+               placeholder="{{ 'Password set — leave empty to keep it' if sftp.password_set else 'Type the NAS password' }}">
+        <small>
+          {% if sftp.password_set %}<b>Password set.</b>{% else %}<b>No password stored.</b>{% endif %}
+          It is encrypted before it is stored and is never shown again.
+          Leave this box empty to keep the current one.</small>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="sftp_path">Folder on the NAS</label>
+        <input type="text" id="sftp_path" name="path" maxlength="300"
+               value="{{ sftp.path }}" placeholder="/volume1/backups/ebwa">
+      </div>
+      <div class="field">
+        <label for="sftp_schedule">Daily transfer time (UTC)</label>
+        <input type="text" id="sftp_schedule" name="schedule" maxlength="5"
+               value="{{ sftp.schedule }}" placeholder="02:30">
+        <small>UTC, not British time — 02:30 UTC is 03:30 in the summer.
+          A cron job on the server checks every fifteen minutes and runs
+          it once the time has passed.</small>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="sftp_keep">Archives to keep on the NAS</label>
+      <input type="text" id="sftp_keep" name="keep" maxlength="4"
+             value="{{ sftp.keep }}">
+      <small>Separate from the {{ backup.keep }} kept on this server — the
+        NAS has room for more history, which is rather the point of
+        it.</small>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-green" type="submit">Save</button>
+    </div>
+  </form>
+
+  <div class="admin-quick" style="margin-top:18px">
+    <form method="post" action="{{ url_for('admin_sftp_test') }}"
+          onsubmit="return confirm('Test the connection to the NAS now?');">
+      <button class="btn btn-ghost" type="submit">Test connection</button>
+    </form>
+    <form method="post" action="{{ url_for('admin_backup_now') }}"
+          onsubmit="return confirm('Back up now and send it to the NAS?');">
+      <button class="btn btn-ghost" type="submit">Backup now</button>
+    </form>
+  </div>
+  <small style="display:block;margin-top:10px;color:var(--ink-soft)">
+    A test connects, checks the folder exists and writes a small file into
+    it to prove it is writable, then removes it. If a transfer fails it is
+    tried once more, then left until the next day's run rather than
+    hammering a NAS that is switched off.</small>
 </div>
 
 <h2 class="admin-stats-head">Optional modules</h2>

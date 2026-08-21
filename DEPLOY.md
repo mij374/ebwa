@@ -59,6 +59,72 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Send backups to the NAS over SFTP
+
+Five new columns on `backup_run`, eight new Blocks, two new packages and
+one new environment variable.
+
+```bash
+pip install -r requirements.txt          # paramiko, cryptography
+```
+
+```sql
+ALTER TABLE backup_run ADD COLUMN transfer_status VARCHAR(20) DEFAULT 'none';
+ALTER TABLE backup_run ADD COLUMN remote_filename VARCHAR(255) DEFAULT '';
+ALTER TABLE backup_run ADD COLUMN transfer_error TEXT DEFAULT '';
+ALTER TABLE backup_run ADD COLUMN transfer_attempts INTEGER DEFAULT 0;
+ALTER TABLE backup_run ADD COLUMN transferred_at DATETIME;
+```
+
+```bash
+flask --app app init-db                  # seeds the sftp_* Blocks
+```
+
+**Prerequisite: Tailscale.** The VPS reaches the NAS over the tailnet, so
+Tailscale must be installed and logged in on both machines, and the VPS
+must be able to reach the NAS by its tailnet name before any of this can
+work. Prove it from the server first:
+
+```bash
+tailscale status
+sftp ebwa-backup@nas.tailnet-name.ts.net
+```
+
+**New environment variable.** The NAS password is stored encrypted, so
+`/etc/ebwa/env` needs a key:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# then, in /etc/ebwa/env:
+FERNET_KEY='the-generated-key'
+```
+
+Keep it in the environment file and nowhere else. It is what stops the
+NAS password being readable inside the backup archives — which contain
+the database, and end up on the NAS.
+
+**The cron line.** The app has no scheduler and must not have one under
+gunicorn; this checks every fifteen minutes whether the configured time
+has passed without a good run:
+
+```cron
+*/15 * * * * cd /opt/ebwa && set -a && . /etc/ebwa/env && set +a && ./venv/bin/flask --app app run-scheduled-backup >> /var/log/ebwa-backup.log 2>&1
+```
+
+It replaces the plain `backup-now` line from the earlier entry if
+transfers are switched on — `run-scheduled-backup` does the backup as
+well as the transfer.
+
+Then, in Settings → Send backups to the NAS: fill in the details, save,
+**Test connection**, and finally **Backup now** to prove a whole archive
+lands on the NAS.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 963f7fb — 2026-08-21 — A separate recipient for security alerts
 
 **No schema change** — confirmed with `flask --app app check-schema`. One

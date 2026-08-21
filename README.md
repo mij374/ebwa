@@ -49,6 +49,17 @@ Backups use two more:
 | --- | --- |
 | `BACKUP_DIR` | Where archives are written (default: `backups/` beside the app) |
 | `BACKUP_KEEP` | How many archives to keep (default: 7) |
+| `FERNET_KEY` | Encryption key for the stored NAS password (see below) |
+
+Generate the key once, and keep it out of the archives:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Put it in `/etc/ebwa/env` as `FERNET_KEY='...'`. **Losing it means the
+stored NAS password can no longer be read** — type a new one into
+Settings and save. Changing it has the same effect.
 
 Check it works before anyone relies on it:
 
@@ -310,6 +321,43 @@ Or from the website: **Settings → Backups → Back up now** (Netbus only,
 twice an hour at most). The same page shows when the last backup ran, how
 big it was, how many archives are kept, the database and uploads sizes,
 and how much disk is free.
+
+### Sending backups to the NAS
+
+**Settings → Send backups to the NAS** copies each archive to the NAS
+over SFTP, reached across Tailscale. Fill in the address, port, username,
+password, the folder on the NAS, the time of day to send (in **UTC**) and
+how many archives to keep there, then use **Test connection** — it
+connects, checks the folder exists, and writes and deletes a small file
+to prove it can actually be written to.
+
+The password is encrypted before it is stored and never shown again. Once
+one is saved the field shows "Password set"; leaving it empty keeps the
+one already there. Changing it needs nothing on the server, unlike the
+mail password — the difference is that a backup archive contains the
+database, so a readable NAS password inside it would travel to the NAS
+along with everything it protects.
+
+If a transfer fails it is tried once more and then left until the next
+day's run, rather than a machine hammering a NAS that is switched off.
+The archive stays on the server meanwhile, and Settings shows what
+happened.
+
+Two things this needs on the server:
+
+- **Tailscale running on both ends**, with the VPS able to reach the NAS
+  by its tailnet name;
+- **a cron job**, because the website has no scheduler of its own and
+  must not grow one — it runs under several worker processes, and a timer
+  in each would mean several backups at once:
+
+```cron
+*/15 * * * * cd /opt/ebwa && set -a && . /etc/ebwa/env && set +a && ./venv/bin/flask --app app run-scheduled-backup >> /var/log/ebwa-backup.log 2>&1
+```
+
+That runs every fifteen minutes and does nothing at all until the
+configured time has passed without a good run, so it is safe to leave
+running.
 
 ### An archive on the server is not a backup
 

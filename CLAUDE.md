@@ -181,6 +181,41 @@ Built and maintained by Netbus IT Support.
     whole boundary.
   - `backups/` is gitignored: an archive holds the entire database,
     personal data and all.
+- Offsite transfer: after a backup, `upload_backup()` sends the archive
+  to the NAS over SFTP (paramiko), across Tailscale. Settings live in
+  Blocks like the mail ones; the outcome lives on the SAME `BackupRun`
+  row (`transfer_status`, `remote_filename`, `transfer_error`,
+  `transfer_attempts`) rather than in a second table — one row answers
+  "did we back up, and did it leave the building?", which is the only
+  pair of questions anybody asks.
+  - **The NAS password is encrypted at rest with Fernet, and this
+    deliberately differs from `SMTP_PASSWORD`, which stays in the
+    environment.** The reason is what a backup archive contains: the
+    database. A plaintext credential to the backup destination, stored in
+    the database, would be copied into every archive and then onto the
+    NAS — a key to the safe, inside the safe, sent to the offsite copy of
+    the safe. Encrypting it with a key held in `FERNET_KEY` means an
+    archive on its own opens nothing. The SMTP password has no such
+    problem: it is never in the database at all. Neither is ever
+    rendered; the page shows "Password set" and an empty box means "keep
+    the current one" — a save of an unrelated field must never wipe a
+    credential.
+  - Two attempts, then stop until the next scheduled run. A NAS that is
+    switched off must not be hammered, and the settings page promises
+    exactly this behaviour — keep them in step.
+  - Upload to `<name>.part` and rename into place, so an interrupted
+    transfer never leaves something that looks like a complete archive.
+  - Remote retention is SEPARATE from local (`sftp_keep` vs
+    `BACKUP_KEEP`): the NAS has room for far more history, which is most
+    of the point of it.
+  - **Scheduling is cron, not a thread.** `run-scheduled-backup` asks the
+    BackupRun table whether today's run has happened and does nothing if
+    it has; cron calls it every fifteen minutes. Never start a background
+    thread for this: gunicorn runs several workers, so a thread in each
+    means several backups at once writing the same archive name.
+  - `AutoAddPolicy` is used for host keys because the NAS is on a private
+    tailnet whose transport is already authenticated and encrypted. That
+    is a defensible choice THERE and would not be over the open internet.
 - Security visibility: failed logins were always in the audit log; the
   dashboard now shows a count above `FAILED_LOGIN_NOTICE` in 24 hours,
   and `note_failed_login()` can email once when one IP passes
@@ -577,6 +612,13 @@ thumbnails, `thumb_url()`/`upload_url()` template helpers and the
 photographs straight off a phone: 8,915 KB of images before, 926 KB
 after (90% less). Deploy: `pip install -r requirements.txt` for Pillow,
 then `flask --app app reprocess-images` once.
+
+NAS transfer (rules above): paramiko SFTP upload of each archive over
+Tailscale, settings and an encrypted password on the Settings page,
+`run-scheduled-backup` for cron, remote retention, and the outcome
+recorded on the same `BackupRun`. Deploy: five `ALTER TABLE`s, `init-db`,
+`pip install -r requirements.txt` for paramiko and cryptography, plus
+`FERNET_KEY` in the environment.
 
 Backups and security visibility (rules above): `BackupRun` +
 `backup-now` CLI + a read-only Settings panel with a "Back up now"

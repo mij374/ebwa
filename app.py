@@ -29,6 +29,7 @@ import zipfile
 from email.message import EmailMessage
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from contextlib import contextmanager
 from functools import wraps
 from zoneinfo import ZoneInfo
 
@@ -38,6 +39,7 @@ import qrcode
 import qrcode.image.svg
 import stripe
 from PIL import Image, ImageOps
+from cryptography.fernet import Fernet
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, abort, send_from_directory, has_request_context,
@@ -450,8 +452,17 @@ class BackupRun(db.Model):
     size_bytes = db.Column(db.Integer, default=0)
     file_count = db.Column(db.Integer, default=0)
     status = db.Column(db.String(20), default="running")  # running|ok|failed
-    reason = db.Column(db.String(40), default="manual")   # manual|cli
+    reason = db.Column(db.String(40), default="manual")   # manual|cli|scheduled
     error = db.Column(db.Text, default="")
+    # Getting the archive to the NAS is part of THIS run, not a second
+    # concept: one row answers "did we back up, and did it leave the
+    # building?" — the only two questions anybody asks.
+    transfer_status = db.Column(db.String(20), default="none")
+    # none | pending | ok | failed
+    remote_filename = db.Column(db.String(255), default="")
+    transfer_error = db.Column(db.Text, default="")
+    transfer_attempts = db.Column(db.Integer, default=0)
+    transferred_at = db.Column(db.DateTime)
 
 
 MESSAGE_STATUSES = ("new", "read", "replied")
@@ -809,7 +820,10 @@ ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
 HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
                      "smtp_port", "smtp_user", "smtp_security", "smtp_from",
-                     "security_alert_email", "site_security_alert_to")
+                     "security_alert_email", "site_security_alert_to",
+                     "sftp_enabled", "sftp_host", "sftp_port", "sftp_user",
+                     "sftp_password_enc", "sftp_remote_path",
+                     "sftp_schedule", "sftp_keep")
 
 
 class LegacyLeadImage:
@@ -1392,6 +1406,7 @@ RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     # Writing an archive is real disk work; twice an hour by hand is
     # plenty, and the nightly cron does the rest.
     "backup": (2, 3600),
+    "sftp_test": (5, 3600),   # a connection test is cheap, but not free
 }
 _rate_buckets = {}       # (scope, ip) -> [attempt timestamps]
 
@@ -1954,6 +1969,298 @@ def backup_status():
             "dir": paths["dir"], "database": paths["database"],
             "db_size": db_size, "uploads_size": uploads_size,
             "uploads_files": uploads_files, "disk_free": free}
+
+
+# ----------------------------------------------------- offsite transfer
+# Uploading the archive to the NAS over SFTP, reached across Tailscale.
+#
+# THE PASSWORD IS ENCRYPTED AT REST (Fernet, key in FERNET_KEY), which is
+# deliberately different from SMTP_PASSWORD living in the environment.
+# The reason is this module: the backup archive contains the database, so
+# a plaintext credential to the backup destination stored in the database
+# would be copied into every archive — and then onto the NAS, where a
+# copy of that credential would sit beside the data it protects. The key
+# stays in the environment, so an archive on its own opens nothing.
+SFTP_KEYS = {
+    "enabled": "sftp_enabled",          # "1" or ""
+    "host": "sftp_host",
+    "port": "sftp_port",
+    "user": "sftp_user",
+    "password": "sftp_password_enc",    # Fernet ciphertext, never plaintext
+    "path": "sftp_remote_path",
+    "schedule": "sftp_schedule",        # "HH:MM", UTC
+    "keep": "sftp_keep",                # how many to keep ON THE NAS
+}
+SFTP_DEFAULT_PORT = 22
+SFTP_DEFAULT_SCHEDULE = "02:30"
+SFTP_DEFAULT_KEEP = 14
+SFTP_TIMEOUT = 20            # seconds; a NAS asleep must not hang a page
+SFTP_MAX_ATTEMPTS = 2        # the first go, then ONE retry that day
+
+
+def fernet():
+    """The cipher, or None when no key is configured.
+
+    Without FERNET_KEY nothing can be stored: the settings page says so
+    rather than pretending to keep a password it cannot protect.
+    """
+    key = os.environ.get("FERNET_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        return Fernet(key.encode("ascii"))
+    except Exception:
+        return None
+
+
+def encrypt_secret(plaintext):
+    cipher = fernet()
+    if cipher is None or not plaintext:
+        return ""
+    return cipher.encrypt(plaintext.encode("utf-8")).decode("ascii")
+
+
+def decrypt_secret(stored):
+    """Plaintext, or "" if there is nothing stored or the key is wrong."""
+    cipher = fernet()
+    if cipher is None or not stored:
+        return ""
+    try:
+        return cipher.decrypt(stored.encode("ascii")).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def sftp_settings():
+    """Every transfer setting, ready for the page. NEVER the password."""
+    rows = {b.key: (b.value or "").strip() for b in
+            Block.query.filter(Block.key.in_(SFTP_KEYS.values())).all()}
+    port = rows.get(SFTP_KEYS["port"], "")
+    keep = rows.get(SFTP_KEYS["keep"], "")
+    return {
+        "enabled": rows.get(SFTP_KEYS["enabled"], "") == "1",
+        "host": rows.get(SFTP_KEYS["host"], ""),
+        "port": int(port) if port.isdigit() else SFTP_DEFAULT_PORT,
+        "user": rows.get(SFTP_KEYS["user"], ""),
+        "path": rows.get(SFTP_KEYS["path"], ""),
+        "schedule": rows.get(SFTP_KEYS["schedule"], "") or
+        SFTP_DEFAULT_SCHEDULE,
+        "keep": int(keep) if keep.isdigit() else SFTP_DEFAULT_KEEP,
+        # Whether one is stored — never what it is.
+        "password_set": bool(rows.get(SFTP_KEYS["password"], "")),
+        "key_present": fernet() is not None,
+    }
+
+
+def sftp_password():
+    block = Block.query.filter_by(key=SFTP_KEYS["password"]).first()
+    return decrypt_secret(block.value if block else "")
+
+
+def sftp_ready():
+    cfg = sftp_settings()
+    return bool(cfg["enabled"] and cfg["host"] and cfg["user"]
+                and cfg["path"] and cfg["password_set"] and cfg["key_present"])
+
+
+def describe_sftp_failure(exc, cfg):
+    """What went wrong, in a sentence, with no password in it."""
+    import paramiko
+    if isinstance(exc, paramiko.AuthenticationException):
+        return ("the NAS rejected the username or password for %s"
+                % cfg["user"])
+    if isinstance(exc, paramiko.BadHostKeyException):
+        return "the NAS presented a different host key than last time"
+    if isinstance(exc, socket.timeout) or isinstance(exc, TimeoutError):
+        return ("%s did not answer within %d seconds — is Tailscale up on "
+                "both ends?" % (cfg["host"], SFTP_TIMEOUT))
+    if isinstance(exc, socket.gaierror):
+        return ("the name %s could not be looked up — check the Tailscale "
+                "name or address" % cfg["host"])
+    if isinstance(exc, ConnectionRefusedError):
+        return ("nothing is listening on %s port %d"
+                % (cfg["host"], cfg["port"]))
+    if isinstance(exc, PermissionError):
+        return "the remote path %s is not writable by %s" % (cfg["path"],
+                                                             cfg["user"])
+    if isinstance(exc, FileNotFoundError):
+        return "the remote path %s does not exist" % cfg["path"]
+    secret = sftp_password()
+    text = "%s: %s" % (type(exc).__name__, exc)
+    return text.replace(secret, "***") if secret else text
+
+
+@contextmanager
+def sftp_session(cfg=None, password=None):
+    """An open SFTP connection, closed whatever happens."""
+    import paramiko
+    cfg = cfg or sftp_settings()
+    password = sftp_password() if password is None else password
+    client = paramiko.SSHClient()
+    # The NAS is on the Tailscale network and is not in known_hosts on a
+    # fresh VPS. AutoAdd is the pragmatic choice for a private tailnet
+    # where the transport is already authenticated and encrypted; it
+    # would NOT be acceptable over the open internet.
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    sftp = None
+    try:
+        client.connect(cfg["host"], port=cfg["port"], username=cfg["user"],
+                       password=password, timeout=SFTP_TIMEOUT,
+                       banner_timeout=SFTP_TIMEOUT,
+                       auth_timeout=SFTP_TIMEOUT,
+                       look_for_keys=False, allow_agent=False)
+        sftp = client.open_sftp()
+        sftp.get_channel().settimeout(SFTP_TIMEOUT)
+        yield sftp
+    finally:
+        if sftp is not None:
+            try:
+                sftp.close()
+            except Exception:
+                pass
+        client.close()
+
+
+def test_sftp(password=None):
+    """Connect, prove the remote path is WRITABLE, clean up. (ok, message).
+
+    Writing and deleting a probe file is the only honest test: a path can
+    exist, be listable, and still refuse the upload at 2am.
+    """
+    cfg = sftp_settings()
+    if not cfg["host"] or not cfg["user"] or not cfg["path"]:
+        return False, "fill in the host, username and remote path first"
+    secret = sftp_password() if password is None else password
+    if not secret:
+        return False, ("no password is stored — type one in and save, or "
+                       "set FERNET_KEY on the server first"
+                       if not cfg["key_present"] else
+                       "no password is stored — type one in and save")
+    probe = "ebwa-write-test-%s.tmp" % uuid.uuid4().hex[:8]
+    try:
+        with sftp_session(cfg, secret) as sftp:
+            try:
+                sftp.stat(cfg["path"])
+            except IOError:
+                return False, ("the remote path %s does not exist on the NAS"
+                               % cfg["path"])
+            remote = _remote_join(cfg["path"], probe)
+            try:
+                with sftp.file(remote, "w") as handle:
+                    handle.write("ebwa write test")
+                sftp.remove(remote)
+            except IOError:
+                return False, ("%s exists but %s cannot write to it"
+                               % (cfg["path"], cfg["user"]))
+    except Exception as exc:
+        return False, describe_sftp_failure(exc, cfg)
+    return True, ("connected to %s and wrote a test file into %s"
+                  % (cfg["host"], cfg["path"]))
+
+
+def _remote_join(path, name):
+    return path.rstrip("/") + "/" + name
+
+
+def upload_backup(run):
+    """Send one finished archive to the NAS. Records the outcome on `run`.
+
+    Never raises: a NAS that is off must not turn a backup that DID work
+    into an error page or a failed cron job. The archive is on disk
+    either way, and the row says the transfer failed and why.
+    """
+    cfg = sftp_settings()
+    if not run or run.status != "ok" or not run.filename:
+        return False
+    if not sftp_ready():
+        run.transfer_status = "none"
+        db.session.commit()
+        return False
+
+    local = os.path.join(BACKUP_DIR, run.filename)
+    if not os.path.isfile(local):
+        run.transfer_status = "failed"
+        run.transfer_error = "the archive is no longer on disk"
+        db.session.commit()
+        return False
+
+    run.transfer_attempts = (run.transfer_attempts or 0) + 1
+    remote = _remote_join(cfg["path"], run.filename)
+    try:
+        with sftp_session(cfg) as sftp:
+            # Upload beside the final name, then rename: an interrupted
+            # transfer leaves a .part, never a truncated archive that
+            # looks complete.
+            part = remote + ".part"
+            sftp.put(local, part)
+            try:
+                sftp.remove(remote)
+            except IOError:
+                pass
+            sftp.rename(part, remote)
+        run.transfer_status = "ok"
+        run.remote_filename = run.filename
+        run.transfer_error = ""
+        run.transferred_at = datetime.utcnow()
+        db.session.commit()
+        prune_remote_backups()
+        return True
+    except Exception as exc:
+        run.transfer_status = "failed"
+        run.transfer_error = describe_sftp_failure(exc, cfg)
+        db.session.commit()
+        return False
+
+
+def prune_remote_backups(keep=None):
+    """Keep the newest N archives on the NAS. Failure here is not fatal.
+
+    Separate from local retention on purpose: the NAS has room for far
+    more history than the VPS, and that is most of the point of it.
+    """
+    cfg = sftp_settings()
+    keep = cfg["keep"] if keep is None else keep
+    if not sftp_ready() or keep < 1:
+        return 0
+    removed = 0
+    try:
+        with sftp_session(cfg) as sftp:
+            names = sorted(n for n in sftp.listdir(cfg["path"])
+                           if n.startswith(BACKUP_PREFIX)
+                           and n.endswith(".zip"))
+            for name in names[:-keep]:
+                try:
+                    sftp.remove(_remote_join(cfg["path"], name))
+                    removed += 1
+                except IOError:
+                    pass
+    except Exception as exc:
+        log_action("backup",
+                   summary="Could not tidy old archives on the NAS — %s."
+                           % describe_sftp_failure(exc, cfg))
+    return removed
+
+
+def transfer_with_retry(run):
+    """Upload, and if it fails try ONCE more. Then leave it until tomorrow.
+
+    Matching the behaviour the settings page promises: two goes and then
+    silence, rather than a machine hammering a NAS that is switched off
+    and filling the audit log while it does.
+    """
+    if upload_backup(run):
+        return True
+    if (run.transfer_attempts or 0) < SFTP_MAX_ATTEMPTS:
+        time.sleep(2)
+        if upload_backup(run):
+            return True
+    log_action("backup",
+               summary=("Backup %s could not be sent to the NAS after %d "
+                        "attempt(s) — %s. It stays on the server, and the "
+                        "next scheduled run will try again."
+                        % (run.filename, run.transfer_attempts or 0,
+                           run.transfer_error)))
+    return False
 
 
 @app.template_filter("filesize")
@@ -4696,6 +5003,10 @@ def admin_features():
         modes=SECURITY_MODES, mail_ready=mail_configured(),
         password_set=password_is_set(),
         backup=backup_status(), alerts_on=security_alerts_on(),
+        sftp=sftp_settings(), sftp_ready=sftp_ready(),
+        last_transfer=(BackupRun.query
+                       .filter(BackupRun.transfer_status.in_(("ok", "failed")))
+                       .order_by(BackupRun.started_at.desc()).first()),
         alert_to=security_alert_setting(),
         failed_logins=failed_logins_since(),
         failed_window=FAILED_LOGIN_WINDOW_HOURS,
@@ -4839,11 +5150,25 @@ def admin_backup_now():
                    summary="Ran a backup from the Settings page: %s (%s)."
                            % (run.filename,
                               filesize_filter(run.size_bytes)))
-        flash("Backup written: %s (%s, %d file(s)). Remember this is on "
-              "the same server — the nightly copy off the machine is what "
-              "protects against losing it."
-              % (run.filename, filesize_filter(run.size_bytes),
-                 run.file_count), "ok")
+        if sftp_ready():
+            # Same button, whole job: an archive that has not left the
+            # server is only half a backup.
+            if transfer_with_retry(run):
+                flash("Backup written and sent to the NAS: %s (%s, %d "
+                      "file(s))." % (run.filename,
+                                     filesize_filter(run.size_bytes),
+                                     run.file_count), "ok")
+            else:
+                flash("Backup written (%s), but it could not be sent to "
+                      "the NAS — %s. It is safe on the server; the next "
+                      "scheduled run will try again."
+                      % (run.filename, run.transfer_error), "error")
+        else:
+            flash("Backup written: %s (%s, %d file(s)). Remember this is on "
+                  "the same server — the nightly copy off the machine is "
+                  "what protects against losing it."
+                  % (run.filename, filesize_filter(run.size_bytes),
+                     run.file_count), "ok")
     else:
         log_action("backup", summary="Backup from the Settings page failed "
                                      "— %s." % run.error)
@@ -4926,6 +5251,87 @@ def admin_test_alert():
     return redirect(url_for("admin_features"))
 
 
+@app.route("/admin/settings/sftp", methods=["POST"])
+@super_admin_required
+def admin_sftp_settings():
+    """Save the NAS transfer settings.
+
+    An EMPTY password box means "keep the one already stored", exactly as
+    the field label says — otherwise every save of an unrelated field
+    would quietly wipe the credential.
+    """
+    host = request.form.get("host", "").strip()
+    port = request.form.get("port", "").strip() or str(SFTP_DEFAULT_PORT)
+    user = request.form.get("user", "").strip()
+    path = request.form.get("path", "").strip()
+    schedule = request.form.get("schedule", "").strip() \
+        or SFTP_DEFAULT_SCHEDULE
+    keep = request.form.get("keep", "").strip() or str(SFTP_DEFAULT_KEEP)
+    password = request.form.get("password", "")
+    enabled = request.form.get("enabled") == "on"
+
+    errors = []
+    if not port.isdigit() or not (1 <= int(port) <= 65535):
+        errors.append("The port must be a number between 1 and 65535.")
+    if not keep.isdigit() or int(keep) < 1:
+        errors.append("Keep at least one archive on the NAS.")
+    if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", schedule):
+        errors.append("The transfer time must look like 02:30, in UTC.")
+    if path and not path.startswith("/"):
+        errors.append("The folder on the NAS must start with a slash.")
+    if enabled and not (host and user and path):
+        errors.append("To switch transfers on, fill in the address, "
+                      "username and folder.")
+    if password and not fernet():
+        errors.append("There is no FERNET_KEY on the server, so a password "
+                      "cannot be stored safely. Ask Netbus to set one.")
+    if enabled and not password and not sftp_settings()["password_set"]:
+        errors.append("Type the NAS password before switching transfers on.")
+
+    if errors:
+        for message in errors:
+            flash(message, "error")
+        return redirect(url_for("admin_features"))
+
+    values = {SFTP_KEYS["enabled"]: "1" if enabled else "",
+              SFTP_KEYS["host"]: host, SFTP_KEYS["port"]: port,
+              SFTP_KEYS["user"]: user, SFTP_KEYS["path"]: path,
+              SFTP_KEYS["schedule"]: schedule, SFTP_KEYS["keep"]: keep}
+    if password:
+        # Encrypted here and nowhere else. The plaintext never reaches
+        # the database, an audit entry or a page.
+        values[SFTP_KEYS["password"]] = encrypt_secret(password)
+    for key, value in values.items():
+        set_mail_block(key, value)
+    db.session.commit()
+
+    log_action("edit", entity=("Block", None),
+               summary=("Saved the NAS backup settings: transfers %s, %s@%s"
+                        ":%s%s, daily at %s UTC, keeping %s there%s."
+                        % ("on" if enabled else "off", user or "—",
+                           host or "—", port, path or "", schedule, keep,
+                           ", password changed" if password else "")))
+    flash("NAS backup settings saved.", "ok")
+    return redirect(url_for("admin_features"))
+
+
+@app.route("/admin/settings/sftp/test", methods=["POST"])
+@super_admin_required
+def admin_sftp_test():
+    """Prove the NAS is reachable, and that the folder can be written to."""
+    if rate_limited("sftp_test"):
+        flash("That is enough connection tests for one hour.", "error")
+        return redirect(url_for("admin_features"))
+    ok, message = test_sftp()
+    log_action("sftp_test",
+               summary=("NAS connection test succeeded — %s." % message
+                        if ok else "NAS connection test failed — %s."
+                        % message))
+    flash("Connection test: %s." % message if ok else
+          "Could not use the NAS — %s." % message, "ok" if ok else "error")
+    return redirect(url_for("admin_features"))
+
+
 @app.route("/admin/features/<name>/toggle", methods=["POST"])
 @super_admin_required
 def admin_feature_toggle(name):
@@ -4970,6 +5376,17 @@ DEFAULT_BLOCKS = [
     # Empty means "wherever enquiries go". Set it once EBWA's own address
     # is in use, so alerts keep reaching whoever runs the server.
     ("site", "site_security_alert_to", "Security alerts go to", "text", ""),
+    # Offsite transfer to the NAS over SFTP. All empty by default: the
+    # feature is off until somebody fills it in. The password Block holds
+    # FERNET-ENCRYPTED ciphertext and never plaintext.
+    ("site", "sftp_enabled", "Send backups to the NAS", "text", ""),
+    ("site", "sftp_host", "NAS address", "text", ""),
+    ("site", "sftp_port", "NAS SFTP port", "text", ""),
+    ("site", "sftp_user", "NAS username", "text", ""),
+    ("site", "sftp_password_enc", "NAS password (encrypted)", "text", ""),
+    ("site", "sftp_remote_path", "Folder on the NAS", "text", ""),
+    ("site", "sftp_schedule", "Daily transfer time (UTC)", "text", ""),
+    ("site", "sftp_keep", "Archives to keep on the NAS", "text", ""),
     ("home", "home_hero_title", "Hero headline", "text",
      "Empowering communities, enriching lives in Enfield."),
     ("home", "home_hero_text", "Hero paragraph", "text",
@@ -5337,6 +5754,103 @@ def backup_now(keep):
         log_action("backup",
                    summary="Backup from the command line failed — %s."
                            % run.error)
+        raise SystemExit(1)
+
+
+def scheduled_run_due(now=None):
+    """(due, why): has today's scheduled backup time passed unserved?
+
+    All in UTC, and answered from the BackupRun table rather than any
+    state of its own — cron fires this every fifteen minutes, and the
+    only safe question to ask is "has today's run happened yet?".
+    """
+    cfg = sftp_settings()
+    now = now or datetime.utcnow()
+    try:
+        hour, minute = [int(part) for part in cfg["schedule"].split(":")]
+    except (ValueError, AttributeError):
+        hour, minute = 2, 30
+    due_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if now < due_at:
+        return False, "today's %s UTC run is not due yet" % cfg["schedule"]
+
+    done = (BackupRun.query
+            .filter(BackupRun.reason == "scheduled",
+                    BackupRun.started_at >= due_at)
+            .order_by(BackupRun.started_at.desc()).first())
+    if done is None:
+        return True, "today's run has not happened yet"
+    if done.status != "ok":
+        return False, ("today's run already ran and failed — leaving it "
+                       "until tomorrow rather than hammering it")
+    if not sftp_ready() or done.transfer_status == "ok":
+        return False, "today's run is done"
+    if (done.transfer_attempts or 0) >= SFTP_MAX_ATTEMPTS:
+        return False, ("today's transfer failed %d times — leaving it until "
+                       "tomorrow, as the settings page says"
+                       % done.transfer_attempts)
+    return True, "today's backup is done but has not reached the NAS"
+
+
+@app.cli.command("run-scheduled-backup")
+def run_scheduled_backup():
+    """Back up and send to the NAS if today's run is due.
+
+    Meant for cron every fifteen minutes:
+
+      */15 * * * * cd /opt/ebwa && ./venv/bin/flask --app app \\
+          run-scheduled-backup
+
+    Deliberately NOT a background thread: gunicorn runs several workers,
+    and a thread in each would mean several backups at once, all writing
+    the same archive name. Cron runs one process, once.
+
+    Idempotent within the day — run it as often as you like; it does
+    nothing until the configured time has passed without a good run.
+    """
+    due, why = scheduled_run_due()
+    if not due:
+        print("Nothing to do: %s." % why)
+        return
+
+    cfg = sftp_settings()
+    existing = (BackupRun.query
+                .filter(BackupRun.reason == "scheduled",
+                        BackupRun.status == "ok")
+                .order_by(BackupRun.started_at.desc()).first())
+    today = datetime.utcnow().date()
+    if (existing and existing.started_at.date() == today
+            and existing.transfer_status != "ok"):
+        # The archive exists; only the transfer is outstanding.
+        print("Retrying the transfer of %s." % existing.filename)
+        run = existing
+    else:
+        print("Backing up (%s)." % why)
+        run = run_backup(reason="scheduled")
+        if run.status != "ok":
+            print("Backup FAILED: %s" % run.error)
+            log_action("backup", summary="Scheduled backup failed — %s."
+                                         % run.error)
+            raise SystemExit(1)
+        print("Wrote %s (%s)." % (run.filename,
+                                  filesize_filter(run.size_bytes)))
+        log_action("backup",
+                   summary="Scheduled backup wrote %s (%s)."
+                           % (run.filename,
+                              filesize_filter(run.size_bytes)))
+
+    if not sftp_ready():
+        print("Transfers to the NAS are off, so the archive stays here.")
+        return
+    print("Sending to %s:%s ..." % (cfg["host"], cfg["path"]))
+    if transfer_with_retry(run):
+        print("Sent as %s. Keeping the newest %d there."
+              % (run.remote_filename, cfg["keep"]))
+        log_action("backup",
+                   summary="Sent backup %s to the NAS at %s."
+                           % (run.filename, cfg["host"]))
+    else:
+        print("Transfer FAILED: %s" % run.transfer_error)
         raise SystemExit(1)
 
 
