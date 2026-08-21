@@ -1697,16 +1697,208 @@ def admin_2fa_disable():
 
 
 # ---------------------------------------------------------------- admin: dashboard
+# The dashboard is the first page after every login, so it is counted
+# rather than loaded: nothing here fetches rows to len() them, and every
+# "needs attention" check is a single query, never one per record.
+PLACEHOLDER_MARK = "PLACEHOLDER"   # seeded copy EBWA still has to replace
+RECENT_ACTIVITY = 6                # audit entries shown on the dashboard
+STALE_PAYMENT_DAYS = 1
+
+
+def _count(model, *criteria):
+    """COUNT(*) for a model, with optional filters."""
+    q = db.session.query(db.func.count(model.id))
+    return (q.filter(*criteria) if criteria else q).scalar() or 0
+
+
+def _published_split(model):
+    """(total, drafts) for a model with a `published` flag, in one query."""
+    total, live = db.session.query(
+        db.func.count(model.id),
+        db.func.coalesce(db.func.sum(
+            db.case((model.published == True, 1), else_=0)), 0)  # noqa: E712
+    ).one()
+    return total, total - live
+
+
+def _plural(n, word, plural=None):
+    return "%d %s" % (n, word if n == 1 else (plural or word + "s"))
+
+
+def _no_photo_count(model, owner_type):
+    """Published rows with neither a lead image nor a rich-content one.
+
+    A NOT IN against the attachment table, so it stays one query however
+    much content there is — asking per row would be an N+1.
+    """
+    attached = (db.select(ContentImage.owner_id)
+                .where(ContentImage.owner_type == owner_type))
+    return _count(model,
+                  model.published == True,          # noqa: E712
+                  db.or_(model.image == "", model.image.is_(None)),
+                  model.id.notin_(attached))
+
+
+def dashboard_cards(flags):
+    """Content counts for the overview, honouring the feature flags.
+
+    A card is: label, count, url, note (a readable breakdown) and drafts
+    (unpublished rows — 0 for models with no `published` flag). A module
+    that is switched off is simply absent.
+    """
+    today = date.today()
+    total, drafts = _published_split(Event)
+    cards = [{"label": "Events", "count": total, "drafts": drafts,
+              "url": url_for("admin_events"),
+              "note": "%d upcoming · %d past"
+                      % (_count(Event, Event.event_date >= today,
+                                Event.published == True),      # noqa: E712
+                         _count(Event, Event.event_date < today,
+                                Event.published == True))}]    # noqa: E712
+
+    if flags["news"]:
+        total, drafts = _published_split(NewsPost)
+        cards.append({"label": "News posts", "count": total, "drafts": drafts,
+                      "url": url_for("admin_news"), "note": ""})
+
+    if flags["our_journey"]:
+        total, drafts = _published_split(Milestone)
+        cards.append({"label": "Milestones", "count": total, "drafts": drafts,
+                      "url": url_for("admin_milestones"), "note": ""})
+
+    if flags["resources"]:
+        cards.append({"label": "Resources", "count": _count(Resource),
+                      "drafts": 0, "url": url_for("admin_resources"),
+                      "note": ""})
+
+    total, drafts = _published_split(Service)
+    cards.append({"label": "What we do", "count": total, "drafts": drafts,
+                  "url": url_for("admin_services"), "note": ""})
+
+    cards.append({"label": "Partners", "count": _count(Partner), "drafts": 0,
+                  "url": url_for("admin_partners"), "note": ""})
+
+    total, drafts = _published_split(Testimonial)
+    cards.append({"label": "Testimonials", "count": total, "drafts": drafts,
+                  "url": url_for("admin_testimonials"), "note": ""})
+
+    cards.append({"label": "Gallery photos", "count": _count(GalleryImage),
+                  "drafts": 0, "url": url_for("admin_gallery"), "note": ""})
+
+    cards.append({"label": "Subscribers", "count": _count(Subscriber),
+                  "drafts": 0, "url": url_for("admin_subscribers"),
+                  "note": ""})
+
+    if flags["membership_form"]:
+        new = _count(MembershipApplication,
+                     MembershipApplication.status == "new")
+        cards.append({"label": "Membership applications",
+                      "count": _count(MembershipApplication), "drafts": 0,
+                      "url": url_for("admin_membership"),
+                      "note": ("%d awaiting review" % new) if new else ""})
+
+    if flags["donations"]:
+        cards.append({"label": "Collections", "count": _count(Campaign),
+                      "drafts": 0, "url": url_for("admin_campaigns"),
+                      "note": "%d active"
+                              % _count(Campaign,
+                                       Campaign.active == True)})  # noqa: E712
+    return cards
+
+
+def dashboard_attention(flags):
+    """Things worth acting on, blockers first.
+
+    An empty list hides the panel completely — a permanent "all clear"
+    box is noise the admin soon learns to skip past.
+    """
+    items = []
+
+    def add(text, url=None, action="", level="todo"):
+        items.append({"text": text, "url": url, "action": action,
+                      "level": level})
+
+    # Seeded placeholder copy, counted per section in one grouped query.
+    # The legal pages are a launch blocker: /privacy and /terms are linked
+    # from the footer of every page, and Netbus cannot write a charity's
+    # privacy notice on its behalf.
+    for group, n in (db.session.query(Block.group, db.func.count(Block.id))
+                     .filter(Block.value.like("%" + PLACEHOLDER_MARK + "%"))
+                     .group_by(Block.group).all()):
+        if group == "legal":
+            add("LAUNCH BLOCKER — the privacy notice and terms are still the "
+                "placeholder wording (%s). EBWA must supply the real text "
+                "before the site goes live." % _plural(n, "page"),
+                url_for("admin_content", group=group), "Write them",
+                level="blocker")
+        else:
+            add("The %s section still has %s of placeholder text."
+                % (group, _plural(n, "block")),
+                url_for("admin_content", group=group), "Edit")
+
+    if flags["membership_form"]:
+        n = _count(MembershipApplication,
+                   MembershipApplication.status == "new")
+        if n:
+            add("%s waiting to be looked at."
+                % _plural(n, "new membership application"),
+                url_for("admin_membership"), "Review")
+
+    n = _count(Event, Event.event_date < date.today(),
+               Event.published == True)                       # noqa: E712
+    if n:
+        add("%s now past — still published, and showing under “Past events”."
+            % _plural(n, "event"), url_for("admin_events"), "Review")
+
+    for model, owner_type, word, url, on in (
+            (Event, "event", "event", url_for("admin_events"), True),
+            (NewsPost, "news_post", "news post", url_for("admin_news"),
+             flags["news"]),
+            (Milestone, "milestone", "milestone",
+             url_for("admin_milestones"), flags["our_journey"])):
+        if not on:
+            continue
+        n = _no_photo_count(model, owner_type)
+        if n:
+            add("%s published with no photo attached." % _plural(n, word),
+                url, "Add one")
+
+    if flags["donations"]:
+        n = _count(Campaign, db.or_(Campaign.image == "",
+                                    Campaign.image.is_(None)))
+        if n:
+            add("%s with no photo — a collection page raises more with one."
+                % _plural(n, "collection"), url_for("admin_campaigns"),
+                "Add one")
+
+        cutoff = datetime.utcnow() - timedelta(days=STALE_PAYMENT_DAYS)
+        n = _count(Payment, Payment.status != "complete",
+                   Payment.created_at < cutoff)
+        if n:
+            add("%s still unfinished after a day. Usually someone closed the "
+                "payment page before paying — check Stripe if you were "
+                "expecting the money." % _plural(n, "payment"))
+
+    items.sort(key=lambda i: 0 if i["level"] == "blocker" else 1)
+    return items
+
+
 @app.route("/admin")
 @login_required
 def admin_dashboard():
-    counts = {
-        "events": Event.query.count(),
-        "upcoming": Event.query.filter(Event.event_date >= date.today(),
-                                       Event.published == True).count(),  # noqa: E712
-        "gallery": GalleryImage.query.count(),
-    }
-    return render_template("admin/dashboard.html", counts=counts)
+    # Recent activity is super admins only. They can always read the log;
+    # the audit_log flag decides whether EBWA's own admins get the audit
+    # PAGE, and this dashboard summary is deliberately not part of that.
+    recent = []
+    if current_user.is_super_admin:
+        recent = (AuditLog.query
+                  .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                  .limit(RECENT_ACTIVITY).all())
+    flags = feature_flags()
+    return render_template("admin/dashboard.html",
+                           cards=dashboard_cards(flags),
+                           attention=dashboard_attention(flags),
+                           recent=recent)
 
 
 # ---------------------------------------------------------------- admin: content blocks

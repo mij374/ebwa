@@ -1,16 +1,64 @@
 {% extends "admin/base_admin.html" %}
 {% block content %}
 <h1 class="admin-h1">Dashboard</h1>
-<p class="admin-sub">Welcome back. Here's a quick overview of the site.</p>
+<p class="admin-sub">Welcome back. Here's what is on the site, and anything
+  waiting for you.</p>
 
-<div class="admin-stats">
-  <div class="admin-stat"><b>{{ counts.upcoming }}</b><span>upcoming events</span></div>
-  <div class="admin-stat"><b>{{ counts.events }}</b><span>events total</span></div>
-  <div class="admin-stat"><b>{{ counts.gallery }}</b><span>gallery photos</span></div>
+{# Hidden entirely when there is nothing to act on. #}
+{% if attention %}
+<section class="admin-attention">
+  <h2 class="admin-panel-h">Needs attention</h2>
+  <ul class="attention-list">
+    {% for item in attention %}
+    <li class="attention-item{{ ' is-blocker' if item.level == 'blocker' }}">
+      <span>{{ item.text }}</span>
+      {% if item.url %}<a href="{{ item.url }}">{{ item.action }} →</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<h2 class="admin-panel-h">Content at a glance</h2>
+<div class="admin-stats admin-overview">
+  {% for c in cards %}
+  <a class="admin-stat" href="{{ c.url }}">
+    <b>{{ c.count }}</b>
+    <span>{{ c.label }}</span>
+    {% if c.note %}<small>{{ c.note }}</small>{% endif %}
+    {% if c.drafts %}
+    <small class="stat-draft">{{ c.drafts }} draft{{ '' if c.drafts == 1 else 's' }}</small>
+    {% endif %}
+  </a>
+  {% endfor %}
 </div>
 
+{% if recent %}
+<h2 class="admin-panel-h">Recent activity</h2>
+<div class="table-scroll">
+<table class="admin-table activity-table">
+  <tr><th>When</th><th>Who</th><th>What</th></tr>
+  {% for r in recent %}
+  <tr>
+    <td class="nowrap">{{ r.created_at|uk_datetime }}</td>
+    <td>{{ r.user_email or "—" }}</td>
+    <td>{{ r.summary or r.action }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="admin-more"><a href="{{ url_for('admin_audit') }}">View the full audit log →</a></p>
+{% endif %}
+
+<h2 class="admin-panel-h">Quick actions</h2>
 <div class="admin-quick">
   <a class="btn btn-green" href="{{ url_for('admin_event_form') }}">+ New event</a>
+  {% if features.news %}
+  <a class="btn btn-green" href="{{ url_for('admin_news_form') }}">+ New news post</a>
+  {% endif %}
+  {% if features.our_journey %}
+  <a class="btn btn-green" href="{{ url_for('admin_milestone_form') }}">+ New milestone</a>
+  {% endif %}
   <a class="btn btn-ghost" href="{{ url_for('admin_content') }}">Edit page content</a>
   <a class="btn btn-ghost" href="{{ url_for('admin_gallery') }}">Manage gallery</a>
 </div>

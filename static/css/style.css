@@ -326,6 +326,38 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .admin-stat span{font-size:14px;color:var(--ink-soft);font-weight:600}
 .admin-quick{display:flex;gap:14px;flex-wrap:wrap}
 
+/* ---------- Dashboard ---------- */
+.admin-panel-h{font-family:var(--font-body);font-size:16px;font-weight:700;margin:34px 0 14px}
+/* Auto-fill so a module switched off just leaves the row shorter */
+.admin-overview{grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:14px}
+.admin-overview .admin-stat{padding:18px 14px}
+.admin-overview .admin-stat b{font-size:28px}
+a.admin-stat{
+  text-decoration:none;color:inherit;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+a.admin-stat:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(2,56,42,.10)}
+.admin-stat small{display:block;margin-top:6px;font-size:12.5px;color:var(--ink-soft)}
+.admin-stat small.stat-draft{color:var(--red);font-weight:700}
+.admin-attention{
+  background:var(--white);border:1px solid var(--line);border-left:4px solid var(--red);
+  border-radius:var(--radius);padding:22px 24px;margin-bottom:30px;
+}
+.attention-list{list-style:none;display:grid;gap:12px}
+.attention-item{
+  display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+  flex-wrap:wrap;font-size:15px;padding-bottom:12px;border-bottom:1px solid var(--line);
+}
+.attention-item:last-child{padding-bottom:0;border-bottom:none}
+.attention-item a{color:var(--green);font-weight:700;text-decoration:none;white-space:nowrap}
+.attention-item.is-blocker span{color:var(--red);font-weight:600}
+/* Long summaries and email addresses wrap; the table scrolls inside its
+   own box rather than taking the page sideways on a phone. */
+.table-scroll{overflow-x:auto}
+.activity-table td{overflow-wrap:anywhere}
+.admin-more{margin-top:14px;font-size:14.5px}
+.admin-more a{color:var(--green);font-weight:700;text-decoration:none}
+
 .admin-form{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:30px;max-width:680px}
 .field{margin-bottom:20px}
 .field label{display:block;font-weight:700;font-size:14px;margin-bottom:6px}
@@ -495,6 +527,22 @@ body.has-notice footer{padding-bottom:110px}
   .brand-name{font-size:20px}
   .field-row{grid-template-columns:1fr}
   .admin-stats{grid-template-columns:1fr}
+  /* two across still reads fine on a phone, and keeps the page short */
+  .admin-overview{grid-template-columns:repeat(auto-fill,minmax(124px,1fr))}
+  /* Three columns is too narrow to read on a phone, so each entry becomes
+     a small card: who and when on one line, what it was underneath. */
+  .activity-table{display:block;border:none;background:none;border-radius:0}
+  .activity-table tr{
+    display:block;background:var(--white);border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;margin-bottom:10px;
+  }
+  .activity-table tr:first-child{display:none}      /* the header row */
+  .activity-table td{display:block;border:none;padding:0}
+  .activity-table td:first-child,.activity-table td:nth-child(2){
+    display:inline;font-size:13px;color:var(--ink-soft);
+  }
+  .activity-table td:first-child::after{content:" · "}
+  .activity-table td:last-child{margin-top:4px}
   .admin-gallery-grid{grid-template-columns:1fr 1fr}
   .foot-grid{grid-template-columns:1fr}
 }

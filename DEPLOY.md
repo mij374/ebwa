@@ -59,6 +59,22 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Rework the admin dashboard into an overview
+
+**Nothing to run.** Routes, one template and stylesheet rules only — no
+new tables, no new columns and no new seeded blocks. Confirmed with
+`flask --app app check-schema` ("Schema is up to date").
+
+The dashboard now counts existing content and reads the existing feature
+flags, Block values and audit log, so it works against any database that
+is already up to date with the entries below.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## ed71f89 — 2026-08-10 — Apply rich content to News and Events
 
 **Nothing to run.** Both models already had their `layout` column and

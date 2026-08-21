@@ -443,6 +443,17 @@ Built (post-signing variation, Jul 2026):
   page at /admin/audit with who/action/date filters, gated by the
   `audit_log` flag for client admins only. Deploy: new table only —
   `flask --app app init-db`.
+- Admin dashboard overview at /admin: content counts per module (with
+  draft counts where the model has a `published` flag), a "needs
+  attention" panel, recent activity and the quick actions. Everything is
+  a COUNT query — `_count()` / `_published_split()` / `_no_photo_count()`
+  — so the page cost does not grow with the content; keep it that way,
+  and never add a check that queries per row. The attention panel is
+  hidden entirely when there is nothing in it, flagged-off modules drop
+  out of both the cards and the checks, and recent activity is super
+  admins only. Placeholder copy (any Block still containing
+  "PLACEHOLDER") shows there, with the legal pages called out as a
+  launch blocker. No schema change.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
