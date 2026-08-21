@@ -361,9 +361,84 @@ header{
 .about-photo img{border-radius:var(--radius);width:100%;object-fit:cover}
 
 /* ---------- Gallery ---------- */
-.gallery-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:36px}
-.gallery-grid img{border-radius:12px;width:100%;aspect-ratio:1/1;object-fit:cover}
-.gallery-grid figcaption{font-size:13.5px;color:var(--ink-soft);margin-top:8px;font-weight:500}
+/* ---------- Gallery: albums, masonry, lightbox ----------
+   The masonry is the same CSS-columns approach as the rich-content
+   gallery preset, with one difference that matters here: the ratios are
+   the photographs' own, not a staggered pattern, so a portrait phone
+   photo stays portrait instead of being cropped square. Each ratio is
+   set inline from the file, so the column heights are right before a
+   single image has loaded. */
+.album-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:36px}
+.album-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
+  overflow:hidden;text-decoration:none;display:flex;flex-direction:column;
+  transition:transform .18s ease, box-shadow .18s ease;
+}
+a.album-card:hover{transform:translateY(-3px);box-shadow:0 14px 32px rgba(2,56,42,.12)}
+.album-card img{width:100%;aspect-ratio:4/3;object-fit:cover}
+.album-card-empty{
+  width:100%;aspect-ratio:4/3;background:var(--green-tint);
+  display:grid;place-items:center;font-size:34px;
+}
+.album-card.is-all{background:var(--green);color:#fff;justify-content:center;min-height:180px}
+.album-card.is-all .album-card-body b,
+.album-card.is-all .album-card-body span,
+.album-card.is-all .album-card-body em{color:#fff}
+.album-card.is-all .album-card-body span{opacity:.85}
+.album-card-body{padding:18px 20px;display:grid;gap:6px}
+.album-card-body b{font-family:var(--font-display);font-size:19px;color:var(--green)}
+.album-card-body span{font-size:14px;color:var(--ink-soft);line-height:1.5}
+.album-card-body em{font-style:normal;font-size:13px;font-weight:700;color:var(--red)}
+
+.photo-masonry{columns:3;column-gap:18px;margin-top:36px}
+.photo-item{break-inside:avoid;margin:0 0 18px}
+.photo-item a{display:block;border-radius:12px;overflow:hidden}
+.photo-item img{
+  width:100%;border-radius:12px;background:var(--green-tint);
+  transition:transform .2s ease;
+}
+.photo-item a:hover img{transform:scale(1.02)}
+.photo-item a:focus-visible{outline:3px solid var(--green);outline-offset:3px}
+.photo-item figcaption{font-size:13.5px;color:var(--ink-soft);margin-top:8px;font-weight:500}
+
+/* Lightbox. Hidden with the `hidden` attribute so it is inert — and
+   invisible to a screen reader — until script opens it. */
+.lightbox{
+  position:fixed;inset:0;z-index:100;background:rgba(2,56,42,.94);
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;
+  gap:10px;padding:20px;
+}
+.lightbox[hidden]{display:none}
+body.lightbox-open{overflow:hidden}
+/* Nothing from the page behind should bleed through the backdrop while
+   someone is looking at a photograph. */
+body.lightbox-open .cookie-notice{display:none}
+.lightbox-figure{
+  margin:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;min-width:0;max-height:92vh;
+}
+.lightbox-figure img{
+  max-width:100%;max-height:80vh;width:auto;border-radius:10px;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.lightbox-figure figcaption{
+  color:#fff;font-size:15px;text-align:center;max-width:60ch;line-height:1.5;
+}
+.lightbox-figure figcaption[hidden]{display:none}
+.lightbox-close,.lightbox-nav{
+  background:rgba(255,255,255,.12);color:#fff;border:none;cursor:pointer;
+  border-radius:999px;font-family:var(--font-display);line-height:1;
+}
+.lightbox-close{
+  position:absolute;top:16px;right:18px;width:44px;height:44px;font-size:26px;
+}
+.lightbox-nav{width:52px;height:52px;font-size:34px;flex:none}
+.lightbox-close:hover,.lightbox-nav:hover{background:rgba(255,255,255,.24)}
+.lightbox-close:focus-visible,.lightbox-nav:focus-visible{outline:3px solid #fff;outline-offset:2px}
+.lightbox-count{
+  position:absolute;bottom:16px;left:0;right:0;text-align:center;
+  color:rgba(255,255,255,.75);font-size:13.5px;font-weight:600;
+}
 
 /* ---------- Contact ---------- */
 .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:44px;margin-top:36px}
@@ -511,6 +586,17 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .admin-gallery-item{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:8px}
 .admin-gallery-item img{border-radius:8px;aspect-ratio:1/1;object-fit:cover;width:100%}
 .admin-gallery-item span{font-size:13px;color:var(--ink-soft)}
+.admin-pick{display:block;position:relative;cursor:pointer}
+.admin-pick input{position:absolute;top:8px;left:8px;width:20px;height:20px;z-index:1;cursor:pointer}
+.admin-pick input:checked + img{outline:3px solid var(--green);outline-offset:-3px}
+.admin-pick-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft)}
+.admin-move-bar{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;
+  background:var(--white);border:1px solid var(--line);border-radius:12px;padding:14px 18px;
+}
+.admin-move-bar label{font-weight:700;font-size:14px}
+.admin-move-bar select{padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:var(--paper)}
+.is-hidden{display:none}
 
 /* ---------- Login ---------- */
 .login-body{display:grid;place-items:center;min-height:100vh;background:var(--green-deep)}
@@ -620,6 +706,8 @@ body.has-notice footer{padding-bottom:110px}
 @media (max-width: 920px){
   .hero-grid,.about-grid,.contact-grid{grid-template-columns:1fr;gap:40px}
   .cards,.event-cards{grid-template-columns:1fr 1fr}
+  .album-grid{grid-template-columns:1fr 1fr}
+  .photo-masonry{columns:2}
   .stats-grid{grid-template-columns:1fr 1fr;gap:34px}
   .foot-grid{grid-template-columns:1fr 1fr}
   .admin-shell{grid-template-columns:1fr}
@@ -637,7 +725,18 @@ body.has-notice footer{padding-bottom:110px}
   .admin-stat{padding:18px 12px}
   .admin-stat b{font-size:28px}
   .admin-stat em{font-size:12px}
-  .cards,.event-cards,.gallery-grid{grid-template-columns:1fr}
+  .cards,.event-cards{grid-template-columns:1fr}
+  .album-grid{grid-template-columns:1fr}
+  /* Two columns of photographs still reads as a gallery on a phone;
+     one column makes thirty photos an endless scroll. */
+  .photo-masonry{columns:2;column-gap:12px}
+  .photo-item{margin-bottom:12px}
+  .lightbox{grid-template-columns:1fr;padding:12px}
+  .lightbox-nav{
+    position:absolute;bottom:52px;width:46px;height:46px;
+  }
+  .lightbox-nav.is-prev{left:16px}
+  .lightbox-nav.is-next{right:16px}
   .brand-mark img{height:44px}      /* keeps the brand off the menu button */
   .brand-name{font-size:20px}
   .field-row{grid-template-columns:1fr}

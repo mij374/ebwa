@@ -1,32 +1,92 @@
 {% extends "admin/base_admin.html" %}
 {% block content %}
-<h1 class="admin-h1">Gallery</h1>
-<p class="admin-sub">Upload photos to the public gallery. You can select several at once.</p>
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Gallery</h1>
+    <p class="admin-sub">Upload photos and sort them into albums. You can select several files at once.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('admin_albums') }}">Manage albums</a>
+</div>
 
-<form method="post" enctype="multipart/form-data" class="admin-form" style="margin-bottom:40px">
+<form method="post" enctype="multipart/form-data" class="admin-form" style="margin-bottom:34px">
   <div class="field">
     <label for="images">Add photos</label>
     <input type="file" id="images" name="images" accept="image/*" multiple required>
+    <small>Straight off a phone is fine — photos are turned the right way
+      up, stripped of location data and resized automatically.</small>
   </div>
-  <div class="field">
-    <label for="caption">Caption (optional, applied to this upload)</label>
-    <input type="text" id="caption" name="caption" placeholder="e.g. Eid celebration 2026">
+  <div class="field-row">
+    <div class="field">
+      <label for="album_id">Album</label>
+      <select id="album_id" name="album_id">
+        <option value="">No album (unfiled)</option>
+        {% for a in albums %}
+        <option value="{{ a.id }}" {{ 'selected' if view == a.id|string }}>{{ a.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="caption">Caption (optional, applied to this upload)</label>
+      <input type="text" id="caption" name="caption" placeholder="e.g. Eid celebration 2026">
+    </div>
   </div>
   <button class="btn btn-green" type="submit">Upload</button>
 </form>
 
-{% if images %}
-<div class="admin-gallery-grid">
-  {% for img in images %}
-  <div class="admin-gallery-item">
-    <img src="{{ thumb_url(img.filename) }}" alt="">
-    {% if img.caption %}<span>{{ img.caption }}</span>{% endif %}
-    <form method="post" action="{{ url_for('admin_gallery_delete', image_id=img.id) }}"
-          onsubmit="return confirm('Delete this photo?');">
-      <button class="table-link danger" type="submit">Delete</button>
-    </form>
-  </div>
+<div class="tab-row">
+  <a class="tab {{ 'active' if not view }}" href="{{ url_for('admin_gallery') }}">Every photo</a>
+  {% for a in albums %}
+  <a class="tab {{ 'active' if view == a.id|string }}"
+     href="{{ url_for('admin_gallery', album=a.id) }}">{{ a.title }} ({{ counts.get(a.id, 0) }})</a>
   {% endfor %}
+  <a class="tab {{ 'active' if view == 'unfiled' }}"
+     href="{{ url_for('admin_gallery', album='unfiled') }}">Unfiled ({{ unfiled }})</a>
 </div>
+
+{% if images %}
+{# One form around the grid: tick photos, choose where they go. #}
+<form method="post" action="{{ url_for('admin_gallery_move') }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  <div class="admin-move-bar">
+    <label for="target_album">Move ticked photos to</label>
+    <select id="target_album" name="target_album">
+      <option value="">No album (unfiled)</option>
+      {% for a in albums %}
+      <option value="{{ a.id }}">{{ a.title }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-green" type="submit">Move</button>
+  </div>
+
+  <div class="admin-gallery-grid">
+    {% for img in images %}
+    <div class="admin-gallery-item">
+      <label class="admin-pick">
+        <input type="checkbox" name="photo_ids" value="{{ img.id }}">
+        <img src="{{ thumb_url(img.filename) }}" alt="">
+      </label>
+      {% if img.caption %}<span>{{ img.caption }}</span>{% endif %}
+      <div class="admin-pick-foot">
+        <span>{{ img.album.title if img.album else 'Unfiled' }}</span>
+        {# Deleting is destructive and must not ride along with a bulk
+           move, so each button submits its own form below — the same
+           `form=` trick the image manager uses, since forms cannot
+           nest. #}
+        <button class="table-link danger" type="submit" form="del{{ img.id }}">Delete</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</form>
+
+{% for img in images %}
+<form method="post" id="del{{ img.id }}" class="is-hidden"
+      action="{{ url_for('admin_gallery_delete', image_id=img.id) }}"
+      onsubmit="return confirm('Delete this photo? This cannot be undone.');">
+  <input type="hidden" name="view" value="{{ view }}">
+</form>
+{% endfor %}
+{% else %}
+<p class="admin-sub">No photos here yet.</p>
 {% endif %}
 {% endblock %}

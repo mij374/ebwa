@@ -257,10 +257,32 @@ class NewsPost(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
+class GalleryAlbum(db.Model):
+    """A named set of gallery photos — an event, a trip, a year.
+
+    Deleting an album never deletes photographs: they go back to being
+    unfiled and stay reachable through "All photos". An album is an
+    arrangement of the gallery, and an arrangement is not worth losing
+    irreplaceable pictures over.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    slug = db.Column(db.String(220), unique=True, nullable=False)
+    description = db.Column(db.String(300), default="")
+    cover_image = db.Column(db.String(255), default="")   # uploads filename
+    sort = db.Column(db.Integer, default=0)
+    published = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+
 class GalleryImage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(255), nullable=False)
     caption = db.Column(db.String(200), default="")
+    # NULL = unfiled; every photo predating albums starts here and stays
+    # reachable through the "All photos" view.
+    album_id = db.Column(db.Integer, db.ForeignKey("gallery_album.id"))
+    album = db.relationship("GalleryAlbum")
     sort = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -1354,6 +1376,10 @@ def sitemap():
     urls = [url_for(e) for e, f in pages if f is None or flags[f]]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
              Event.query.filter_by(published=True).all()]
+    albums = GalleryAlbum.query.filter_by(published=True).all()
+    urls += [url_for("gallery_album", slug=a.slug) for a in albums]
+    if GalleryImage.query.first():
+        urls.append(url_for("gallery_all"))
     if flags["news"]:
         urls += [url_for("news_detail", slug=p.slug) for p in
                  NewsPost.query.filter_by(published=True).all()]
@@ -1428,11 +1454,119 @@ def news_detail(slug):
                            images=images, paragraphs=paragraphs_of(post.body))
 
 
+# ------------------------------------------------------------ gallery
+# The gallery is a showcase, so the shapes of the photographs matter: a
+# masonry column layout gives every picture its own aspect ratio instead
+# of cropping portrait phone photos into squares. That needs each ratio
+# BEFORE the image loads, or the page reflows as they arrive.
+ALL_PHOTOS_SLUG = "all"        # /gallery/all — reserved, never an album
+_ratio_cache = {}              # filename -> (mtime, size, "w / h")
+
+
+def aspect_ratio_of(filename, default="4 / 3"):
+    """The photo's own aspect ratio, as a CSS aspect-ratio value.
+
+    Read from the file header — Pillow does not decode the pixels for
+    this — and cached per worker on (mtime, size), so a page of thirty
+    photographs costs thirty stats once and nothing thereafter. Kept out
+    of the database deliberately: no column to backfill, no way for the
+    stored number to drift from the file on disk.
+    """
+    if not filename:
+        return default
+    path = os.path.join(UPLOAD_DIR, secure_filename(filename))
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return default
+    key = (stat.st_mtime, stat.st_size)
+    cached = _ratio_cache.get(filename)
+    if cached and cached[0] == key:
+        return cached[1]
+    try:
+        with open(path, "rb") as fh:
+            with Image.open(fh) as im:
+                ratio = "%d / %d" % im.size
+    except Exception:
+        ratio = default
+    _ratio_cache[filename] = (key, ratio)
+    return ratio
+
+
+def gallery_photos(album=None, unfiled_only=False):
+    """Photos for a view, newest first unless `sort` says otherwise.
+
+    sort ascending comes first so an admin can pin a photograph to the
+    top of an album; everything else falls back to newest.
+    """
+    q = GalleryImage.query
+    if album is not None:
+        q = q.filter(GalleryImage.album_id == album.id)
+    elif unfiled_only:
+        q = q.filter(GalleryImage.album_id.is_(None))
+    else:
+        # "All photos": everything except what sits in a hidden album.
+        hidden = db.select(GalleryAlbum.id).where(
+            GalleryAlbum.published == False)               # noqa: E712
+        q = q.filter(db.or_(GalleryImage.album_id.is_(None),
+                            GalleryImage.album_id.notin_(hidden)))
+    return q.order_by(GalleryImage.sort,
+                      GalleryImage.created_at.desc()).all()
+
+
+def with_ratios(photos):
+    """Photos paired with their aspect ratio, ready for the template."""
+    return [{"img": p, "ratio": aspect_ratio_of(p.filename)} for p in photos]
+
+
 @app.route("/gallery")
 def gallery():
-    images = GalleryImage.query.order_by(GalleryImage.sort,
-                                         GalleryImage.created_at.desc()).all()
-    return render_template("gallery.html", images=images)
+    """Album covers, plus a way into everything that is not in an album."""
+    albums = (GalleryAlbum.query.filter_by(published=True)
+              .order_by(GalleryAlbum.sort, GalleryAlbum.created_at.desc())
+              .all())
+    # One grouped count rather than a query per album.
+    counts = dict(db.session.query(GalleryImage.album_id,
+                                   db.func.count(GalleryImage.id))
+                  .group_by(GalleryImage.album_id).all())
+    covers = {}
+    for a in albums:
+        if not a.cover_image:
+            newest = (GalleryImage.query.filter_by(album_id=a.id)
+                      .order_by(GalleryImage.sort,
+                                GalleryImage.created_at.desc()).first())
+            covers[a.id] = newest.filename if newest else ""
+    cards = [{"album": a,
+              "count": counts.get(a.id, 0),
+              "cover": a.cover_image or covers.get(a.id, "")}
+             for a in albums]
+    # What "All photos" will show: the unfiled ones plus everything in a
+    # published album. Photos inside a hidden album are not counted,
+    # because that view will not show them either.
+    unfiled = counts.get(None, 0)
+    total = unfiled + sum(n for aid, n in counts.items()
+                          if aid in {a.id for a in albums})
+    return render_template("gallery.html", cards=cards, total=total,
+                           unfiled=unfiled)
+
+
+@app.route("/gallery/" + ALL_PHOTOS_SLUG)
+def gallery_all():
+    photos = gallery_photos()
+    return render_template("gallery_album.html", album=None,
+                           title="All photos",
+                           description="Every photograph on the site, newest "
+                                       "first.",
+                           photos=with_ratios(photos))
+
+
+@app.route("/gallery/<slug>")
+def gallery_album(slug):
+    album = GalleryAlbum.query.filter_by(slug=slug,
+                                         published=True).first_or_404()
+    return render_template("gallery_album.html", album=album,
+                           title=album.title, description=album.description,
+                           photos=with_ratios(gallery_photos(album=album)))
 
 
 @app.route("/resources")
@@ -2601,27 +2735,88 @@ def admin_service_delete(service_id):
 
 
 # ---------------------------------------------------------------- admin: gallery
+def album_choices():
+    """Every album, for the upload and move pickers."""
+    return GalleryAlbum.query.order_by(GalleryAlbum.sort,
+                                       GalleryAlbum.title).all()
+
+
+def album_arg(name="album_id"):
+    """A posted album id, or None for unfiled. Unknown ids become None."""
+    raw = (request.form.get(name) or "").strip()
+    if not raw:
+        return None
+    try:
+        album = db.session.get(GalleryAlbum, int(raw))
+    except ValueError:
+        return None
+    return album.id if album else None
+
+
 @app.route("/admin/gallery", methods=["GET", "POST"])
 @login_required
 def admin_gallery():
     if request.method == "POST":
+        album_id = album_arg()
         added = 0
         for f in request.files.getlist("images"):
             name = save_upload(f)
             if name:
                 db.session.add(GalleryImage(
-                    filename=name,
+                    filename=name, album_id=album_id,
                     caption=request.form.get("caption", "").strip()))
                 added += 1
         db.session.commit()
         if added:
+            album = db.session.get(GalleryAlbum, album_id) if album_id else None
             log_action("create", entity=("GalleryImage", None),
-                       summary="Uploaded %d gallery image(s)." % added)
+                       summary="Uploaded %d gallery image(s)%s."
+                               % (added, " to album “%s”" % album.title
+                                  if album else ""))
             flash("%d image(s) uploaded." % added, "ok")
-        return redirect(url_for("admin_gallery"))
-    images = GalleryImage.query.order_by(GalleryImage.sort,
-                                         GalleryImage.created_at.desc()).all()
-    return render_template("admin/gallery.html", images=images)
+        return redirect(url_for("admin_gallery",
+                                album=album_id or None))
+
+    albums = album_choices()
+    # Which photos to show: one album, the unfiled ones, or everything.
+    view = (request.args.get("album") or "").strip()
+    if view == "unfiled":
+        images = gallery_photos(unfiled_only=True)
+    elif view.isdigit() and db.session.get(GalleryAlbum, int(view)):
+        images = gallery_photos(album=db.session.get(GalleryAlbum, int(view)))
+    else:
+        view = ""
+        images = GalleryImage.query.order_by(
+            GalleryImage.sort, GalleryImage.created_at.desc()).all()
+    counts = dict(db.session.query(GalleryImage.album_id,
+                                   db.func.count(GalleryImage.id))
+                  .group_by(GalleryImage.album_id).all())
+    return render_template("admin/gallery.html", images=images,
+                           albums=albums, counts=counts, view=view,
+                           unfiled=counts.get(None, 0))
+
+
+@app.route("/admin/gallery/move", methods=["POST"])
+@login_required
+def admin_gallery_move():
+    """Move the ticked photos into an album, or out of one."""
+    ids = [int(i) for i in request.form.getlist("photo_ids") if i.isdigit()]
+    if not ids:
+        flash("Tick the photos you want to move first.", "error")
+        return redirect(url_for("admin_gallery",
+                                album=request.form.get("view") or None))
+    album_id = album_arg("target_album")
+    moved = (GalleryImage.query.filter(GalleryImage.id.in_(ids))
+             .update({"album_id": album_id}, synchronize_session=False))
+    db.session.commit()
+    album = db.session.get(GalleryAlbum, album_id) if album_id else None
+    log_action("edit", entity=("GalleryImage", None),
+               summary="Moved %d gallery photo(s) %s."
+                       % (moved, "into album “%s”" % album.title if album
+                          else "out of their album"))
+    flash("%d photo(s) moved." % moved, "ok")
+    return redirect(url_for("admin_gallery",
+                            album=request.form.get("view") or None))
 
 
 @app.route("/admin/gallery/<int:image_id>/delete", methods=["POST"])
@@ -2635,7 +2830,95 @@ def admin_gallery_delete(image_id):
     log_action("delete", entity=gone,
                summary="Deleted gallery image “%s”." % caption)
     flash("Image deleted.", "ok")
-    return redirect(url_for("admin_gallery"))
+    return redirect(url_for("admin_gallery",
+                            album=request.form.get("view") or None))
+
+
+# ---------------------------------------------------------- admin: albums
+@app.route("/admin/gallery/albums")
+@login_required
+def admin_albums():
+    rows = GalleryAlbum.query.order_by(GalleryAlbum.sort,
+                                       GalleryAlbum.created_at.desc()).all()
+    counts = dict(db.session.query(GalleryImage.album_id,
+                                   db.func.count(GalleryImage.id))
+                  .group_by(GalleryImage.album_id).all())
+    return render_template("admin/albums_list.html", rows=rows, counts=counts)
+
+
+@app.route("/admin/gallery/albums/new", methods=["GET", "POST"])
+@app.route("/admin/gallery/albums/<int:album_id>/edit",
+           methods=["GET", "POST"])
+@login_required
+def admin_album_form(album_id=None):
+    album = db.session.get(GalleryAlbum, album_id) if album_id else None
+    if album_id and not album:
+        abort(404)
+
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        if not title:
+            flash("Title is required.", "error")
+        else:
+            is_new = album is None
+            if is_new:
+                album = GalleryAlbum()
+            try:
+                sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                sort = 0
+            values = {
+                "title": title,
+                "description": request.form.get("description", "").strip(),
+                "sort": sort,
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(album, values)
+            apply_values(album, values)
+            album.slug = unique_slug(GalleryAlbum, title, album.id)
+            if album.slug == ALL_PHOTOS_SLUG:
+                # /gallery/all is the everything view; an album may not
+                # take that address or it would be unreachable.
+                album.slug = ALL_PHOTOS_SLUG + "-album"
+            f = request.files.get("cover_image")
+            if f and f.filename:
+                new_name = save_upload(f)
+                if new_name:
+                    delete_upload(album.cover_image)
+                    album.cover_image = new_name
+                    changed.append("cover_image")
+            if is_new:
+                db.session.add(album)
+            db.session.commit()
+            log_action("create" if is_new else "edit", entity=album,
+                       summary=save_summary("album", album.title, is_new,
+                                            changed))
+            flash("Album saved.", "ok")
+            return redirect(url_for("admin_albums"))
+
+    return render_template("admin/album_form.html", album=album)
+
+
+@app.route("/admin/gallery/albums/<int:album_id>/delete", methods=["POST"])
+@login_required
+def admin_album_delete(album_id):
+    album = db.session.get(GalleryAlbum, album_id) or abort(404)
+    gone, title = ("GalleryAlbum", album.id), album.title
+    # The photographs OUTLIVE the album: they go back to unfiled and stay
+    # reachable under "All photos". Deleting an arrangement must never
+    # destroy the pictures it arranged — an album can be rebuilt in a
+    # minute, a photograph of somebody's grandmother cannot.
+    freed = (GalleryImage.query.filter_by(album_id=album.id)
+             .update({"album_id": None}, synchronize_session=False))
+    delete_upload(album.cover_image)      # the cover is the album's own file
+    db.session.delete(album)
+    db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted album “%s”. %d photo(s) kept, now unfiled."
+                       % (title, freed))
+    flash("Album deleted. Its %d photo(s) are now unfiled — find them under "
+          "“Unfiled” in the gallery." % freed, "ok")
+    return redirect(url_for("admin_albums"))
 
 
 # ---------------------------------------------------------------- admin: testimonials

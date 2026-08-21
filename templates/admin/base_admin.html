@@ -22,7 +22,7 @@
       <a href="{{ url_for('admin_services') }}" class="{{ 'active' if request.endpoint and 'service' in request.endpoint }}">What we do</a>
       <a href="{{ url_for('admin_events') }}" class="{{ 'active' if request.endpoint and 'event' in request.endpoint }}">Events</a>
       {% if features.news %}<a href="{{ url_for('admin_news') }}" class="{{ 'active' if request.endpoint and 'news' in request.endpoint }}">News &amp; Projects</a>{% endif %}
-      <a href="{{ url_for('admin_gallery') }}" class="{{ 'active' if request.endpoint == 'admin_gallery' }}">Gallery</a>
+      <a href="{{ url_for('admin_gallery') }}" class="{{ 'active' if request.endpoint and ('gallery' in request.endpoint or 'album' in request.endpoint) }}">Gallery</a>
       <a href="{{ url_for('admin_testimonials') }}" class="{{ 'active' if request.endpoint and 'testimonial' in request.endpoint }}">Testimonials</a>
       <a href="{{ url_for('admin_partners') }}" class="{{ 'active' if request.endpoint and 'partner' in request.endpoint }}">Partners</a>
       {% if features.resources %}<a href="{{ url_for('admin_resources') }}" class="{{ 'active' if request.endpoint and 'resource' in request.endpoint }}">Resources</a>{% endif %}

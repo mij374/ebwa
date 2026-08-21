@@ -1,19 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Gallery — EBWA{% endblock %}
+{% block meta_description %}Photographs from EBWA's work in Enfield — our classes, celebrations, trips and community days, album by album.{% endblock %}
 {% block content %}
 <section>
   <div class="wrap">
     <p class="eyebrow">Community life <span class="bn">· ছবির গ্যালারি</span></p>
     <h2>Moments from our centre</h2>
-    {% if images %}
-    <div class="gallery-grid">
-      {% for img in images %}
-      <figure>
-        <img src="{{ thumb_url(img.filename) }}"
-             alt="{{ img.caption or 'EBWA community photo' }}" loading="lazy">
-        {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
-      </figure>
+
+    {% if cards or total %}
+    <div class="album-grid">
+      {% for card in cards %}
+      <a class="album-card" href="{{ url_for('gallery_album', slug=card.album.slug) }}">
+        {% if card.cover %}
+        <img src="{{ thumb_url(card.cover) }}" alt="" loading="lazy">
+        {% else %}
+        <div class="album-card-empty" aria-hidden="true">📷</div>
+        {% endif %}
+        <div class="album-card-body">
+          <b>{{ card.album.title }}</b>
+          {% if card.album.description %}<span>{{ card.album.description }}</span>{% endif %}
+          <em>{{ card.count }} photo{{ '' if card.count == 1 else 's' }}</em>
+        </div>
+      </a>
       {% endfor %}
+
+      {# Nothing is ever unreachable: everything lives here too, including
+         photos that were never put in an album. #}
+      {% if total %}
+      <a class="album-card is-all" href="{{ url_for('gallery_all') }}">
+        <div class="album-card-body">
+          <b>All photos</b>
+          <span>Every photograph, newest first{% if unfiled %} — including {{ unfiled }} not yet in an album{% endif %}.</span>
+          <em>{{ total }} photo{{ '' if total == 1 else 's' }}</em>
+        </div>
+      </a>
+      {% endif %}
     </div>
     {% else %}
     <p class="lede">No photos yet — they'll appear here once uploaded.</p>

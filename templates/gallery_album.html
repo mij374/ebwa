@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — EBWA Gallery{% endblock %}
+{% block meta_description %}{{ description or 'Photographs from EBWA in Enfield.' }}{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><a href="{{ url_for('gallery') }}" class="crumb">← All albums</a></p>
+    <h2>{{ title }}</h2>
+    {% if description %}<p class="lede">{{ description }}</p>{% endif %}
+
+    {% if photos %}
+    {# Each photo is a plain link to the full-size file. The lightbox
+       upgrades these links; with JavaScript off or broken, clicking one
+       simply opens the photograph, which is the whole point anyway. #}
+    <div class="photo-masonry" id="photoGrid">
+      {% for p in photos %}
+      <figure class="photo-item">
+        <a href="{{ upload_url(p.img.filename) }}"
+           data-caption="{{ p.img.caption }}"
+           aria-label="Open photo{% if p.img.caption %}: {{ p.img.caption }}{% endif %}">
+          <img src="{{ thumb_url(p.img.filename) }}"
+               style="aspect-ratio: {{ p.ratio }}"
+               alt="{{ p.img.caption or 'EBWA community photo' }}"
+               loading="lazy" decoding="async">
+        </a>
+        {% if p.img.caption %}<figcaption>{{ p.img.caption }}</figcaption>{% endif %}
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">No photos in this album yet.</p>
+    {% endif %}
+  </div>
+</section>
+
+{% if photos %}
+{# Built empty and only filled in by script, so there is nothing to see
+   or tab into unless the lightbox is actually working. #}
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+     aria-label="Photo viewer" hidden>
+  <button class="lightbox-close" id="lightboxClose" type="button"
+          aria-label="Close photo viewer">×</button>
+  <button class="lightbox-nav is-prev" id="lightboxPrev" type="button"
+          aria-label="Previous photo">‹</button>
+  <figure class="lightbox-figure">
+    {# No src attribute at all until a photo is chosen: src="" resolves to
+       the page itself, so the browser fetches the HTML document a second
+       time and reports a broken image. #}
+    <img id="lightboxImage" alt="">
+    <figcaption id="lightboxCaption"></figcaption>
+  </figure>
+  <button class="lightbox-nav is-next" id="lightboxNext" type="button"
+          aria-label="Next photo">›</button>
+  <p class="lightbox-count" id="lightboxCount"></p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if photos %}
+<script>
+(function () {
+  var grid = document.getElementById('photoGrid');
+  var box = document.getElementById('lightbox');
+  if (!grid || !box) { return; }
+
+  var links = [].slice.call(grid.querySelectorAll('a[href]'));
+  var image = document.getElementById('lightboxImage');
+  var caption = document.getElementById('lightboxCaption');
+  var count = document.getElementById('lightboxCount');
+  var current = 0;
+  var opener = null;
+
+  function show(index) {
+    if (index < 0) { index = links.length - 1; }
+    if (index >= links.length) { index = 0; }
+    current = index;
+    var link = links[index];
+    var text = link.getAttribute('data-caption') || '';
+    image.setAttribute('src', link.getAttribute('href'));
+    image.setAttribute('alt', text || 'EBWA community photo');
+    caption.textContent = text;
+    caption.hidden = !text;
+    count.textContent = (index + 1) + ' of ' + links.length;
+  }
+
+  function open(index, trigger) {
+    opener = trigger || null;
+    show(index);
+    box.hidden = false;
+    document.body.classList.add('lightbox-open');
+    document.getElementById('lightboxClose').focus();
+  }
+
+  function close() {
+    box.hidden = true;
+    document.body.classList.remove('lightbox-open');
+    image.removeAttribute('src');      // never src="" — see the markup
+    if (opener) { opener.focus(); }
+  }
+
+  links.forEach(function (link, i) {
+    link.addEventListener('click', function (event) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey) { return; }
+      event.preventDefault();
+      open(i, link);
+    });
+  });
+
+  document.getElementById('lightboxClose').addEventListener('click', close);
+  document.getElementById('lightboxPrev').addEventListener('click', function () {
+    show(current - 1);
+  });
+  document.getElementById('lightboxNext').addEventListener('click', function () {
+    show(current + 1);
+  });
+  box.addEventListener('click', function (event) {
+    // Only the backdrop closes; clicks on the photo or the buttons stay.
+    if (event.target === box) { close(); }
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (box.hidden) { return; }
+    if (event.key === 'Escape') { close(); }
+    else if (event.key === 'ArrowLeft') { show(current - 1); }
+    else if (event.key === 'ArrowRight') { show(current + 1); }
+    else if (event.key === 'Tab') {
+      // Keep tabbing inside the dialog while it is open.
+      var stops = box.querySelectorAll('button');
+      var first = stops[0];
+      var last = stops[stops.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  });
+
+  // Swipe, with a deliberately generous threshold so a scroll or a tap
+  // is never mistaken for one.
+  var startX = 0, startY = 0, tracking = false;
+  box.addEventListener('touchstart', function (event) {
+    if (event.touches.length !== 1) { tracking = false; return; }
+    startX = event.touches[0].clientX;
+    startY = event.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+  box.addEventListener('touchend', function (event) {
+    if (!tracking) { return; }
+    tracking = false;
+    var touch = event.changedTouches[0];
+    var dx = touch.clientX - startX;
+    var dy = touch.clientY - startY;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+      show(dx < 0 ? current + 1 : current - 1);
+    }
+  }, { passive: true });
+})();
+</script>
+{% endif %}
+{% endblock %}

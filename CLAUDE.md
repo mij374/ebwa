@@ -120,6 +120,35 @@ Built and maintained by Netbus IT Support.
     rewritten when it is too wide, carries EXIF, or would be at least a
     tenth smaller — "any saving at all" would re-encode the same JPEGs
     on every run and degrade them a little each time.
+- Gallery albums: `GalleryAlbum` groups `GalleryImage` rows through a
+  NULLABLE `album_id`. Rules that matter:
+  - **Deleting an album must never delete photographs.** The delete
+    route sets their `album_id` to NULL and they carry on under "All
+    photos". An album is an arrangement and can be rebuilt in a minute;
+    a photograph of somebody's grandmother cannot. The same goes for any
+    future grouping — group by nullable key, never by cascade.
+  - Unfiled photos are normal, not a broken state: everything from
+    before albums existed is unfiled, and `/gallery/all` is what
+    guarantees no photo is ever unreachable. Keep that view.
+  - `/gallery/all` is a reserved address — the album form refuses the
+    slug `all`, or that album would have no page.
+  - A hidden album hides its photos everywhere public, including
+    `/gallery/all` and the sitemap. Admins still see them.
+  - Order is `sort` ascending then newest first, so an admin can pin a
+    photograph to the top of an album without renumbering the rest.
+- The gallery masonry is the rich-content gallery preset's approach (CSS
+  columns, `break-inside: avoid`) with the photographs' REAL aspect
+  ratios rather than a staggered pattern, so a portrait phone photo
+  stays portrait. `aspect_ratio_of()` reads the ratio from the file
+  header and caches it per worker on (mtime, size) — deliberately not a
+  database column, so there is nothing to backfill and nothing that can
+  drift from the file on disk.
+- The lightbox is vanilla JS inline in the template's `{% block scripts %}`,
+  like every other script here. It UPGRADES plain links: every photo is
+  an `<a href>` to the full-size file, so with JavaScript broken clicking
+  one still opens the photograph. Keep it that way — no library, no
+  build step, and no `<img src="">` (an empty src re-fetches the page
+  itself).
 - Every `<img>` needs its box reserved before the bytes arrive
   (`aspect-ratio` or explicit width/height in the stylesheet), or the
   page reflows as photos load. Check this when adding an image class.
@@ -397,6 +426,15 @@ This is the most sensitive module. Follow these rules exactly:
 Built: pages + Block CMS, events (slug pages, upcoming/past), gallery,
 testimonials, partners, newsletter subscribers (+ CSV export),
 sitemap.xml/robots.txt, animated stat counters, WAL mode.
+
+Gallery albums (rules above): `GalleryAlbum` + `GalleryImage.album_id`,
+public album cards at /gallery, album pages at /gallery/<slug>, the
+everything view at /gallery/all, masonry honouring each photo's real
+shape, and a vanilla-JS lightbox (keyboard, swipe, no-JS fallback).
+Admin: album CRUD at /admin/gallery/albums plus an album picker and bulk
+move on the photo screen. Deploy:
+`ALTER TABLE gallery_image ADD COLUMN album_id INTEGER;` then
+`flask --app app init-db` for the new table.
 
 Image pipeline (rules above): Pillow-backed `save_upload()` — orientation
 applied, EXIF/GPS stripped, capped at 1600px, JPEG q82 — plus 600px

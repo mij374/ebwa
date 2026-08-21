@@ -1,0 +1,55 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit album' if album else 'New album' }}</h1>
+<p class="admin-sub">Each album gets its own page in the gallery automatically.</p>
+
+<form method="post" enctype="multipart/form-data" class="admin-form">
+  <div class="field">
+    <label for="title">Title *</label>
+    <input type="text" id="title" name="title" required
+           value="{{ album.title if album else '' }}"
+           placeholder="e.g. Seaside trip 2026">
+  </div>
+
+  <div class="field">
+    <label for="description">Short description</label>
+    <input type="text" id="description" name="description" maxlength="300"
+           value="{{ album.description if album else '' }}"
+           placeholder="One line shown under the album title">
+  </div>
+
+  <div class="field">
+    <label for="cover_image">Cover photo</label>
+    {% if album and album.cover_image %}
+    <img class="field-thumb" src="{{ thumb_url(album.cover_image) }}" alt="">
+    {% endif %}
+    <input type="file" id="cover_image" name="cover_image" accept="image/*">
+    <small>Optional. With none, the album shows its most recent photo.
+      JPG, PNG or WebP, max 8&nbsp;MB.</small>
+  </div>
+
+  <div class="field">
+    <label for="sort">Sort order</label>
+    <input type="text" id="sort" name="sort" value="{{ album.sort if album else 0 }}">
+    <small>Lower numbers come first. Albums with the same number show newest first.</small>
+  </div>
+
+  <div class="field field-check">
+    <label>
+      <input type="checkbox" name="published" {{ 'checked' if not album or album.published }}>
+      Published (visible on the website)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button class="btn btn-green" type="submit">Save album</button>
+    <a class="btn btn-ghost" href="{{ url_for('admin_albums') }}">Cancel</a>
+  </div>
+</form>
+
+{% if album %}
+<p class="admin-sub" style="margin-top:30px">
+  <a href="{{ url_for('admin_gallery', album=album.id) }}">Add or move photos in this album →</a>
+</p>
+{% endif %}
+{% endblock %}

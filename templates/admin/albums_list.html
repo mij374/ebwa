@@ -1,0 +1,51 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Photo albums</h1>
+    <p class="admin-sub">Albums group the gallery into events, trips and years. Photos not in an album still show under “All photos”.</p>
+  </div>
+  <div class="admin-quick">
+    <a class="btn btn-ghost" href="{{ url_for('admin_gallery') }}">Photos</a>
+    <a class="btn btn-green" href="{{ url_for('admin_album_form') }}">+ New album</a>
+  </div>
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Album</th><th>Photos</th><th>Sort</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for a in rows %}
+    <tr>
+      <td>
+        <a href="{{ url_for('admin_album_form', album_id=a.id) }}">{{ a.title }}</a>
+        {% if a.description %}<br><small>{{ a.description }}</small>{% endif %}
+      </td>
+      <td class="nowrap">{{ counts.get(a.id, 0) }}</td>
+      <td class="nowrap">{{ a.sort }}</td>
+      <td class="nowrap">
+        {% if a.published %}<span class="pill pill-green">Published</span>
+        {% else %}<span class="pill pill-grey">Hidden</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        <a class="table-link" href="{{ url_for('admin_gallery', album=a.id) }}">Photos</a>
+        <a class="table-link" href="{{ url_for('admin_album_form', album_id=a.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_album_delete', album_id=a.id) }}"
+              style="display:inline"
+              onsubmit="return confirm('Delete this album? The photos in it are kept — they become unfiled.');">
+          <button class="table-link danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="admin-sub" style="margin-top:18px">Deleting an album never deletes
+  photographs. They go back to being unfiled, and you can put them in
+  another album at any time.</p>
+{% else %}
+<p class="admin-sub">No albums yet. Create one, then move photos into it from the gallery.</p>
+{% endif %}
+{% endblock %}

@@ -59,6 +59,29 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Gallery albums
+
+One new table and one new column.
+
+```sql
+ALTER TABLE gallery_image ADD COLUMN album_id INTEGER;
+```
+
+```bash
+flask --app app init-db     # creates gallery_album
+```
+
+`album_id` is nullable and every existing photo stays NULL — unfiled.
+Nothing disappears: /gallery/all lists every photo that is not in a
+hidden album, and the gallery index links to it. Until someone creates
+an album, the public gallery shows that one "All photos" card.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## f453007 — 2026-08-21 — Optimise uploaded images
 
 **No schema change** — confirmed with `flask --app app check-schema`. Two

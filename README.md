@@ -229,6 +229,35 @@ Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
 
+## The photo gallery
+
+The gallery is organised into **albums** — an event, a trip, a year.
+Visitors see a card for each album with its cover photo and how many
+photographs are in it, and clicking one opens that album. Clicking any
+photograph opens it full size: arrow keys or the on-screen arrows move
+through the album, Escape closes it, and on a phone you can swipe.
+
+**Albums** (Gallery → Manage albums) work like any other section: title,
+short description, an optional cover photo (with none, the album shows
+its most recent photograph), a sort number and a Published tick. Unticking
+Published hides the whole album from the website; the photos stay safely
+in the admin.
+
+**Photos** (Gallery) are uploaded with an album chosen from the dropdown,
+or left unfiled. To reorganise later, tick the photos you want and use
+**Move ticked photos to** — that is the quickest way to sort a big
+upload afterwards. The tabs across the top filter the screen to one
+album, or to everything still unfiled.
+
+**Deleting an album never deletes photographs.** They become unfiled and
+stay on the site under "All photos", where you can put them in another
+album whenever you like. Deleting an individual photo, from the photo
+screen, does remove it for good.
+
+Photos appear newest first. If you want one to lead an album regardless
+of when it was taken, that is what the sort numbers are for — a lower
+number comes first.
+
 ## What happens to a photo when you upload it
 
 You can upload straight off a phone — the site does the tidying up.
