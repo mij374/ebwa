@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Rework the admin dashboard into an overview
+## dee0a38 — 2026-08-21 — Rework the admin dashboard into an overview
 
 **Nothing to run.** Routes, one template and stylesheet rules only — no
 new tables, no new columns and no new seeded blocks. Confirmed with
