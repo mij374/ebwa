@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Apply rich content to Our Journey
+## 9c1265f — 2026-08-21 — Apply rich content to Our Journey
 
 **Nothing to run.** `milestone.layout` and `content_image` have both
 existed since the rich-content commit (7921130), so this is routes,
