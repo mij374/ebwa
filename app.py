@@ -18,13 +18,16 @@ import json
 import os
 import re
 import secrets
+import smtplib
 import time
 import uuid
+from email.message import EmailMessage
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from zoneinfo import ZoneInfo
 
+import click
 import pyotp
 import qrcode
 import qrcode.image.svg
@@ -419,6 +422,28 @@ class MembershipApplication(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+MESSAGE_STATUSES = ("new", "read", "replied")
+
+
+class ContactMessage(db.Model):
+    """An enquiry sent through the form on /contact.
+
+    Personal data — admin-only, never rendered on a public page, and no
+    CSV export: there is no reason to bulk-download somebody's question
+    about a lunch club. Reading the list, changing a status and deleting
+    one are all recorded in the audit log.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(200), nullable=False)
+    phone = db.Column(db.String(40), default="")
+    subject = db.Column(db.String(200), default="")
+    message = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), default="new")   # MESSAGE_STATUSES
+    ip = db.Column(db.String(45), default="")          # fits IPv6
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+
 class Campaign(db.Model):
     """An event collection (e.g. seaside trip) donors/attendees pay toward."""
     id = db.Column(db.Integer, primary_key=True)
@@ -750,7 +775,7 @@ CONTENT_OWNERS = {
 }
 ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
-HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY,)
+HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to")
 
 
 class LegacyLeadImage:
@@ -998,6 +1023,9 @@ FEATURES = [
      "Whether the layout chooser and multi-image manager appear in the "
      "admin. With it off every page renders in the classic layout with "
      "its single image, exactly as before.", True),
+    ("contact_form", "Contact form",
+     "The enquiry form on /contact. The address, phone number and map "
+     "stay on the page either way.", True),
     ("faq", "Frequently asked questions",
      "The /faq page and its links in the menu and footer.", True),
     ("audit_log", "Audit log (client visibility)",
@@ -1287,7 +1315,11 @@ def inject_globals():
         else "1"
     return {"site": site, "current_year": datetime.utcnow().year,
             "features": feature_flags(),
-            "show_cookie_notice": seen != "1"}
+            "show_cookie_notice": seen != "1",
+            # Only the admin chrome uses this, and only as a number —
+            # a count is not personal data.
+            "unread_messages": unread_messages()
+            if has_request_context() and current_user.is_authenticated else 0}
 
 
 # Security headers on every response. CSP allows exactly what the
@@ -1319,6 +1351,7 @@ RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     "totp": (10, 600),   # a 6-digit code is guessable without this
     "subscribe": (5, 3600),
     "donate": (10, 3600),
+    "contact": (5, 3600),   # enough for a genuine follow-up, not a flood
 }
 _rate_buckets = {}       # (scope, ip) -> [attempt timestamps]
 
@@ -1334,6 +1367,116 @@ def rate_limited(scope):
     hits.append(now)
     _rate_buckets[key] = hits
     return False
+
+
+# ------------------------------------------------------------------ mail
+# The first outbound email in the app, written generically because the
+# membership and ticketing modules will send through it too.
+#
+# Credentials come from the environment and live NOWHERE else: not in the
+# database, not in a settings page, not in this repository. Only the
+# recipient is editable through the web (see mail_recipient), so EBWA can
+# move enquiries to an @ebwa.org.uk address without a redeploy.
+MAIL_ENV_VARS = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD",
+                 "SMTP_USE_TLS", "MAIL_FROM", "MAIL_TO")
+MAIL_TO_KEY = "site_mail_to"     # Block holding the override, if set
+MAIL_TIMEOUT = 10                # seconds; a hung server must not hang a page
+
+
+def _env_flag(name, default=True):
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def mail_config():
+    """SMTP settings, read from the environment at call time.
+
+    Read per call rather than at import so a deploy can change them with
+    a restart, and so tests can set them without reimporting the app.
+    """
+    try:
+        port = int(os.environ.get("SMTP_PORT", "587") or 587)
+    except ValueError:
+        port = 587
+    return {"host": os.environ.get("SMTP_HOST", "").strip(),
+            "port": port,
+            "user": os.environ.get("SMTP_USER", "").strip(),
+            "password": os.environ.get("SMTP_PASSWORD", ""),
+            "use_tls": _env_flag("SMTP_USE_TLS", True),
+            "sender": os.environ.get("MAIL_FROM", "").strip()}
+
+
+def mail_recipient():
+    """Where site email goes: the address a super admin set, else the env.
+
+    The Block wins when it holds anything, so switching the destination is
+    a form submission rather than a deploy; MAIL_TO stays as the fallback
+    and as the value a fresh install starts from.
+    """
+    block = Block.query.filter_by(key=MAIL_TO_KEY).first()
+    chosen = (block.value or "").strip() if block else ""
+    return chosen or os.environ.get("MAIL_TO", "").strip()
+
+
+def mail_configured():
+    cfg = mail_config()
+    return bool(cfg["host"] and cfg["sender"])
+
+
+def send_mail(to, subject, body, reply_to=None):
+    """Send one plain-text email. Returns True if a server accepted it.
+
+    THIS NEVER RAISES. Everything that calls it has already saved the
+    thing the visitor typed, and an SMTP server that is down, slow or
+    misconfigured must not turn somebody's thank-you page into an error
+    page. Failures are recorded in the audit log instead, so a silence
+    nobody noticed is still visible after the fact.
+    """
+    to = (to or "").strip()
+    cfg = mail_config()
+    if not to:
+        _mail_failed(subject, to, "no recipient address is set")
+        return False
+    if not cfg["host"] or not cfg["sender"]:
+        _mail_failed(subject, to, "email is not configured on this server")
+        return False
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = cfg["sender"]
+    message["To"] = to
+    if reply_to:
+        message["Reply-To"] = reply_to
+    message.set_content(body)
+
+    try:
+        if cfg["port"] == 465:          # implicit TLS
+            server = smtplib.SMTP_SSL(cfg["host"], cfg["port"],
+                                      timeout=MAIL_TIMEOUT)
+        else:
+            server = smtplib.SMTP(cfg["host"], cfg["port"],
+                                  timeout=MAIL_TIMEOUT)
+        with server:
+            if cfg["port"] != 465 and cfg["use_tls"]:
+                server.starttls()
+            if cfg["user"]:
+                server.login(cfg["user"], cfg["password"])
+            server.send_message(message)
+    except Exception as exc:
+        # The class and message only — never the credentials that were
+        # used, and never the body of what somebody wrote.
+        _mail_failed(subject, to, "%s: %s" % (type(exc).__name__, exc))
+        return False
+    return True
+
+
+def _mail_failed(subject, to, reason):
+    log_action("mail_failed", summary=(
+        "Could not send the email “%s” to %s — %s. The message it was "
+        "about is saved and can still be read in the admin."
+        % (subject, to or "(nobody)", reason)))
 
 
 # ---------------------------------------------------------------- public
@@ -1917,9 +2060,107 @@ def dismiss_cookie_notice():
     return resp
 
 
-@app.route("/contact")
+@app.route("/contact", methods=["GET", "POST"])
 def contact():
-    return render_template("contact.html", c=blocks_for("contact"))
+    """The centre's details, and — behind the `contact_form` flag — a
+    form for asking a question.
+
+    The page itself is core and never goes away: with the form switched
+    off the address, phone number and map are still here, which is what
+    somebody looking for us actually needs.
+    """
+    form_on = feature_enabled("contact_form")
+
+    if request.method == "POST":
+        if not form_on:
+            abort(404)
+        # Honeypot: a real visitor never sees this field. Say thank you
+        # anyway, so a bot learns nothing from the difference, and store
+        # nothing.
+        if request.form.get("website", ""):
+            flash(CONTACT_THANKS, "ok")
+            return redirect(url_for("contact"))
+
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip()
+        message = request.form.get("message", "").strip()
+
+        if rate_limited("contact"):
+            flash("You have sent us several messages already. Please give "
+                  "us a little time to reply, or call the centre if it is "
+                  "urgent.", "error")
+        elif not too_quick():
+            # A person cannot read the form and fill it in this fast; a
+            # script fills it instantly. One more cheap signal alongside
+            # the honeypot, not a security control.
+            flash(CONTACT_THANKS, "ok")
+            return redirect(url_for("contact"))
+        elif not name or not email or "@" not in email or len(email) > 200:
+            flash("Please give us your name and a valid email address so "
+                  "we can reply.", "error")
+        elif not message:
+            flash("Please tell us how we can help.", "error")
+        else:
+            enquiry = ContactMessage()
+            enquiry.name = name
+            enquiry.email = email
+            enquiry.phone = request.form.get("phone", "").strip()
+            enquiry.subject = request.form.get("subject", "").strip()
+            enquiry.message = message
+            enquiry.ip = request.remote_addr or ""
+            db.session.add(enquiry)
+            db.session.commit()      # saved BEFORE anything can go wrong
+            notify_enquiry(enquiry)  # never raises; logs its own failures
+            flash(CONTACT_THANKS, "ok")
+            return redirect(url_for("contact"))
+
+    return render_template("contact.html", c=blocks_for("contact"),
+                           form_on=form_on, started=int(time.time()))
+
+
+CONTACT_THANKS = ("Thank you — your message is with us and we will reply "
+                  "as soon as we can.")
+MIN_FORM_SECONDS = 3
+
+
+def too_quick():
+    """False when the form came back faster than a person could type it.
+
+    The timestamp is a plain hidden field: forgeable by anyone who looks,
+    which is fine. It is here to stop the dumb bots that post every form
+    they find in milliseconds, and it costs a visitor nothing.
+    """
+    try:
+        started = int(request.form.get("started", "0"))
+    except ValueError:
+        return False
+    return time.time() - started >= MIN_FORM_SECONDS
+
+
+def notify_enquiry(enquiry):
+    """Email the enquiry to whoever answers them, replying to the sender.
+
+    Reply-To is the whole point: hitting reply in the mailbox writes
+    straight back to the person who asked, with no copying of addresses.
+    There is deliberately NO auto-reply to the enquirer yet — see
+    CLAUDE.md; it needs a decision about what it should say and a
+    bounce-handling story first.
+    """
+    lines = ["A message from the EBWA website.", "",
+             "From:    %s <%s>" % (enquiry.name, enquiry.email)]
+    if enquiry.phone:
+        lines.append("Phone:   %s" % enquiry.phone)
+    if enquiry.subject:
+        lines.append("Subject: %s" % enquiry.subject)
+    lines += ["Sent:    %s" % utc_as_uk(enquiry.created_at)
+                                 .strftime("%d %b %Y at %H:%M"),
+              "", enquiry.message, "",
+              "-- ", "Reply to this email to answer them directly.",
+              "It is also in the admin: %s"
+              % url_for("admin_messages", _external=True)]
+    subject = "EBWA enquiry: %s" % (enquiry.subject or enquiry.name)
+    send_mail(mail_recipient(), subject, "\n".join(lines),
+              reply_to=enquiry.email)
 
 
 # ---------------------------------------------------------------- admin: auth
@@ -2218,6 +2459,12 @@ def dashboard_cards(flags):
     cards.append(_card(content, "Gallery photos", _count(GalleryImage),
                        url_for("admin_gallery")))
 
+    unread = _count(ContactMessage, ContactMessage.status == "new")
+    cards.append(_card(people, "Enquiries", _count(ContactMessage),
+                       url_for("admin_messages"), alert=bool(unread),
+                       note=("%d unread" % unread) if unread
+                            else "all read"))
+
     cards.append(_card(people, "Newsletter subscribers", _count(Subscriber),
                        url_for("admin_subscribers")))
 
@@ -2307,6 +2554,14 @@ def dashboard_attention(flags):
             add("The %s section still has %s of placeholder text."
                 % (group, _plural(n, "block")),
                 url_for("admin_content", group=group), "Edit")
+
+    # Enquiries are the ONE check that ignores its feature flag. The flag
+    # stops new messages arriving; it does not answer the ones already
+    # sent, and a person waiting for a reply is not a module's content.
+    n = _count(ContactMessage, ContactMessage.status == "new")
+    if n:
+        add("%s nobody has read yet." % _plural(n, "enquiry", "enquiries"),
+            url_for("admin_messages"), "Read them")
 
     if flags["membership_form"]:
         n = _count(MembershipApplication,
@@ -3323,6 +3578,74 @@ def admin_milestone_delete(milestone_id):
     return redirect(url_for("admin_milestones"))
 
 
+# ---------------------------------------------------------------- admin: messages
+# Enquiries are personal data: admin-only, never public, and deliberately
+# with NO CSV export — there is no reason to bulk-download somebody's
+# question about a lunch club. Opening the list, changing a status and
+# deleting one are all recorded in the audit log.
+def unread_messages():
+    return db.session.query(db.func.count(ContactMessage.id)).filter(
+        ContactMessage.status == "new").scalar() or 0
+
+
+@app.route("/admin/messages")
+@login_required
+def admin_messages():
+    status = request.args.get("status", "").strip()
+    q = ContactMessage.query
+    if status in MESSAGE_STATUSES:
+        q = q.filter(ContactMessage.status == status)
+    else:
+        status = ""
+    rows = q.order_by(ContactMessage.created_at.desc()).all()
+    counts = dict(db.session.query(ContactMessage.status,
+                                   db.func.count(ContactMessage.id))
+                  .group_by(ContactMessage.status).all())
+    # Reading enquiries IS a view of personal data, so it is logged, the
+    # same as an export. The count keeps the entry useful without copying
+    # anybody's name into a second table.
+    log_action("view", entity=("ContactMessage", None),
+               summary="Viewed the enquiry list (%d message(s)%s)."
+                       % (len(rows),
+                          ", filtered to %s" % status if status else ""))
+    return render_template("admin/messages.html", rows=rows, status=status,
+                           counts=counts, statuses=MESSAGE_STATUSES,
+                           total=sum(counts.values()))
+
+
+@app.route("/admin/messages/<int:message_id>/status", methods=["POST"])
+@login_required
+def admin_message_status(message_id):
+    msg = db.session.get(ContactMessage, message_id) or abort(404)
+    new_status = request.form.get("status", "").strip()
+    if new_status not in MESSAGE_STATUSES:
+        flash("Unknown status.", "error")
+        return redirect(url_for("admin_messages",
+                                status=request.form.get("view") or None))
+    was, msg.status = msg.status, new_status
+    db.session.commit()
+    log_action("status", entity=msg,
+               summary="Marked the enquiry from %s as %s (was %s)."
+                       % (msg.name, new_status, was))
+    flash("Marked as %s." % new_status, "ok")
+    return redirect(url_for("admin_messages",
+                            status=request.form.get("view") or None))
+
+
+@app.route("/admin/messages/<int:message_id>/delete", methods=["POST"])
+@login_required
+def admin_message_delete(message_id):
+    msg = db.session.get(ContactMessage, message_id) or abort(404)
+    gone, name = ("ContactMessage", msg.id), msg.name
+    db.session.delete(msg)
+    db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted the enquiry from %s." % name)
+    flash("Message deleted.", "ok")
+    return redirect(url_for("admin_messages",
+                            status=request.form.get("view") or None))
+
+
 # ---------------------------------------------------------------- admin: subscribers
 @app.route("/admin/subscribers")
 @login_required
@@ -3866,8 +4189,44 @@ def admin_user_delete(user_id):
 @app.route("/admin/features")
 @super_admin_required
 def admin_features():
-    return render_template("admin/features.html", rows=FEATURES,
-                           flags=feature_flags())
+    cfg = mail_config()
+    return render_template(
+        "admin/features.html", rows=FEATURES, flags=feature_flags(),
+        mail_to=mail_recipient(), mail_env=os.environ.get("MAIL_TO", ""),
+        mail_from=cfg["sender"], mail_host=cfg["host"],
+        mail_ready=mail_configured())
+
+
+@app.route("/admin/settings/mail-to", methods=["POST"])
+@super_admin_required
+def admin_mail_to():
+    """Change where enquiries are emailed.
+
+    The ADDRESS only. Host, username and password stay in the
+    environment: a settings page that can edit credentials is a settings
+    page that can leak them, and anyone who can change them can already
+    reach the server.
+    """
+    value = request.form.get("mail_to", "").strip()
+    if value and ("@" not in value or len(value) > 200):
+        flash("That does not look like an email address.", "error")
+        return redirect(url_for("admin_features"))
+    block = Block.query.filter_by(key=MAIL_TO_KEY).first()
+    if not block:
+        block = Block(key=MAIL_TO_KEY, label="Where enquiries are emailed",
+                      kind="text", group="site")
+        db.session.add(block)
+    block.value = value
+    db.session.commit()
+    log_action("edit", entity=("Block", block.id),
+               summary=("Set the enquiry email address to %s." % value
+                        if value else
+                        "Cleared the enquiry email address — it falls back "
+                        "to the MAIL_TO setting on the server."))
+    flash("Saved. Enquiries now go to %s." % (mail_recipient() or
+                                              "nobody — set an address"),
+          "ok" if mail_recipient() else "error")
+    return redirect(url_for("admin_features"))
 
 
 @app.route("/admin/features/<name>/toggle", methods=["POST"])
@@ -3896,6 +4255,9 @@ DEFAULT_BLOCKS = [
     # group, key, label, kind, default value
     ("site", "site_phone", "Phone number", "text", "020 8804 4006"),
     ("site", "site_address", "Address", "text", "180 High Street, Ponders End, Enfield EN3 4EU"),
+    # Set from Settings by a super admin; blank means "use MAIL_TO from
+    # the environment". Hidden from the ordinary content editor below.
+    ("site", "site_mail_to", "Where enquiries are emailed", "text", ""),
     ("home", "home_hero_title", "Hero headline", "text",
      "Empowering communities, enriching lives in Enfield."),
     ("home", "home_hero_text", "Hero paragraph", "text",
@@ -3939,9 +4301,10 @@ DEFAULT_BLOCKS = [
      "PLACEHOLDER — EBWA needs to replace this with the association's own "
      "privacy notice before the site goes live.\n"
      "It should say what personal information EBWA collects (for example "
-     "membership applications, newsletter sign-ups and donation and Gift "
-     "Aid records), why it is held, how long it is kept, who it is shared "
-     "with, and how someone can ask to see or delete their information.\n"
+     "enquiries sent through the contact form, membership applications, "
+     "newsletter sign-ups and donation and Gift Aid records), why it is "
+     "held, how long it is kept, who it is shared with, and how someone "
+     "can ask to see or delete their information.\n"
      "It should also give a contact point for questions about personal "
      "data.\n"
      "Edit this page in Admin → Page content → legal."),
@@ -4176,6 +4539,39 @@ def reprocess_images():
 def _kb(n):
     return "%.0f KB" % (n / 1024.0) if abs(n) < 1024 * 1024 \
         else "%.1f MB" % (n / 1024.0 / 1024.0)
+
+
+@app.cli.command("test-mail")
+@click.argument("recipient", required=False)
+def test_mail(recipient):
+    """Send a test email: flask --app app test-mail [address]
+
+    With no address it goes wherever enquiries go. Use this after setting
+    the SMTP variables, so configuration is proved before a visitor's
+    question is the thing that discovers it is wrong.
+    """
+    cfg = mail_config()
+    to = (recipient or mail_recipient()).strip()
+    print("SMTP host : %s" % (cfg["host"] or "(not set — SMTP_HOST)"))
+    print("SMTP port : %d%s" % (cfg["port"],
+                                " (TLS)" if cfg["use_tls"] else ""))
+    print("Username  : %s" % (cfg["user"] or "(none — unauthenticated)"))
+    print("From      : %s" % (cfg["sender"] or "(not set — MAIL_FROM)"))
+    print("To        : %s" % (to or "(not set — MAIL_TO)"))
+    if not to or not mail_configured():
+        print("\nNot enough configuration to send. Set the missing "
+              "environment variables and try again.")
+        raise SystemExit(1)
+    ok = send_mail(to, "EBWA website test email",
+                   "This is a test from the EBWA website.\n\n"
+                   "If you are reading it, outgoing email works and "
+                   "enquiries from the contact form will arrive here.\n")
+    if ok:
+        print("\nSent. Check %s (including the spam folder)." % to)
+    else:
+        print("\nFailed to send — the reason is in the audit log at "
+              "/admin/audit.")
+        raise SystemExit(1)
 
 
 @app.cli.command("create-admin")

@@ -120,6 +120,48 @@ Built and maintained by Netbus IT Support.
     rewritten when it is too wide, carries EXIF, or would be at least a
     tenth smaller — "any saving at all" would re-encode the same JPEGs
     on every run and degrade them a little each time.
+- Email: everything outbound goes through `send_mail(to, subject, body,
+  reply_to=None)`. Membership and ticketing will use it as it stands.
+  - **It never raises.** Callers save the visitor's data FIRST and send
+    afterwards, so an SMTP server that is down, slow or misconfigured
+    cannot cost somebody their enquiry or turn a thank-you page into a
+    500. Failures go to the audit log (`mail_failed`) instead, naming
+    the recipient and the error — never a credential, never the body of
+    what somebody wrote.
+  - SMTP settings come from the environment (`SMTP_HOST`, `SMTP_PORT`,
+    `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `MAIL_FROM`,
+    `MAIL_TO`), read per call so a restart is enough to change them.
+    Credentials are NEVER in the database, a settings page or this
+    repository. Port 465 uses SMTP_SSL, anything else STARTTLS when
+    `SMTP_USE_TLS` is on, and every connection has a timeout — a hung
+    mail server must not hang a page.
+  - Only the RECIPIENT is editable through the web: `mail_recipient()`
+    prefers the `site_mail_to` Block (super admins, on Settings) and
+    falls back to `MAIL_TO`, so moving enquiries to an @ebwa.org.uk
+    address is a form submission, not a redeploy. That Block is in
+    `HIDDEN_BLOCK_KEYS` so it never appears in the ordinary content
+    editor.
+  - `flask --app app test-mail [address]` proves the configuration
+    without waiting for a visitor to discover it is wrong.
+  - Notifications set Reply-To to the person who wrote, so hitting reply
+    answers them directly. There is deliberately NO auto-reply to the
+    enquirer yet: it needs a decision on wording and on what happens
+    when it bounces. Worth adding — ask before building it.
+- Contact form: `ContactMessage` behind the `contact_form` flag. The
+  /contact PAGE is core and stays whole with the flag off — address,
+  phone and map are what somebody looking for us actually needs.
+  - Spam defences are layered and none of them tells a bot which one it
+    hit: honeypot, a minimum time-to-submit (`MIN_FORM_SECONDS`), and
+    the `contact` rate-limit scope. A caught submission gets the same
+    thank-you as a real one.
+  - Enquiries are personal data: admin-only, no CSV export, and reading
+    the list is audit-logged like an export because that is a view of
+    people's names and questions. Status changes and deletions log too,
+    naming the person but never quoting the message.
+  - The dashboard's unread-enquiry check is the ONE attention item that
+    ignores its feature flag. Switching the form off stops new messages
+    arriving; it does not answer the ones already sent, and somebody
+    waiting for a reply is not a module's content.
 - FAQ: `Faq` follows the resources pattern; `category` is OPTIONAL and
   an empty one is not a bug — those questions run ungrouped at the top of
   the page (`""` sorts before any letter). Categories themselves are
@@ -479,6 +521,14 @@ thumbnails, `thumb_url()`/`upload_url()` template helpers and the
 photographs straight off a phone: 8,915 KB of images before, 926 KB
 after (90% less). Deploy: `pip install -r requirements.txt` for Pillow,
 then `flask --app app reprocess-images` once.
+
+Contact form and mail layer (rules above): `send_mail()` over smtplib
+with settings from the environment, `test-mail` CLI, a super-admin-only
+recipient override on Settings, the form on /contact behind the
+`contact_form` flag with honeypot + timing + rate limiting, and
+`ContactMessage` with an admin list at /admin/messages (statuses, unread
+badge, mailto reply, no export). Deploy: new table — `flask --app app
+init-db` — plus the SMTP environment variables.
 
 FAQ module (rules above): `Faq` model, public /faq with accordions and
 FAQPage structured data, admin CRUD at /admin/faq, behind the `faq`

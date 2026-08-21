@@ -7,6 +7,38 @@
   deleted, and switching it back on restores everything exactly as it was.
   The core pages (home, about us, events, gallery, contact) are always on.</p>
 
+<h2 class="admin-stats-head" style="margin-top:0">Where enquiries are emailed</h2>
+<form method="post" class="admin-form" style="margin-bottom:34px"
+      action="{{ url_for('admin_mail_to') }}">
+  <div class="field">
+    <label for="mail_to">Recipient address</label>
+    <input type="text" id="mail_to" name="mail_to" maxlength="200"
+           value="{{ mail_to }}" placeholder="info@ebwa.org.uk">
+    <small>Where the contact form sends enquiries. Leave it empty to use
+      the address set on the server{% if mail_env %} ({{ mail_env }}){% endif %}.
+      Change it here when EBWA moves to its own domain — no redeploy needed.</small>
+  </div>
+  <button class="btn btn-green" type="submit">Save address</button>
+</form>
+
+<div class="admin-form" style="margin-bottom:34px">
+  <h2 class="admin-stats-head" style="margin-top:0">Outgoing email</h2>
+  {% if mail_ready %}
+  <p class="admin-sub" style="margin-bottom:8px">Sending through
+    <b>{{ mail_host }}</b> as <b>{{ mail_from }}</b>.</p>
+  {% else %}
+  <p class="admin-sub" style="margin-bottom:8px"><b>Not configured.</b>
+    Enquiries are still saved and listed under Enquiries, but no email is
+    sent about them.</p>
+  {% endif %}
+  <p class="admin-sub" style="margin-bottom:0">The server, username and
+    password are set in the environment on the server and cannot be
+    edited here — that is deliberate. To check they work, Netbus runs
+    <code>flask --app app test-mail</code>; failures are recorded in the
+    audit log.</p>
+</div>
+
+<h2 class="admin-stats-head">Optional modules</h2>
 <table class="admin-table">
   <thead><tr><th>Feature</th><th>What it covers</th><th>Status</th><th></th></tr></thead>
   <tbody>

@@ -1,0 +1,77 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">Enquiries</h1>
+<p class="admin-sub">Messages sent through the form on the contact page.
+  Replying opens your own email programme, with the enquiry quoted, so
+  your reply comes from you and goes straight back to them.</p>
+
+<div class="tab-row">
+  <a class="tab {{ 'active' if not status }}" href="{{ url_for('admin_messages') }}">All ({{ total }})</a>
+  {% for s in statuses %}
+  <a class="tab {{ 'active' if status == s }}"
+     href="{{ url_for('admin_messages', status=s) }}">{{ s|capitalize }} ({{ counts.get(s, 0) }})</a>
+  {% endfor %}
+</div>
+
+{% if rows %}
+<table class="admin-table">
+  <thead>
+    <tr><th>Received</th><th>From</th><th>Message</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for m in rows %}
+    <tr class="{{ 'msg-unread' if m.status == 'new' }}">
+      <td class="nowrap">{{ m.created_at|uk_datetime }}</td>
+      <td>
+        <b>{{ m.name }}</b><br>
+        <a href="mailto:{{ m.email }}">{{ m.email }}</a>
+        {% if m.phone %}<br><span class="nowrap">{{ m.phone }}</span>{% endif %}
+      </td>
+      <td class="msg-cell">
+        {% if m.subject %}<b>{{ m.subject }}</b><br>{% endif %}
+        <span class="msg-body">{{ m.message }}</span>
+      </td>
+      <td class="nowrap">
+        {% if m.status == 'new' %}<span class="pill pill-red">New</span>
+        {% elif m.status == 'replied' %}<span class="pill pill-green">Replied</span>
+        {% else %}<span class="pill pill-grey">Read</span>{% endif %}
+      </td>
+      <td class="nowrap">
+        {# mailto with the enquiry quoted: the admin's own mail programme
+           sends the reply, so it lands in their Sent items like any
+           other email. #}
+        <a class="table-link" href="mailto:{{ m.email }}?subject={{ ('Re: ' ~ (m.subject or 'your message to EBWA'))|urlencode }}&amp;body={{ ('\n\n--- you wrote ---\n' ~ m.message)|urlencode }}">Reply</a>
+        {% for s in statuses if s != m.status %}
+        <button class="table-link" type="submit" form="st{{ m.id }}{{ s }}">Mark {{ s }}</button>
+        {% endfor %}
+        <button class="table-link danger" type="submit" form="del{{ m.id }}">Delete</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{# Forms live outside the table: one per action, so a status change can
+   never be confused with a delete. #}
+{% for m in rows %}
+{% for s in statuses if s != m.status %}
+<form method="post" id="st{{ m.id }}{{ s }}" class="is-hidden"
+      action="{{ url_for('admin_message_status', message_id=m.id) }}">
+  <input type="hidden" name="status" value="{{ s }}">
+  <input type="hidden" name="view" value="{{ status }}">
+</form>
+{% endfor %}
+<form method="post" id="del{{ m.id }}" class="is-hidden"
+      action="{{ url_for('admin_message_delete', message_id=m.id) }}"
+      onsubmit="return confirm('Delete this enquiry? This cannot be undone.');">
+  <input type="hidden" name="view" value="{{ status }}">
+</form>
+{% endfor %}
+
+<p class="admin-sub" style="margin-top:18px">These are people's names,
+  addresses and questions. There is deliberately no download button —
+  read them here, reply, and delete once the enquiry is dealt with.</p>
+{% else %}
+<p class="admin-sub">{{ 'No messages with that status.' if status else 'No enquiries yet.' }}</p>
+{% endif %}
+{% endblock %}

@@ -59,6 +59,52 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-21 — Contact form and outgoing email
+
+New table, no `ALTER TABLE`, plus the first environment variables for
+email.
+
+```bash
+flask --app app init-db     # creates contact_message, seeds the flag
+                            # and the site_mail_to block
+```
+
+Set these in the service environment (systemd unit or the env file it
+reads) — NOT in the database, and never in the repository:
+
+```
+SMTP_HOST=smtp.example.net
+SMTP_PORT=587               # 465 uses implicit TLS instead of STARTTLS
+SMTP_USER=...               # omit for an unauthenticated relay
+SMTP_PASSWORD=...
+SMTP_USE_TLS=1
+MAIL_FROM=website@ebwa.org.uk
+MAIL_TO=enquiries@ebwa.org.uk
+```
+
+Then prove it, BEFORE announcing the form:
+
+```bash
+flask --app app test-mail            # sends to MAIL_TO
+flask --app app test-mail you@example.com
+```
+
+Until SMTP is configured the form still works and still saves every
+enquiry — they are read at /admin/messages — but nothing is emailed, and
+each attempt is recorded in the audit log. A super admin can change the
+recipient afterwards under Settings without a redeploy.
+
+The seeded privacy-notice placeholder now mentions contact enquiries.
+`init-db` only inserts MISSING blocks, so an environment that already has
+the old text keeps it — update it by hand in Page content → legal (it is
+placeholder copy EBWA has to replace before launch anyway).
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 4c97233 — 2026-08-21 — FAQ module
 
 New table, no `ALTER TABLE`.

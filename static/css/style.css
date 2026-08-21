@@ -516,6 +516,12 @@ body.lightbox-open .cookie-notice{display:none}
   color:rgba(255,255,255,.75);font-size:13.5px;font-weight:600;
 }
 
+/* ---------- Forms shared by the public pages ----------
+   The honeypot: off-screen rather than display:none, because some bots
+   skip anything a browser would not render. Never a real visitor's
+   problem — it is aria-hidden and out of the tab order. */
+.hp-field{position:absolute;left:-9999px}
+
 /* ---------- Contact ---------- */
 .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:44px;margin-top:36px}
 .contact-card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:34px}
@@ -525,6 +531,24 @@ body.lightbox-open .cookie-notice{display:none}
 .contact-row .ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--green-tint);display:grid;place-items:center;font-size:17px}
 .contact-row b{display:block;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);font-weight:700}
 .contact-row a{color:var(--green);font-weight:600;text-decoration:none}
+.contact-form{
+  grid-column:1 / -1;background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:34px;
+}
+.contact-form h3{font-size:20px;margin-bottom:20px}
+.contact-form .field{margin-bottom:18px}
+.contact-form label{display:block;font-weight:700;font-size:14px;margin-bottom:6px}
+.contact-form input[type=text],.contact-form input[type=email],
+.contact-form textarea{
+  width:100%;padding:12px 14px;border:1.5px solid var(--line);
+  border-radius:10px;font:inherit;background:var(--paper);
+}
+.contact-form input:focus,.contact-form textarea:focus{outline:none;border-color:var(--green)}
+.form-privacy{
+  margin-top:16px;font-size:13.5px;color:var(--ink-soft);line-height:1.6;
+  max-width:70ch;
+}
+.form-privacy a{color:var(--green);font-weight:600}
 .map{border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);min-height:340px}
 .map iframe{width:100%;height:100%;min-height:340px;border:0}
 
@@ -657,6 +681,21 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .pill{border-radius:999px;padding:3px 12px;font-size:13px;font-weight:700}
 .pill-green{background:var(--green-tint);color:var(--green)}
 .pill-grey{background:#ECEEEC;color:var(--ink-soft)}
+.pill-red{background:#FCE9EA;color:#9B1B26}
+
+/* Unread enquiries: a count beside the menu item, and a tinted row in
+   the list, so what is waiting is obvious without opening anything. */
+.nav-badge{
+  display:inline-block;min-width:20px;padding:1px 7px;border-radius:999px;
+  background:var(--red);color:#fff;font-size:12px;font-weight:700;
+  text-align:center;margin-left:4px;
+}
+.msg-unread td{background:#FFF7F7}
+.msg-unread td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+/* The enquiry itself is the point of the row, so it gets the width and
+   the actions column keeps to one line beside it. */
+.msg-cell{width:46%}
+.msg-body{display:block;color:var(--ink-soft);font-size:14.5px;white-space:pre-wrap}
 
 .admin-gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .admin-gallery-item{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:8px}

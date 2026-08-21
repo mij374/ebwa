@@ -28,6 +28,31 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+### Outgoing email (optional locally, required in production)
+
+The contact form emails enquiries to EBWA. Set these in the environment —
+never in the database, never in this repository:
+
+| Variable | What it is |
+| --- | --- |
+| `SMTP_HOST` | Mail server hostname |
+| `SMTP_PORT` | 587 for STARTTLS (default), 465 for implicit TLS |
+| `SMTP_USER` | Username, if the server needs one |
+| `SMTP_PASSWORD` | Password for that username |
+| `SMTP_USE_TLS` | `1` (default) or `0` |
+| `MAIL_FROM` | The address email is sent from |
+| `MAIL_TO` | Where enquiries go, unless overridden in Settings |
+
+Check it works before anyone relies on it:
+
+```bash
+flask --app app test-mail                 # sends to MAIL_TO
+flask --app app test-mail you@example.com
+```
+
+With none of this set the form still works and still saves every enquiry
+— they are just not emailed, and each attempt is noted in the audit log.
+
 ## The dashboard
 
 `/admin` is the first page you land on after logging in, and it shows a
@@ -228,6 +253,37 @@ photos appear on the full page.
 Netbus can hide both panels with the **Rich page layouts** flag in
 Settings; with it off the page renders the classic layout with that one
 photo, exactly as it did before.
+
+## Enquiries from the contact form
+
+The contact page has a form under the address and map. When somebody
+sends a message two things happen: it is saved here, and it is emailed to
+EBWA. Replying to that email goes straight back to the person who wrote —
+their address is set as the reply address, so you never have to copy it
+out.
+
+**Enquiries** in the sidebar lists everything that has come in, newest
+first, with a red count beside the menu item for anything nobody has read
+yet. Each one can be marked **read** or **replied**, and **Reply** opens
+your own email programme with their message quoted, so your answer comes
+from your mailbox and sits in your Sent items like any other email.
+
+There is deliberately no download button. These are people's names,
+addresses and questions: read them here, reply, and delete an enquiry
+once it is dealt with. Every time the list is opened, a status is changed
+or a message is deleted, it is recorded in the audit log.
+
+If email is not set up on the server, or the mail server is having a bad
+day, **the enquiry is still saved** — you will see it in this list, and
+the audit log will show that the email could not be sent. Nobody's
+question is lost because of a mail problem.
+
+Netbus can change where enquiries are emailed under **Settings** — useful
+when EBWA moves to its own @ebwa.org.uk address. The mail server password
+is not editable through the website, by anyone.
+
+*Not built yet, worth considering:* an automatic "thanks, we've got your
+message" reply to the sender. Ask Netbus if you would like it.
 
 ## Frequently asked questions
 
