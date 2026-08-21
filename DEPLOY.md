@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Optimise uploaded images
+## f453007 — 2026-08-21 — Optimise uploaded images
 
 **No schema change** — confirmed with `flask --app app check-schema`. Two
 things to run, in this order:
