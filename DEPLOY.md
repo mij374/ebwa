@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-21 — Contact form and outgoing email
+## 75d95e4 — 2026-08-21 — Contact form and outgoing email
 
 New table, no `ALTER TABLE`, plus the first environment variables for
 email.
