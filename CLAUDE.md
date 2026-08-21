@@ -313,20 +313,37 @@ Built and maintained by Netbus IT Support.
     edge opacity lifted (alpha gamma ~0.7) or the thin strokes wash out.
 - Header: the nav must never wrap to a second line. It sheds things in
   order as the viewport narrows — brand strapline at 980px, whole nav to
-  the menu button at 899px — so a new nav item means re-checking those
-  steps (and probably a shorter label) rather than letting the row grow.
-  Header height is `--header-h`; the open mobile menu is positioned from
-  it, so change the variable, not both.
-  - The row is full at 1280px. It carries the nav and exactly ONE
-    primary action, the Donate pill (`.nav-donate`, red, flag-gated on
-    `donations`). The phone number was moved out to make room and now
-    lives in the mobile menu, the footer and /contact. Anything new
-    competing for that row has to displace something — run
-    `tests/check_header_layout.py` before assuming it fits.
-  - Adding the FAQ link cost 31px at 1024px, paid for by moving the
-    strapline step from 980px to 1100px (it is 165px wide). That is the
-    LAST easy payment: the next nav item has to take a label away, drop
-    one, or move the whole nav to the menu button sooner.
+  the menu button at 899px. Header height is `--header-h`; the open
+  mobile menu is positioned from it, so change the variable, not both.
+  - The row is GROUPED, not flat: three group triggers ("About us",
+    "What's on", "Get involved"), each opening a dropdown, plus exactly
+    ONE primary action — the Donate pill (`.nav-donate`, red, flag-gated
+    on `donations`). A new page joins an existing group; it does not
+    join the row. Ten flat items had filled the row and each addition
+    was buying space from something else, which is what the grouping
+    ended.
+  - Every group trigger is a real link to a CORE page (`about`,
+    `events`, `contact` — none of them flaggable), so a click always
+    lands somewhere and a group can never end up empty. Dropdown items
+    are flag-gated individually.
+  - The dropdowns are pure CSS: `:hover` and `:focus-within` on the
+    `.nav-group`, no script anywhere. Two rules make that work and must
+    not be undone:
+    - the trigger is full header height, so the pointer never crosses a
+      gap on its way to the panel;
+    - `visibility` is NOT transitioned. Animating it delays the switch
+      to `visible`, and a hidden item cannot take focus, so a keyboard
+      user tabbing at speed sails straight past the panel. Animate
+      opacity and transform only.
+  - On a phone the groups do not become nested menus: inside the open
+    `.nav-links.open` the panels are `position:static` and always
+    visible, each group a heading with its pages beneath it.
+  - `tests/check_header_layout.py` is the proof, at 1440/1280/1024/900/
+    390: one line (measured by item CENTRES, since a trigger is taller
+    than the pill), no sideways scroll, panels shut until hovered or
+    focused, every destination reachable by Tab alone, and the mobile
+    menu listing all of them. Run it after touching the header, the nav
+    or the breakpoints.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 - Cookies: the site sets exactly two, both first-party and strictly

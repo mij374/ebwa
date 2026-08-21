@@ -212,7 +212,8 @@ check("deleted partner absent from the homepage",
 # ---- the Donate button follows the donations flag
 set_flag("donations", True)
 html = home()
-nav = html.split('id="navLinks"')[1].split("</ul>")[0]
+# to </nav>, not the first </ul>: the nav has dropdown lists inside it
+nav = html.split('id="navLinks"')[1].split("</nav>")[0]
 check("Donate button in the header nav when donations are on",
       "nav-donate" in nav, nav[:400])
 check("Donate button links to /donate", '/donate"' in nav, nav[:400])
@@ -224,7 +225,8 @@ check("Donate appears on every public page",
 
 set_flag("donations", False)
 html = home()
-nav = html.split('id="navLinks"')[1].split("</ul>")[0]
+# to </nav>, not the first </ul>: the nav has dropdown lists inside it
+nav = html.split('id="navLinks"')[1].split("</nav>")[0]
 check("Donate button gone when donations are off", "nav-donate" not in nav,
       nav[:400])
 check("no dead link to /donate in the nav", '/donate"' not in nav, nav[:400])

@@ -1,9 +1,14 @@
 """Measure the header at real viewport widths (Chromium via Playwright).
 
 Not part of the smoke suite — it needs a browser — but this is what the
-header rework was verified against. It asserts, at each width, that the
-nav sits on ONE line, nothing overflows the viewport horizontally, and
-the mobile menu opens and closes.
+header work is verified against. At each width it asserts that the nav
+sits on ONE line, nothing overflows the viewport horizontally, and the
+mobile menu opens and closes.
+
+Since the nav became three groups with dropdown panels, it also asserts
+that the panels stay shut until hovered or focused, that a keyboard alone
+reaches every destination in them, and that on a phone the groups expand
+in place inside the menu instead of hiding behind a hover.
 
 Run:  python tests/check_header_layout.py [--shots DIR]
 """
@@ -93,11 +98,20 @@ with sync_playwright() as pw:
             const ul = document.getElementById('navLinks');
             const style = getComputedStyle(ul);
             if (style.display === 'none') return {hidden: true};
-            const items = [...ul.querySelectorAll('li')]
+            // Direct children only: dropdown items live in their own
+            // panel and are not part of the row.
+            const items = [...ul.children]
                 .filter(li => getComputedStyle(li).display !== 'none');
-            const tops = new Set(items.map(
-                li => Math.round(li.getBoundingClientRect().top)));
-            return {hidden: false, lines: tops.size, items: items.length,
+            // Items are no longer all the same height — a group trigger
+            // fills the header, the Donate pill does not — so "one line"
+            // means their CENTRES line up, not their tops.
+            const mids = items.map(li => {
+                const r = li.getBoundingClientRect();
+                return r.top + r.height / 2;
+            });
+            const spread = Math.max(...mids) - Math.min(...mids);
+            return {hidden: false, lines: spread <= 4 ? 1 : 2,
+                    spread: Math.round(spread), items: items.length,
                     width: ul.getBoundingClientRect().width};
         }""")
         if nav.get("hidden"):
@@ -110,9 +124,80 @@ with sync_playwright() as pw:
                   btn)
         else:
             check("%dpx: nav is on one line" % width, nav["lines"] == 1,
-                  "%d lines across %d items" % (nav["lines"], nav["items"]))
+                  "%d items, centres %dpx apart"
+                  % (nav["items"], nav["spread"]))
             check("%dpx: full nav only above the mobile breakpoint" % width,
                   width > MOBILE_MENU_MAX, "visible at %d" % width)
+
+        # ---- the dropdowns: shut, then open on hover and on focus
+        if width > MOBILE_MENU_MAX:
+            groups = page.locator("#navLinks > li.nav-group")
+            check("%dpx: three groups in the row" % width,
+                  groups.count() == 3, str(groups.count()))
+            shut = page.evaluate("""() => [...document.querySelectorAll(
+                    '#navLinks > li.nav-group .nav-drop')]
+                .every(d => getComputedStyle(d).visibility === 'hidden')""")
+            check("%dpx: panels start shut" % width, shut)
+
+            first = page.locator("#navLinks > li.nav-group").first
+            first.hover()
+            page.wait_for_timeout(220)
+            open_state = page.evaluate("""() => {
+                const d = document.querySelector(
+                    '#navLinks > li.nav-group .nav-drop');
+                const r = d.getBoundingClientRect();
+                return {vis: getComputedStyle(d).visibility,
+                        inside: r.left >= -1 && r.right <= innerWidth + 1,
+                        below: r.top >= document.querySelector('.nav')
+                            .getBoundingClientRect().bottom - 40};
+            }""")
+            check("%dpx: hover opens a panel" % width,
+                  open_state["vis"] == "visible", open_state["vis"])
+            check("%dpx: open panel stays inside the viewport" % width,
+                  open_state["inside"], str(open_state))
+            over = page.evaluate(
+                "() => document.documentElement.scrollWidth - "
+                "document.documentElement.clientWidth")
+            check("%dpx: open panel causes no sideways scroll" % width,
+                  over <= 0, "%dpx" % over)
+            if shots_dir:
+                page.screenshot(path=os.path.join(
+                    shots_dir, "header-%d-dropdown.png" % width))
+
+            # keyboard alone: focusing a trigger must reveal its items
+            page.evaluate("() => document.querySelector("
+                          "'#navLinks > li.nav-group > a').focus()")
+            page.wait_for_timeout(200)
+            check("%dpx: focus alone opens the panel" % width,
+                  page.evaluate("""() => getComputedStyle(
+                      document.querySelector(
+                          '#navLinks > li.nav-group .nav-drop')
+                      ).visibility""") == "visible")
+
+            # ---- tab from the brand and collect everything reachable
+            page.evaluate("() => document.querySelector('.brand').focus()")
+            reached, guard = [], 0
+            while guard < 40:
+                guard += 1
+                page.keyboard.press("Tab")
+                here = page.evaluate("""() => {
+                    const el = document.activeElement;
+                    if (!el || el.tagName !== 'A') return null;
+                    return el.closest('#navLinks') ? el.getAttribute('href')
+                                                   : 'left-the-nav';
+                }""")
+                if here is None:
+                    continue
+                if here == "left-the-nav":
+                    break
+                reached.append(here)
+            wanted = ["/about", "/our-journey", "/faq", "/events", "/news",
+                      "/gallery", "/membership", "/resources", "/contact",
+                      "/donate"]
+            missing = [w for w in wanted if w not in reached]
+            check("%dpx: every nav destination is keyboard-reachable" % width,
+                  not missing, "missing %s (reached %s)"
+                  % (missing, reached))
 
         # ---- the logo mark is a legible size, not a smudge
         mark = page.evaluate(
@@ -145,6 +230,23 @@ with sync_playwright() as pw:
             check("%dpx: phone number available in the menu" % width,
                   opened["phone"] not in ("none", "missing"),
                   str(opened["phone"]))
+            expanded = page.evaluate("""() => {
+                const drops = [...document.querySelectorAll('.nav-drop')];
+                const links = [...document.querySelectorAll(
+                    '.nav-drop a')].map(a => a.getAttribute('href'));
+                return {panels: drops.length,
+                        allShown: drops.every(
+                            d => getComputedStyle(d).visibility === 'visible'
+                              && getComputedStyle(d).position === 'static'),
+                        links: links};
+            }""")
+            check("%dpx: groups expand in place in the menu" % width,
+                  expanded["allShown"], str(expanded["panels"]))
+            for path in ("/about", "/our-journey", "/faq", "/events",
+                         "/news", "/gallery", "/membership", "/resources",
+                         "/contact"):
+                check("%dpx: menu lists %s" % (width, path),
+                      path in expanded["links"], str(expanded["links"]))
             over = page.evaluate(
                 "() => document.documentElement.scrollWidth - "
                 "document.documentElement.clientWidth")

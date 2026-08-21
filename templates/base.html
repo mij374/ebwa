@@ -21,16 +21,43 @@
       <span class="brand-name">EBWA<small>Enfield Bangladesh Welfare Association</small></span>
     </a>
     <nav class="main-nav" aria-label="Main">
+      {#
+        Three groups and one action, rather than ten flat items — the row
+        was full and the next module would have had nowhere to go.
+
+        Each group's trigger is a REAL link to a core page (about, events,
+        contact — none of which can be switched off), so a click always
+        lands somewhere sensible; the panel opens on hover and on
+        :focus-within, so tabbing to a trigger reveals its items and Tab
+        walks straight through them. No script is involved: with
+        JavaScript off, the desktop nav behaves exactly the same, and the
+        mobile menu shows every group expanded in place.
+      #}
       <ul class="nav-links" id="navLinks">
-        <li><a href="{{ url_for('about') }}">About</a></li>
-        <li><a href="{{ url_for('events') }}">Events</a></li>
-        {% if features.news %}<li><a href="{{ url_for('news') }}">News</a></li>{% endif %}
-        {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
-        {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Journey</a></li>{% endif %}
-        <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
-        {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
-        {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join</a></li>{% endif %}
-        <li><a href="{{ url_for('contact') }}">Contact</a></li>
+        <li class="nav-group">
+          <a href="{{ url_for('about') }}">About us</a>
+          <ul class="nav-drop">
+            <li><a href="{{ url_for('about') }}">About EBWA</a></li>
+            {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
+            {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
+          </ul>
+        </li>
+        <li class="nav-group">
+          <a href="{{ url_for('events') }}">What's on</a>
+          <ul class="nav-drop">
+            <li><a href="{{ url_for('events') }}">Events</a></li>
+            {% if features.news %}<li><a href="{{ url_for('news') }}">News &amp; projects</a></li>{% endif %}
+            <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
+          </ul>
+        </li>
+        <li class="nav-group">
+          <a href="{{ url_for('contact') }}">Get involved</a>
+          <ul class="nav-drop">
+            {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Become a member</a></li>{% endif %}
+            {% if features.resources %}<li><a href="{{ url_for('resources') }}">Community resources</a></li>{% endif %}
+            <li><a href="{{ url_for('contact') }}">Contact us</a></li>
+          </ul>
+        </li>
         {% if current_user.is_authenticated %}
         <li><a href="{{ url_for('admin_dashboard') }}">Admin</a></li>
         {% endif %}
