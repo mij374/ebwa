@@ -418,6 +418,21 @@ Built and maintained by Netbus IT Support.
     hides), so content is never stranded. It is a tidiness feature, not
     a security boundary — anything that must actually be protected needs
     an auth check of its own.
+  - The ONE exception is listed in `ADMIN_FLAG_GATES`: an admin page
+    whose route must enforce its flag, not merely hide its link. Today
+    that is `/admin/audit` under `audit_log`. Add to that dict and the
+    route must `abort(403)`; `tests/smoke_test_admin_flag_gates.py`
+    walks the URL map and proves every entry does, and that every other
+    admin page still opens with all flags off.
+  - A gate reads the flag with `flag_explicitly_on()`, NOT
+    `feature_enabled()`. The latter falls back to the FEATURES default
+    when no row exists — right for a module that must work before
+    init-db, wrong for a gate: on a database predating the flag it
+    opened the audit log to client admins, which is exactly the bug that
+    put this rule here. For a gate, "no row" means no.
+  - The menu link and the route must read the SAME helper
+    (`can_read_audit()`, exposed to templates as `audit_readable`), so
+    the two can never disagree about who may see something.
 - Dashboard: every module has a card at /admin, so a new one means a
   card in `dashboard_cards()` and nothing else — a module with no card
   is a module the admin forgets exists.

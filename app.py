@@ -1129,6 +1129,34 @@ def feature_enabled(name):
     return row.enabled if row else FEATURE_DEFAULTS[name]
 
 
+# Admin pages whose ROUTE must enforce a flag, not merely hide its menu
+# link. There is deliberately only one: everywhere else an admin page
+# stays reachable with its module switched off, so content is never
+# stranded (see CLAUDE.md). Anything added here must 403 for a client
+# admin when its flag is off, and the URL-map test proves it does.
+ADMIN_FLAG_GATES = {"admin_audit": "audit_log"}
+
+
+def flag_explicitly_on(name):
+    """True only when a row SAYS so — no falling back to the default.
+
+    feature_enabled() falls back to the FEATURES default when no row
+    exists yet, which is right for a module that should work before
+    init-db runs. It is wrong for a flag that decides who may READ
+    something: on a database where the row has never been written, "we
+    do not know" must mean "no", or the gate opens itself.
+    """
+    row = FeatureFlag.query.filter_by(name=name).first()
+    return bool(row and row.enabled)
+
+
+def can_read_audit():
+    """Super admins always. Client admins only when the flag says so."""
+    return bool(current_user.is_authenticated
+                and (current_user.is_super_admin
+                     or flag_explicitly_on("audit_log")))
+
+
 def feature_required(name):
     """Public route guard: a disabled feature 404s. Data is untouched."""
     def decorator(fn):
@@ -1387,7 +1415,11 @@ def inject_globals():
             # Only the admin chrome uses this, and only as a number —
             # a count is not personal data.
             "unread_messages": unread_messages()
-            if has_request_context() and current_user.is_authenticated else 0}
+            if has_request_context() and current_user.is_authenticated else 0,
+            # The link follows the ROUTE's rule, so the two can never
+            # disagree about who may read the audit log.
+            "audit_readable": can_read_audit()
+            if has_request_context() else False}
 
 
 # Security headers on every response. CSP allows exactly what the
@@ -4879,7 +4911,7 @@ def admin_audit():
     decides whether EBWA's own admins see the page — recording never
     stops either way, so the log can't be quietly switched off.
     """
-    if not (current_user.is_super_admin or feature_enabled("audit_log")):
+    if not can_read_audit():
         abort(403)
 
     who = request.args.get("user", "").strip()

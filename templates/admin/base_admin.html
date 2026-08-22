@@ -36,7 +36,7 @@
       <a href="{{ url_for('admin_gift_aid') }}" class="{{ 'active' if request.endpoint and 'gift_aid' in request.endpoint }}">Gift Aid</a>
       {% endif %}
       <a href="{{ url_for('admin_account') }}" class="{{ 'active' if request.endpoint == 'admin_account' }}">Account</a>
-      {% if current_user.is_super_admin or features.audit_log %}
+      {% if audit_readable %}
       <a href="{{ url_for('admin_audit') }}" class="{{ 'active' if request.endpoint == 'admin_audit' }}">Audit log</a>
       {% endif %}
       {% if current_user.is_super_admin %}
