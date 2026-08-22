@@ -81,6 +81,8 @@ if "--shots" in sys.argv:
     os.makedirs(shots_dir, exist_ok=True)
 
 failures = []
+warnings = []
+tightest = None      # (spare, room, stride, tag) — the smallest spare seen
 
 
 def check(name, cond, detail=""):
@@ -88,6 +90,20 @@ def check(name, cond, detail=""):
                         (" [%s]" % detail) if detail and not cond else ""))
     if not cond:
         failures.append(name)
+
+
+def warn(name, cond, detail=""):
+    """Report a margin, not a result.
+
+    Some of what this file measures is headroom rather than behaviour:
+    the row still loops and still shows no gap when it runs out, it just
+    does it less tidily. Failing the run for that would cry wolf, and
+    saying nothing would let it drift to nothing unnoticed — so it is a
+    WARNING carrying the numbers, listed again at the end.
+    """
+    print("%s  %s [%s]" % ("PASS" if cond else "WARN", name, detail))
+    if not cond:
+        warnings.append("%s [%s]" % (name, detail))
 
 
 with app.app_context():
@@ -311,6 +327,30 @@ with sync_playwright() as pw:
                   m["setWidth"] >= m["clientWidth"],
                   "set %.0f vs window %.0f" % (m["setWidth"],
                                                m["clientWidth"]))
+
+            # Headroom for the STEP wrap, measured here because the
+            # geometry does not depend on the mode and this is where
+            # every width and count is covered.
+            #
+            # Stepping wraps back by a set only once scrollLeft has gone
+            # PAST one, and it gets there by scrollBy-ing one stride at
+            # a time. So the container needs a whole stride of room past
+            # the end of the first set — setWidth - clientWidth against
+            # one card plus one gap. Short of it the browser clamps the
+            # last step before the wrap into a stub: the row still loops
+            # and still shows no gap, so this is a warning, not a
+            # failure. CARD WIDTH AND GAP ARE LOAD-BEARING HERE — both
+            # are fixed in the stylesheet, and growing either eats this
+            # margin. Five partners on the widest viewport is the
+            # tightest case, since that is the narrowest set against the
+            # widest strip.
+            room = m["setWidth"] - m["clientWidth"]
+            spare = room - m["cardStride"]
+            if tightest is None or spare < tightest[0]:
+                tightest = (spare, room, m["cardStride"], tag)
+            warn("%s: room to wrap a whole step" % tag,
+                 spare >= 0, "%.0fpx of room against a %.0fpx stride, "
+                 "%.0fpx spare" % (room, m["cardStride"], spare))
 
             hole = worst_hole_over(page, 800)
             check("%s: no gap while it drifts" % tag,
@@ -664,6 +704,14 @@ for suffix in ("", "-wal", "-shm"):
         print("note: could not remove %s (still open)" % f)
 
 print()
+if tightest:
+    print("Tightest step-wrap margin: %.0fpx of room against a %.0fpx "
+          "stride (%.0fpx spare) at %s." % (tightest[1], tightest[2],
+                                            tightest[0], tightest[3]))
+if warnings:
+    print("WARNED: %d margin(s) worth watching:" % len(warnings))
+    for w in warnings:
+        print("  -", w)
 if failures:
     print("FAILED: %d check(s):" % len(failures))
     for f in failures:

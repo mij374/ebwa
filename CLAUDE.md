@@ -690,7 +690,12 @@ wobble still opens the partner, the arrows appearing only for a still
 row with somewhere to go, a touch swipe still panning, and every mode
 falling back to still under reduced motion. Run it after touching the
 row, its script or `PARTNER_MOTIONS`:
-`python tests/check_partner_marquee.py [--shots DIR]`. Three things it
+`python tests/check_partner_marquee.py [--shots DIR]`. It also reports
+the step wrap's headroom (see the partner rules above) as a WARNING
+rather than a failure, and prints the tightest margin it saw — headroom
+running out makes the row untidy, not broken, and a check that failed
+for it would cry wolf while one that said nothing would let it drift to
+nothing unnoticed. Three things it
 knows that are easy to rediscover the hard way: Playwright's Chromium
 has OVERLAY scrollbars, so hiding one frees no layout space and only the
 computed `scrollbar-width` means anything; a smooth `scrollBy` is still
@@ -1011,6 +1016,22 @@ Built (post-signing variation, Jul 2026):
       Partners and both in `HIDDEN_BLOCK_KEYS`. The mode reaches the
       page as `data-motion` on `.partner-row`, never as Jinja inside the
       script.
+    - **The card width and the gap are load-bearing for the step
+      wrap**, not just a look. Stepping wraps back by a set only once
+      `scrollLeft` has gone PAST one, and it gets there one stride — a
+      card plus a gap — at a time, so the row needs a whole stride of
+      room beyond the end of the first set (`setWidth` minus the visible
+      width, against one stride). Five partners on the widest viewport
+      is the tightest case: 300px of room against a 278px stride, 22px
+      spare. Widen `.partner-marquee .partner-card` (260px) or
+      `--partner-gap` (18px) and that margin goes first — past it the
+      browser clamps the last step before the wrap into a stub, and the
+      row still loops and still shows no gap, it just arrives untidily.
+      `tests/check_partner_marquee.py` measures it at every width and
+      count and WARNS with the numbers rather than failing, since a
+      stub step is untidy and not broken; it prints the tightest margin
+      it saw at the end of every run. Watch that number if either value
+      changes.
     - **Every mode falls back to a still row under
       `prefers-reduced-motion`**, and that is not a fourth option for an
       admin to override. The script checks `matchMedia` before it starts

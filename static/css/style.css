@@ -1033,6 +1033,9 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
   display:flex;align-items:center;gap:10px;margin-top:36px;
 }
 .partner-marquee{
+  /* Not only spacing: this gap plus the card width below is the STRIDE
+     the stepping mode moves by, and the step wrap is sized against it.
+     See the note on .partner-marquee .partner-card. */
   --partner-gap:18px;
   flex:1 1 auto;min-width:0;overflow-x:auto;
   scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;
@@ -1047,6 +1050,20 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 .partner-marquee a{-webkit-user-drag:none}
 .partner-track{display:flex;gap:var(--partner-gap);width:max-content}
 .partner-set{display:flex;gap:var(--partner-gap)}
+/* LOAD-BEARING, not just a look: 260px plus the 18px gap is the stride
+   that the arrows and the stepping mode move by, and the stepping mode's
+   wrap is sized against it. Stepping wraps back by a set only once
+   scrollLeft has gone PAST one, and it gets there one stride at a time,
+   so the row needs a whole stride of room beyond the end of the first
+   set — setWidth minus the visible width, against one stride. Five
+   partners on the widest viewport is the tightest case and leaves 22px
+   spare (300px of room against a 278px stride). Widen either value and
+   that margin goes first: past it the browser clamps the last step
+   before the wrap into a stub — the row still loops and still shows no
+   gap, it just arrives untidily. tests/check_partner_marquee.py
+   measures the margin at every width and partner count and warns with
+   the numbers rather than failing; check what it reports if you change
+   either. */
 .partner-marquee .partner-card{
   flex:0 0 260px;width:260px;
   /* Snap to the START of a card, not its centre: the arrows move by
