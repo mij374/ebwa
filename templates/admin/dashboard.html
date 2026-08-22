@@ -37,11 +37,13 @@
 <h2 class="admin-stats-head">Recent activity</h2>
 <div class="table-scroll">
 <table class="admin-table activity-table">
-  <tr><th>When</th><th>Who</th><th>What</th></tr>
+  <tr><th>When</th><th class="activity-who">Who</th><th>What</th></tr>
   {% for r in recent %}
   <tr>
     <td class="nowrap">{{ r.created_at|uk_datetime }}</td>
-    <td>{{ r.user_email or "—" }}</td>
+    {# One line, ellipsised if it has to be: the whole address stays
+       available in the title. #}
+    <td class="activity-who"{% if r.user_email %} title="{{ r.user_email }}"{% endif %}>{{ r.user_email or "—" }}</td>
     <td>{{ r.summary or r.action }}</td>
   </tr>
   {% endfor %}

@@ -632,6 +632,15 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
   letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);
   margin:0 0 12px;
 }
+/* A section heading at the top level of the page sits 30px below
+   whatever came before it — the same gap .admin-stats and .admin-more
+   already leave, so where one of those is above, the two margins
+   collapse to a single 30px and nothing moves. Scoped to a direct child
+   of .admin-main on purpose: inside a panel or a form (.admin-attention,
+   .admin-form) the heading is the first thing in the box and has to sit
+   against the box's own padding, not 30px below it. */
+.admin-main > .admin-stats-head{margin-top:30px}
+.admin-main > .admin-stats-head:first-child{margin-top:0}
 /* auto-fit rather than a fixed 3: the row of cards changes with the
    feature flags, and 220px keeps three to a row both on the admin's
    900px column and on a tablet, folding to two on smaller screens. */
@@ -678,6 +687,30 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
    own box rather than taking the page sideways on a phone. */
 .table-scroll{overflow-x:auto}
 .activity-table td{overflow-wrap:anywhere}
+/* Recent activity: the three column widths are settled here rather than
+   left to the table algorithm. The email column has to hold a REAL
+   address — a personal Gmail, not just info@netbus.co.uk — and the
+   summary gives up the room, being the one column that wraps without
+   harm. Fixed layout is also what makes the ellipsis below possible:
+   under the auto algorithm a nowrap cell widens the table instead of
+   being clipped, and the table would simply scroll sideways. */
+.activity-table{table-layout:fixed}
+.activity-table th:first-child,
+.activity-table td:first-child{width:172px}   /* "22 Aug 2026, 21:58" */
+/* 310px, measured rather than guessed: info@netbus.co.uk needs about
+   200px, but a personal address is the long case — anis.miah1987@
+   googlemail.com wants 270px and firstname.lastname@googlemail.com
+   306px, and sizing for the short one is what put a fold in every row.
+   The admin column is capped at 900px, so the table is 812px wide at
+   every desktop width and this leaves the summary 330px. */
+.activity-table .activity-who{width:310px}
+/* One line per row, always. An address too long for the column is cut
+   with an ellipsis and kept whole in the title attribute — wrapping it
+   would make every row in the table two lines high, which is the thing
+   being fixed. */
+.activity-table td.activity-who{
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
 .admin-more{margin:14px 0 30px;font-size:14.5px}
 .admin-more a{color:var(--green);font-weight:700;text-decoration:none}
 
@@ -982,6 +1015,13 @@ body.has-notice footer{padding-bottom:110px}
   }
   .activity-table td:first-child::after{content:" · "}
   .activity-table td:last-child{margin-top:4px}
+  /* The stacked card is not a table: the column width and the one-line
+     ellipsis above would only stop a long address wrapping inside a
+     342px card and push it out of the side. Here it wraps, as it did
+     before any of this. */
+  .activity-table td.activity-who{
+    width:auto;white-space:normal;overflow:visible;text-overflow:clip;
+  }
   .admin-gallery-grid{grid-template-columns:1fr 1fr}
   .foot-grid{grid-template-columns:1fr}
 }
