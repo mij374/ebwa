@@ -1022,92 +1022,97 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 .partner-card .partner-logo:only-child{margin-bottom:0}
 
 /* ---------- Partners: the scroller (more than four) ----------
-   Movement is one CSS animation on the track and nothing else: no
-   script, no library. The track holds the real set and an aria-hidden
-   copy, so translating by exactly one set width loops seamlessly.
-   The container scrolls natively too, so it can be dragged or swiped,
-   and snaps to a card when let go. */
+   ONE offset moves this row: its own scrollLeft. The drift, the
+   stepping, dragging, swiping and the arrows all push the same number,
+   and the script wraps it back by exactly one set so the row never
+   reaches an end. It used to be a CSS animation translating the track
+   while the container scrolled underneath it — two offsets that added
+   up, so the first drag or Tab into the row left the animation running
+   off the end of the content and a gap appeared in the loop. */
+.partner-row{
+  display:flex;align-items:center;gap:10px;margin-top:36px;
+}
 .partner-marquee{
   --partner-gap:18px;
-  margin-top:36px;overflow-x:auto;max-width:100%;
+  flex:1 1 auto;min-width:0;overflow-x:auto;
   scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;
-  scrollbar-width:thin;padding-bottom:10px;
+  padding-bottom:10px;
+  /* Without these the browser starts its own drag of the logo or the
+     link as soon as the pointer moves, which cancels the pointer stream
+     — no further move, no pointerup, and no click either. The script
+     cancels dragstart as well, for browsers that ignore user-drag. */
+  user-select:none;-webkit-user-select:none;
 }
-.partner-track{display:flex;gap:var(--partner-gap);width:max-content}
-/* Continuous: the CSS animation. Stepping: the script moves the track
-   and this transition is the glide between stops. No movement: neither,
-   and the copy set goes, since it exists only to feed a loop. */
-.partner-marquee[data-motion="scroll"] .partner-track{
-  animation:partner-scroll linear infinite;
-  animation-duration:calc(var(--partner-count, 8) * 4s);
-}
-.partner-marquee[data-motion="step"] .partner-track{
-  transition:transform .6s ease;
-}
-.partner-marquee[data-motion="none"] .partner-set[aria-hidden="true"]{
-  display:none;
-}
-.partner-set{display:flex;gap:var(--partner-gap)}
-.partner-marquee .partner-card{
-  flex:0 0 260px;width:260px;scroll-snap-align:center;
-}
-/* Pause for anybody reading: pointer over it, keyboard focus inside it,
-   or a finger held on it mid-drag. (Stepping mode does the same in the
-   script, which is the only place it can be done.) */
-.partner-marquee:hover .partner-track,
-.partner-marquee:focus-within .partner-track,
-.partner-marquee:active .partner-track,
-.partner-marquee.is-dragging .partner-track{animation-play-state:paused}
-/* Drag to scroll, for the mouse user the hidden scrollbar left without
-   one. The cursor is the whole affordance, so it has to be right. */
-.partner-marquee[data-motion="scroll"],
-.partner-marquee[data-motion="step"]{cursor:grab}
-/* Without these the browser starts its own drag of the logo or the link
-   as soon as the pointer moves, which cancels the pointer stream — no
-   further move, no pointerup, and no click either. The script cancels
-   dragstart as well, for browsers that do not honour user-drag. */
-.partner-marquee{user-select:none;-webkit-user-select:none}
 .partner-marquee img,
 .partner-marquee a{-webkit-user-drag:none}
-.partner-marquee.is-dragging{cursor:grabbing;scroll-snap-type:none}
-.partner-marquee.is-dragging .partner-track{transition:none}
-/* Half the gap, because the gap between the two sets is part of the
-   distance one set occupies. */
-@keyframes partner-scroll{
-  from{transform:translateX(0)}
-  to{transform:translateX(calc(-50% - var(--partner-gap) / 2))}
+.partner-track{display:flex;gap:var(--partner-gap);width:max-content}
+.partner-set{display:flex;gap:var(--partner-gap)}
+.partner-marquee .partner-card{
+  flex:0 0 260px;width:260px;
+  /* Snap to the START of a card, not its centre: the arrows move by
+     exactly one card, and the resting position is a card against the
+     left edge rather than one card centred with two half cards beside
+     it. From a standing start, centre-snapping made the first press
+     move a fraction of a card and every later one a whole one. */
+  scroll-snap-align:start;
 }
-/* While the row is moving of its own accord, the scrollbar under it is
-   noise: the movement is the affordance, and the row still drags,
-   swipes and follows the keyboard without it. Hidden ONLY here, inside
-   `no-preference`, rather than hidden by default and un-hidden later —
-   styling ::-webkit-scrollbar at all opts Chromium into custom
-   scrollbars, so "display:none then put it back" leaves a scrollbar
-   that needs a thumb painting to be seen at all. */
-@media (prefers-reduced-motion: no-preference){
-  .partner-marquee[data-motion="scroll"],
-  .partner-marquee[data-motion="step"]{
-    scrollbar-width:none;-ms-overflow-style:none;
-  }
-  .partner-marquee[data-motion="scroll"]::-webkit-scrollbar,
-  .partner-marquee[data-motion="step"]::-webkit-scrollbar{display:none}
+/* The copy set exists only to make the loop endless. With nothing
+   moving it is the same logos twice, so it goes. */
+.partner-row[data-motion="none"] .partner-set[aria-hidden="true"]{
+  display:none;
 }
-/* The animation is already off under prefers-reduced-motion (the global
-   rule at the top of this file). The copy set exists only to feed that
-   animation, so with it off the copy is just the same logos again —
-   hide it and leave a plain scrollable row.
-   The scrollbar STAYS in this mode, and that is the point: with nothing
-   moving, it is the only thing telling a mouse user there is more row to
-   the right. Hiding it here would take the affordance away from exactly
-   the people who asked for less movement. */
+/* Grab-to-pull, wherever the row can move at all. */
+.partner-row .partner-marquee{cursor:grab}
+.partner-row.is-dragging .partner-marquee{
+  cursor:grabbing;scroll-snap-type:none;
+}
+/* Snapping fights a drift that moves the row every frame. */
+.partner-row.is-moving .partner-marquee{scroll-snap-type:none}
+
+/* The arrows: the affordance for a row that is standing still. The
+   script un-hides them only when there is somewhere to go, so with no
+   JavaScript there are no dead buttons — and no hidden scrollbar
+   either, since the rule below is on a class the script adds. */
+.partner-arrow{
+  flex:0 0 auto;width:42px;height:42px;border-radius:50%;
+  border:1px solid var(--line);background:var(--white);color:var(--green);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  padding:0;transition:background .15s ease, border-color .15s ease,
+  box-shadow .15s ease;
+}
+.partner-arrow svg{width:22px;height:22px;display:block}
+.partner-arrow:hover:not(:disabled){
+  background:var(--green);color:var(--white);border-color:var(--green);
+}
+.partner-arrow:focus-visible{
+  outline:3px solid var(--green);outline-offset:2px;
+}
+.partner-arrow:disabled{opacity:.35;cursor:default}
+.partner-arrow[hidden]{display:none}
+/* Once the buttons are there they say what the scrollbar was saying,
+   and they say it better. */
+.partner-row.has-arrows .partner-marquee,
+.partner-row.is-moving .partner-marquee{
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+.partner-row.has-arrows .partner-marquee::-webkit-scrollbar,
+.partner-row.is-moving .partner-marquee::-webkit-scrollbar{display:none}
+
+/* Under prefers-reduced-motion the script never starts a drift or a
+   step whatever the admin chose, so the row is static and gets the
+   arrows — see the has-arrows rule above. Snapping comes back with it. */
 @media (prefers-reduced-motion: reduce){
   .partner-set[aria-hidden="true"]{display:none}
-  .partner-marquee{scroll-snap-type:x mandatory;scrollbar-width:auto;
-    cursor:default}
-  /* Whatever the admin chose, this wins. The script makes the same
-     check before it starts stepping. */
-  .partner-marquee .partner-track{animation:none;transition:none;
-    transform:none}
+  .partner-marquee{scroll-snap-type:x mandatory}
+}
+/* On a phone the arrows go UNDER the row rather than either side of it.
+   Beside it they took 84px of a 342px window, leaving less than one
+   card — so nothing was ever fully in view, and the row lost the hint
+   that there is more to the right. */
+@media (max-width: 640px){
+  .partner-row{flex-wrap:wrap;justify-content:center;gap:8px}
+  .partner-marquee{order:-1;flex:0 0 100%}
+  .partner-arrow{width:40px;height:40px}
 }
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}

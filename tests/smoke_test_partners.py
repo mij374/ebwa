@@ -283,8 +283,11 @@ check("the copy is out of the tab order",
       html.count('tabindex="-1"') == 5, str(html.count('tabindex="-1"')))
 check("the real set is not aria-hidden and not tabindexed",
       html.split('aria-hidden="true"')[0].count('tabindex="-1"') == 0)
-check("the count reaches the CSS, so the speed suits the row",
-      "--partner-count:5" in html, html[html.find("partner-marquee"):][:120])
+# The drift is a constant speed now rather than a fixed cycle time, so
+# there is no count to hand to the CSS: a longer row simply takes longer
+# to come round, which is what you want.
+check("no stale --partner-count is being emitted",
+      "--partner-count" not in html)
 check("every partner is named once for a screen reader",
       all(html.count(">Partner %d<" % i) + html.count('"Partner %d"' % i) >= 1
           for i in range(5)))
@@ -295,8 +298,8 @@ check("nine partners: still one scroller, eighteen cards",
       html.count('class="partner-set"') == 2
       and html.count('class="partner-card"') == 18,
       str(html.count('class="partner-card"')))
-check("nine partners: the duration follows the count",
-      "--partner-count:9" in html)
+check("nine partners: still one copy set behind the real one",
+      html.count('class="partner-set"') == 2)
 
 # back to four: the scroller goes away again
 partner_count(4)
@@ -312,9 +315,15 @@ with app.app_context():
           str(partner_motion()))
 html = home()
 check("the row carries the mode for the CSS and the script",
-      'data-motion="scroll"' in html, html[html.find("partner-marquee"):][:200])
+      'data-motion="scroll"' in html, html[html.find("partner-row"):][:200])
 check("and the interval, so no Jinja is needed inside the script",
       'data-step-seconds="%d"' % PARTNER_STEP_DEFAULT in html)
+check("the arrows are in the markup, labelled",
+      'aria-label="Previous partners"' in html
+      and 'aria-label="Next partners"' in html)
+check("and start hidden, so no JavaScript means no dead buttons",
+      html.count("partner-arrow") >= 2
+      and html.count("hidden>") >= 2, str(html.count("hidden>")))
 
 r = client.get("/admin/partners")
 page = r.data.decode("utf-8")
@@ -325,7 +334,7 @@ check("the admin page names them in plain English",
       "Continuous smooth scroll" in page and "Step every few seconds" in page
       and "No movement" in page)
 check("the admin page says reduced motion overrides the choice",
-      "reduce motion" in page)
+      "reduced motion turned" in page and "arrow buttons" in page)
 check("the interval is a field too", 'name="step_seconds"' in page)
 
 r = client.post("/admin/partners/motion",

@@ -913,50 +913,61 @@ Built (post-signing variation, Jul 2026):
     looks like a mistake. Never crop or stretch a partner's mark to fill
     a box — it is somebody's identity, and the admin field says what
     size to supply (400x200 PNG, transparent).
-  - More than four partners becomes a scroller (`.partner-marquee`),
-    four or fewer stay the static `.partner-grid`. Rules for it:
-    - The movement is ONE CSS animation on the track. No script, no
-      library — a marquee is not worth a byte of JavaScript.
-    - It pauses on `:hover`, `:focus-within` and `:active`, so it stops
-      for anybody actually reading it, by pointer, keyboard or finger.
+  - More than four partners becomes a scroller (`.partner-marquee`
+    inside `.partner-row`), four or fewer stay the static
+    `.partner-grid`. Rules for it:
+    - **ONE offset moves the row: its own `scrollLeft`.** The drift, the
+      stepping, dragging, swiping and the arrows all push that same
+      number, and the script wraps it back by exactly one set so the row
+      never reaches an end. It used to be a CSS animation translating
+      the track while the container scrolled underneath it — two
+      offsets, which ADDED UP, so the first drag or Tab into the row
+      left the animation running off the end of its content and a gap
+      opened in the loop. Measured: the two-offset version lost up to
+      4,028px of cards out of the window after a scroll; with one offset
+      the worst case is a positive margin at every count and width. Do
+      not put a transform back on the track.
+      - More copies of the set would NOT have fixed that, which is worth
+        knowing before someone tries it: the container can always be
+        scrolled to its own end, and that end moves with the content.
+        Untouched, two sets were always enough — one set is wider than
+        the widest the row can be.
+    - It pauses for anybody reading: pointer over it, keyboard focus
+      inside it, or a drag in progress. It also stops while the row is
+      off screen, so an idle tab is not animating nothing.
     - The loop needs a duplicate set. That copy is decoration:
       `aria-hidden="true"` on the set AND `tabindex="-1"` with empty alt
       on every card inside it, or a screen reader reads the partner list
       twice and Tab walks through phantom links.
-    - Under `prefers-reduced-motion` the animation is off (the global
-      rule at the top of the stylesheet) and the copy set is
-      `display:none`, leaving a plain scrollable row — not the same
-      logos repeated for no reason.
-    - The logos are deliberately NOT `loading="lazy"`: a transform does
-      not reliably wake a lazy image, so tiles scrolled into view can
-      stay blank. This is the one place that exception applies.
-    - The scrollbar is hidden ONLY inside
-      `@media (prefers-reduced-motion: no-preference)` — all three
-      declarations (`scrollbar-width`, `-ms-overflow-style`,
-      `::-webkit-scrollbar`) live in that block. Under `reduce` nothing
-      moves, so the scrollbar is the only thing telling a mouse user
-      there is more row to the right: hiding it there would take the
-      affordance away from exactly the people who asked for less
-      movement. Do not hoist those declarations out of the media query,
-      and do not "restore" the bar by re-styling `::-webkit-scrollbar` —
-      touching that selector at all opts Chromium into custom scrollbars
-      and then the thumb needs painting by hand.
+    - Cards snap to their START, not their centre, so an arrow press
+      moves exactly one card and the row rests with a card against the
+      left edge.
+    - The logos are deliberately NOT `loading="lazy"`. They are 200x100
+      thumbnails that the row brings into view constantly, so lazy
+      loading buys nothing and risks a blank tile arriving mid-scroll.
     - How it moves is a SITE setting, not a per-partner one:
       `PARTNER_MOTIONS` (scroll / step / none) plus
       `partners_step_seconds`, both Blocks, both set at Admin →
       Partners and both in `HIDDEN_BLOCK_KEYS`. The mode reaches the
-      page as `data-motion` on the row, never as Jinja inside the
-      script. Continuous scrolling is CSS; stepping is the script
-      moving the track with a transition for the glide; "none" runs
-      nothing and keeps its scrollbar.
-    - **Every mode falls back to no movement under
+      page as `data-motion` on `.partner-row`, never as Jinja inside the
+      script.
+    - **Every mode falls back to a still row under
       `prefers-reduced-motion`**, and that is not a fourth option for an
-      admin to override. The CSS handles the continuous mode, the script
-      checks `matchMedia` before it starts stepping — keep BOTH, since
-      neither covers the other.
-    - Drag-to-scroll (pointer events, no library) gives the mouse user
-      back what hiding the scrollbar took away. Two things it must keep
-      doing, both learned by breaking them:
+      admin to override. The script checks `matchMedia` before it starts
+      anything, and the stylesheet hides the copy set — keep both.
+    - **The arrows are the affordance for a row that is standing still**
+      (the `none` setting, or anybody with reduced motion). The script
+      un-hides them only when the row is static AND has somewhere to go,
+      and the scrollbar-hiding rules hang off the classes it sets
+      (`has-arrows` / `is-moving`) — so with no JavaScript there are
+      neither dead buttons nor a hidden scrollbar, and the row still
+      scrolls. They move one card, disable at each end, and carry real
+      labels ("Previous partners" / "Next partners"). On a phone they
+      sit UNDER the row: beside it they took 84px of a 342px window and
+      no card was ever fully in view.
+    - Drag-to-scroll (pointer events, no library) is what a mouse user
+      has instead of a scrollbar. Two things it must keep doing, both
+      learned by breaking them:
       - **Pointer capture only AFTER the drag threshold** (`DRAG_MIN`,
         6px). Capturing on pointerdown retargets the pointer events, and
         the mouseup the browser builds from them, to the row — so the

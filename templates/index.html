@@ -160,18 +160,38 @@
         the global rule at the top of the stylesheet and the stepping one
         because the script checks. Either way the row can still be
         scrolled, dragged, swiped and tabbed through. -#}
-    <div class="partner-marquee" id="partnerRow"
-         data-motion="{{ motion.mode }}"
-         data-step-seconds="{{ motion.step_seconds }}"
-         style="--partner-count:{{ partners|length }}">
-      <div class="partner-track">
-        <div class="partner-set">
-          {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
-        </div>
-        <div class="partner-set" aria-hidden="true">
-          {% for pt in partners %}{{ partner_card(pt, duplicate=true) }}{% endfor %}
+    <div class="partner-row" data-motion="{{ motion.mode }}"
+         data-step-seconds="{{ motion.step_seconds }}">
+      {#- The arrows start hidden and the script shows them only when the
+          row is standing still AND has somewhere to go. So with no
+          JavaScript there are no dead buttons, and the scrollbar — which
+          the script is what hides — is still there to scroll with. -#}
+      <button type="button" class="partner-arrow partner-arrow-prev"
+              aria-label="Previous partners" aria-controls="partnerRow" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="partner-marquee" id="partnerRow">
+        <div class="partner-track">
+          <div class="partner-set">
+            {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
+          </div>
+          <div class="partner-set" aria-hidden="true">
+            {% for pt in partners %}{{ partner_card(pt, duplicate=true) }}{% endfor %}
+          </div>
         </div>
       </div>
+      <button type="button" class="partner-arrow partner-arrow-next"
+              aria-label="Next partners" aria-controls="partnerRow" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 5 L16 12 L9 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
     {% else %}
     <div class="partner-grid">
@@ -224,76 +244,108 @@
     io.observe(document.querySelector('.stats'));
   }
 
-  /* ---- The partner row: drag to scroll, and the stepping mode.
-     Values come from data attributes on the row (set from the admin
-     setting), never from Jinja inside this script. Continuous scrolling
-     is CSS and is not touched here. */
-  var partnerRow = document.getElementById('partnerRow');
-  if (partnerRow) {
-    var partnerTrack = partnerRow.querySelector('.partner-track');
+  /* ---- The partner row.
+     Everything — the continuous drift, the stepping, dragging, swiping,
+     the arrow buttons — moves ONE quantity: the row's own scrollLeft.
+     That is the fix for the gap that used to open up in the loop. It had
+     nothing to do with how many copies of the set there are: the track
+     was translated by a CSS animation while the container scrolled
+     separately underneath it, so the moment anything scrolled the
+     container — a drag, a swipe, a Tab into the row — the two offsets
+     added up and the animation ran off the end of the content. With one
+     offset there is nothing to diverge, and wrapping it back by exactly
+     one set keeps the row endless whatever the visitor does to it.
+     Values come from data attributes, never from Jinja in here. */
+  var partnerBox = document.getElementById('partnerRow');
+  if (partnerBox) {
+    var partnerWrap = partnerBox.closest('.partner-row');
+    var partnerSet = partnerBox.querySelector('.partner-set');
+    var partnerArrows = partnerWrap.querySelectorAll('.partner-arrow');
     var stillPlease = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var partnerMode = partnerWrap.getAttribute('data-motion');
+    var moves = (partnerMode === 'scroll' || partnerMode === 'step')
+      && !stillPlease.matches;
+    var DRAG_MIN = 6;        /* below this it was a click, not a drag */
+    var DRIFT_PER_SECOND = 45;
+    var held = false, dragging = false, dragCaught = false, onScreen = true;
     var dragFrom = 0, dragScroll = 0, dragMoved = 0;
-    var dragging = false, dragCaught = false;
-    var DRAG_MIN = 6;      /* below this it was a click, not a drag */
+    var driftAt = 0, driftFrame = 0;
 
-    /* Press and hold to pull the row along. A mouse cannot pan a scroll
-       container by itself — that is touch behaviour — and hiding the
-       scrollbar while the row moves took the other option away. Touch is
-       left alone: the browser already pans, and taking it over here
-       would make it worse, not better. */
-    partnerRow.addEventListener('pointerdown', function (e) {
+    function partnerGap() {
+      var track = partnerBox.querySelector('.partner-track');
+      return parseFloat(getComputedStyle(track).columnGap) || 0;
+    }
+    function cardStride() {          /* one card plus the gap after it */
+      var card = partnerBox.querySelector('.partner-card');
+      return card ? card.getBoundingClientRect().width + partnerGap() : 0;
+    }
+    function setStride() {           /* one whole set plus its gap */
+      return partnerSet.getBoundingClientRect().width + partnerGap();
+    }
+    /* Keep the position inside the first set. The copy behind it shows
+       exactly the same cards, so subtracting one set is invisible — and
+       it means the row can be scrolled or dragged for ever without
+       reaching an edge. */
+    function wrapped(x) {
+      var stride = setStride();
+      if (!moves || stride <= 0) return x;
+      while (x >= stride) x -= stride;
+      return x < 0 ? 0 : x;
+    }
+
+    /* ---- drag to pull the row along */
+    partnerBox.addEventListener('pointerdown', function (e) {
       if (e.pointerType === 'touch' || e.button !== 0) return;
       dragging = true;
       dragCaught = false;
       dragMoved = 0;
       dragFrom = e.clientX;
-      dragScroll = partnerRow.scrollLeft;
+      dragScroll = partnerBox.scrollLeft;
       /* Deliberately NO pointer capture yet. Capturing here retargets
          the pointer events — and the mouseup the browser builds from
          them — to this container, so the click that follows fires on the
          row rather than on the partner that was pressed, and the link
          never opens. Capture once it is a drag, below. */
     });
-    partnerRow.addEventListener('pointermove', function (e) {
+    partnerBox.addEventListener('pointermove', function (e) {
       if (!dragging) return;
       var dx = e.clientX - dragFrom;
       if (Math.abs(dx) > dragMoved) dragMoved = Math.abs(dx);
       if (!dragCaught && dragMoved > DRAG_MIN) {
-        /* Now it is a drag: hold the pointer so it keeps working if it
-           leaves the row, and show it. */
         dragCaught = true;
-        partnerRow.classList.add('is-dragging');
-        if (partnerRow.setPointerCapture) {
-          partnerRow.setPointerCapture(e.pointerId);
+        partnerWrap.classList.add('is-dragging');
+        if (partnerBox.setPointerCapture) {
+          partnerBox.setPointerCapture(e.pointerId);
         }
       }
       if (!dragCaught) return;
-      partnerRow.scrollLeft = dragScroll - dx;
+      partnerBox.scrollLeft = wrapped(dragScroll - dx);
+      driftAt = partnerBox.scrollLeft;
       e.preventDefault();
     });
     function partnerDragEnd(e) {
       if (!dragging) return;
       dragging = false;
-      partnerRow.classList.remove('is-dragging');
-      if (dragCaught && partnerRow.releasePointerCapture &&
-          partnerRow.hasPointerCapture &&
-          partnerRow.hasPointerCapture(e.pointerId)) {
-        partnerRow.releasePointerCapture(e.pointerId);
+      partnerWrap.classList.remove('is-dragging');
+      if (dragCaught && partnerBox.releasePointerCapture &&
+          partnerBox.hasPointerCapture &&
+          partnerBox.hasPointerCapture(e.pointerId)) {
+        partnerBox.releasePointerCapture(e.pointerId);
       }
       dragCaught = false;
+      driftAt = partnerBox.scrollLeft;
     }
-    partnerRow.addEventListener('pointerup', partnerDragEnd);
-    partnerRow.addEventListener('pointercancel', partnerDragEnd);
+    partnerBox.addEventListener('pointerup', partnerDragEnd);
+    partnerBox.addEventListener('pointercancel', partnerDragEnd);
     /* The browser's own drag of a logo or a link would fire instead of
        ours and take the whole pointer stream with it — no pointerup, and
        no click afterwards either. */
-    partnerRow.addEventListener('dragstart', function (e) {
+    partnerBox.addEventListener('dragstart', function (e) {
       e.preventDefault();
     });
     /* A drag that happened to start on a partner must not open it, but a
-       plain click must. Six pixels is the line: below it nobody meant to
-       drag, above it nobody meant to click. */
-    partnerRow.addEventListener('click', function (e) {
+       plain click must. */
+    partnerBox.addEventListener('click', function (e) {
       if (dragMoved > DRAG_MIN) {
         e.preventDefault();
         e.stopPropagation();
@@ -301,45 +353,86 @@
       dragMoved = 0;
     }, true);
 
-    /* Stepping mode: one partner at a time, right to left, with a wait
-       in between. Continuous mode needs nothing here; "none" needs
-       nothing anywhere. */
-    if (partnerRow.getAttribute('data-motion') === 'step' &&
-        !stillPlease.matches) {
-      var stepEvery = parseInt(
-        partnerRow.getAttribute('data-step-seconds'), 10);
-      if (!stepEvery || stepEvery < 1) stepEvery = 4;
-      var cards = partnerRow.querySelectorAll(
-        '.partner-set:not([aria-hidden]) .partner-card');
-      var stepIndex = 0;
-      var held = false;
-      var hold = function () { held = true; };
-      var release = function () { held = false; };
-      partnerRow.addEventListener('mouseenter', hold);
-      partnerRow.addEventListener('mouseleave', release);
-      partnerRow.addEventListener('focusin', hold);
-      partnerRow.addEventListener('focusout', release);
+    /* ---- pause for anybody reading */
+    function partnerHold() { held = true; }
+    function partnerRelease() { held = false; }
+    partnerBox.addEventListener('mouseenter', partnerHold);
+    partnerBox.addEventListener('mouseleave', partnerRelease);
+    partnerBox.addEventListener('focusin', partnerHold);
+    partnerBox.addEventListener('focusout', partnerRelease);
+    if (window.IntersectionObserver) {
+      new IntersectionObserver(function (entries) {
+        onScreen = entries[0].isIntersecting;
+      }, { threshold: 0 }).observe(partnerBox);
+    }
 
-      var stepOnce = function () {
-        if (held || dragging || !cards.length) return;
-        var card = cards[0].getBoundingClientRect();
-        var gap = parseFloat(getComputedStyle(partnerTrack).columnGap) || 0;
-        var advance = card.width + gap;
-        if (stepIndex >= cards.length) {
-          /* One whole set has passed, and the copy behind it is showing
-             exactly what the start of the row shows — so jump back with
-             no transition and nobody sees the join. */
-          partnerTrack.style.transition = 'none';
-          partnerTrack.style.transform = 'translateX(0px)';
-          void partnerTrack.offsetWidth;
-          partnerTrack.style.transition = '';
-          stepIndex = 0;
+    /* ---- the arrows, for a row that is standing still */
+    function arrowScroll(direction) {
+      partnerBox.scrollBy({
+        left: direction * (cardStride() || 260),
+        behavior: stillPlease.matches ? 'auto' : 'smooth'
+      });
+    }
+    function refreshArrows() {
+      var scrollable = partnerBox.scrollWidth > partnerBox.clientWidth + 1;
+      var wanted = !moves && scrollable;
+      partnerWrap.classList.toggle('has-arrows', wanted);
+      for (var i = 0; i < partnerArrows.length; i++) {
+        partnerArrows[i].hidden = !wanted;
+      }
+      if (!wanted) return;
+      var left = partnerBox.scrollLeft;
+      var max = partnerBox.scrollWidth - partnerBox.clientWidth;
+      partnerWrap.querySelector('.partner-arrow-prev').disabled = left <= 1;
+      partnerWrap.querySelector('.partner-arrow-next').disabled =
+        left >= max - 1;
+    }
+    for (var a = 0; a < partnerArrows.length; a++) {
+      partnerArrows[a].addEventListener('click', function (e) {
+        arrowScroll(this.classList.contains('partner-arrow-next') ? 1 : -1);
+        e.preventDefault();
+      });
+    }
+    partnerBox.addEventListener('scroll', refreshArrows);
+    window.addEventListener('resize', refreshArrows);
+    refreshArrows();
+
+    /* ---- continuous drift */
+    if (moves && partnerMode === 'scroll') {
+      partnerWrap.classList.add('is-moving');
+      driftAt = partnerBox.scrollLeft;
+      var driftLast = 0;
+      var driftStep = function (now) {
+        driftFrame = window.requestAnimationFrame(driftStep);
+        if (!driftLast) { driftLast = now; return; }
+        var seconds = (now - driftLast) / 1000;
+        driftLast = now;
+        if (held || dragging || !onScreen || seconds > 0.5) return;
+        /* If anything else moved the row — a swipe, an arrow, a Tab —
+           carry on from where it left it rather than fighting it. */
+        if (Math.abs(partnerBox.scrollLeft - driftAt) > 1.5) {
+          driftAt = partnerBox.scrollLeft;
         }
-        stepIndex += 1;
-        partnerTrack.style.transform =
-          'translateX(' + (-stepIndex * advance) + 'px)';
+        driftAt = wrapped(driftAt + DRIFT_PER_SECOND * seconds);
+        partnerBox.scrollLeft = driftAt;
       };
-      setInterval(stepOnce, stepEvery * 1000);
+      driftFrame = window.requestAnimationFrame(driftStep);
+    }
+
+    /* ---- stepping: one partner at a time, with a wait in between */
+    if (moves && partnerMode === 'step') {
+      partnerWrap.classList.add('is-moving');
+      var every = parseInt(partnerWrap.getAttribute('data-step-seconds'), 10);
+      if (!every || every < 1) every = 4;
+      window.setInterval(function () {
+        if (held || dragging || !onScreen) return;
+        var stride = cardStride();
+        if (!stride) return;
+        if (partnerBox.scrollLeft + stride >= setStride()) {
+          partnerBox.scrollLeft = wrapped(partnerBox.scrollLeft);
+        }
+        partnerBox.scrollBy({ left: stride, behavior: 'smooth' });
+      }, every * 1000);
     }
   }
 </script>
