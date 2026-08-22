@@ -930,6 +930,22 @@ Built (post-signing variation, Jul 2026):
     - The logos are deliberately NOT `loading="lazy"`: a transform does
       not reliably wake a lazy image, so tiles scrolled into view can
       stay blank. This is the one place that exception applies.
+    - The scrollbar is hidden ONLY inside
+      `@media (prefers-reduced-motion: no-preference)` — all three
+      declarations (`scrollbar-width`, `-ms-overflow-style`,
+      `::-webkit-scrollbar`) live in that block. Under `reduce` nothing
+      moves, so the scrollbar is the only thing telling a mouse user
+      there is more row to the right: hiding it there would take the
+      affordance away from exactly the people who asked for less
+      movement. Do not hoist those declarations out of the media query,
+      and do not "restore" the bar by re-styling `::-webkit-scrollbar` —
+      touching that selector at all opts Chromium into custom scrollbars
+      and then the thumb needs painting by hand.
+    - A press-and-drag with a MOUSE does not pan the row: no browser
+      does that for a scroll container. A mouse user has the wheel or
+      trackpad, the row arriving on its own, and the scrollbar under
+      reduced motion. Making drag work would mean drag-to-scroll
+      JavaScript — ask before adding it.
 - Legal pages: /privacy and /terms rendering `legal` group Blocks
   (title + multi-paragraph body, split on newlines like `about_body`),
   linked in the footer and listed in the sitemap. Core pages — not

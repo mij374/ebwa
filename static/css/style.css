@@ -1053,13 +1053,28 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
   from{transform:translateX(0)}
   to{transform:translateX(calc(-50% - var(--partner-gap) / 2))}
 }
+/* While the row is moving of its own accord, the scrollbar under it is
+   noise: the movement is the affordance, and the row still drags,
+   swipes and follows the keyboard without it. Hidden ONLY here, inside
+   `no-preference`, rather than hidden by default and un-hidden later —
+   styling ::-webkit-scrollbar at all opts Chromium into custom
+   scrollbars, so "display:none then put it back" leaves a scrollbar
+   that needs a thumb painting to be seen at all. */
+@media (prefers-reduced-motion: no-preference){
+  .partner-marquee{scrollbar-width:none;-ms-overflow-style:none}
+  .partner-marquee::-webkit-scrollbar{display:none}
+}
 /* The animation is already off under prefers-reduced-motion (the global
    rule at the top of this file). The copy set exists only to feed that
    animation, so with it off the copy is just the same logos again —
-   hide it and leave a plain scrollable row. */
+   hide it and leave a plain scrollable row.
+   The scrollbar STAYS in this mode, and that is the point: with nothing
+   moving, it is the only thing telling a mouse user there is more row to
+   the right. Hiding it here would take the affordance away from exactly
+   the people who asked for less movement. */
 @media (prefers-reduced-motion: reduce){
   .partner-set[aria-hidden="true"]{display:none}
-  .partner-marquee{scroll-snap-type:x mandatory}
+  .partner-marquee{scroll-snap-type:x mandatory;scrollbar-width:auto}
 }
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}
