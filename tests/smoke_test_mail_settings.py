@@ -190,15 +190,22 @@ client.post("/admin/login", data={"email": "netbus@example.com",
 # ---- the page shows what is in force, and where it came from
 html = settings_page()
 check("page lists the effective host", "env.example.org" in html)
-check("page marks env values as coming from the server",
-      "Server (SMTP_HOST)" in html, html[:0])
+check("each field is tagged with where its value comes from",
+      "Server (SMTP_HOST)" in html and "Server (SMTP_PASSWORD)" in html
+      and "Coming from" not in html)
 check("page names the password variable", "SMTP_PASSWORD" in html)
 check("PASSWORD IS NEVER RENDERED", SECRET not in html)
-check("password shown only as set/not set", "••••••••" in html)
+check("password shown as set/not set, not as dots",
+      "Password set" in html and "••••••••" not in html)
 check("the SMTP password field is a password field",
       'id="smtp_password"' in html and 'type="password"' in html)
-check("page explains the server fallback for when it is unreachable",
-      "Setting it on the server instead" in html)
+# Collapse whitespace first: the phrase wraps across source lines, and a
+# test that breaks when someone re-wraps a paragraph is a test that will
+# be deleted rather than fixed.
+flat = " ".join(html.split())
+check("one line notes the environment fallback, without the steps",
+      "still works as a fallback" in flat
+      and "Setting it on the server instead" not in flat)
 
 # ---- saving through the web takes effect
 r = save(host="ui.example.org", port="465", user="ui-user", security="ssl",
