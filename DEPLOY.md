@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-22 — Server health panel
+## ea3ecdc — 2026-08-22 — Server health panel
 
 **No schema change**, no new settings. One new package:
 
