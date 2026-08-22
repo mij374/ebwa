@@ -314,6 +314,12 @@ Built and maintained by Netbus IT Support.
   one still opens the photograph. Keep it that way — no library, no
   build step, and no `<img src="">` (an empty src re-fetches the page
   itself).
+  - Closing on an outside click is decided by what the click LANDED ON —
+    "not the photo and not a control" — never by `event.target === box`.
+    The figure covers the middle of the overlay and the caption sits
+    inside it, so testing for the backdrop element left the gap under a
+    wide photo, the space beside a tall one, and the caption looking
+    exactly like backdrop but dead to the click.
 - Every `<img>` needs its box reserved before the bytes arrive
   (`aspect-ratio` or explicit width/height in the stylesheet), or the
   page reflows as photos load. Check this when adding an image class.
