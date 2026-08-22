@@ -137,16 +137,42 @@
   <div class="wrap">
     <p class="eyebrow">Our partners <span class="bn">· সহযোগী সংস্থা</span></p>
     <h2>Working together for Enfield</h2>
-    <div class="partner-grid">
-      {% for pt in partners %}
+    {#- One card, used by both the static row and the scroller. The copy
+        set passes duplicate=true: it is decoration, so it is hidden from
+        screen readers and taken out of the tab order.
+        These logos are deliberately NOT loading="lazy": inside the
+        scroller they are moved into view by a transform, which does not
+        reliably wake a lazy image, and a partner wall with blank tiles
+        scrolling through it is worse than fetching a few 200x100
+        thumbnails. The box is reserved by width/height either way. -#}
+    {% macro partner_card(pt, duplicate=false) %}
       {% set body %}
-        {% if pt.shows_logo %}<img class="partner-logo" src="{{ thumb_url(pt.logo) }}" alt="{{ pt.name }}">{% endif %}
+        {% if pt.shows_logo %}<img class="partner-logo" src="{{ thumb_url(pt.logo) }}" alt="{{ '' if duplicate else pt.name }}" width="200" height="100">{% endif %}
         {% if pt.shows_text %}<b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}{% endif %}
       {% endset %}
-      {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener">{{ body }}</a>
+      {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener"{% if duplicate %} tabindex="-1"{% endif %}>{{ body }}</a>
       {% else %}<div class="partner-card">{{ body }}</div>{% endif %}
-      {% endfor %}
+    {% endmacro %}
+    {% if partners|length > 4 %}
+    {#- More than four: a scroller rather than a wrapping grid. The
+        movement is CSS only, pauses on hover and on focus, and is off
+        entirely under prefers-reduced-motion (the global rule at the top
+        of the stylesheet), leaving a row that can still be dragged. -#}
+    <div class="partner-marquee" style="--partner-count:{{ partners|length }}">
+      <div class="partner-track">
+        <div class="partner-set">
+          {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
+        </div>
+        <div class="partner-set" aria-hidden="true">
+          {% for pt in partners %}{{ partner_card(pt, duplicate=true) }}{% endfor %}
+        </div>
+      </div>
     </div>
+    {% else %}
+    <div class="partner-grid">
+      {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
+    </div>
+    {% endif %}
   </div>
 </section>
 {% endif %}

@@ -365,9 +365,14 @@ class Partner(db.Model):
     blurb = db.Column(db.String(300), default="")
     logo = db.Column(db.String(255), default="")      # uploads filename
     # 'text' (name + blurb, the original look), 'image' (logo only) or
-    # 'both'. Defaults to text so existing rows look exactly as they did
-    # until someone uploads a logo and chooses otherwise.
-    display_mode = db.Column(db.String(10), nullable=False, default="text")
+    # 'both'. A NEW partner defaults to the logo, because that is what a
+    # partner row is usually for and it is the tidier wall of cards. Only
+    # the Python-side default changed: the column's own default stays
+    # 'text', so no existing row moves — and a partner whose mode says
+    # logo but has none still falls back to the name (`shows_logo`), so
+    # the default can never produce an empty card.
+    display_mode = db.Column(db.String(10), nullable=False, default="image",
+                             server_default="text")
     sort = db.Column(db.Integer, default=0)
 
     @property
@@ -5984,6 +5989,17 @@ def _suggested_alter(table_name, col):
     """
     ddl_type = col.type.compile(db.engine.dialect)
     sql = "ALTER TABLE %s ADD COLUMN %s %s" % (table_name, col.name, ddl_type)
+    # A column can deliberately give EXISTING rows one value and new ones
+    # another — Partner.display_mode backfills 'text' so partners already
+    # on the site keep the look they had, while a new partner defaults to
+    # its logo. An ALTER is about the rows already there, so a server
+    # default wins over the Python one.
+    server = getattr(getattr(col, "server_default", None), "arg", None)
+    if isinstance(server, str):
+        sql += " DEFAULT '%s'" % server
+        if not col.nullable:
+            sql = sql.replace(" DEFAULT", " NOT NULL DEFAULT")
+        return sql + ";"
     default = getattr(col.default, "arg", None)
     if col.default is not None and not callable(default):
         if isinstance(default, bool):

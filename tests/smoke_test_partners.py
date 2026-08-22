@@ -79,20 +79,35 @@ with app.app_context():
     u = User(email="admin@example.com")
     u.set_password(PW)
     db.session.add(u)
-    # A partner created before this change: no logo, no explicit mode.
+    # A partner created before any of this: no logo, mode 'text', which
+    # is what every row held before new partners started defaulting to
+    # the logo. Set explicitly, because the Python-side default has since
+    # changed and this fixture stands for a row on disk.
     legacy = Partner(name="Enfield Council", url="https://www.enfield.gov.uk",
-                     blurb="Our local authority partner")
+                     blurb="Our local authority partner",
+                     display_mode="text")
     db.session.add(legacy)
     db.session.commit()
     legacy_id = legacy.id
 
 client = app.test_client()
 
-# ---- existing rows default to text, and look exactly as before
+# ---- existing rows keep text, new ones default to the logo
 with app.app_context():
     p = db.session.get(Partner, legacy_id)
-    check("existing partner defaults to 'text'", p.display_mode == "text",
+    check("an existing partner keeps 'text'", p.display_mode == "text",
           repr(p.display_mode))
+    fresh = Partner(name="Brand New Partner")
+    db.session.add(fresh)
+    db.session.flush()
+    check("A NEW PARTNER DEFAULTS TO THE LOGO",
+          fresh.display_mode == "image", repr(fresh.display_mode))
+    check("and with no logo yet it still shows its name, not an empty card",
+          fresh.shows_text and not fresh.shows_logo)
+    db.session.rollback()
+    check("nothing else was migrated",
+          {q.display_mode for q in Partner.query.all()} == {"text"},
+          str({q.display_mode for q in Partner.query.all()}))
     check("existing partner has no logo", not p.logo, repr(p.logo))
 card = card_for(home(), "Enfield Council")
 check("text-only card shows the name",
@@ -127,6 +142,21 @@ check("the form offers every display mode", r.status_code == 200
       str(r.status_code))
 check("the form takes a file upload",
       b'enctype="multipart/form-data"' in r.data and b'name="logo"' in r.data)
+form = r.data.decode("utf-8")
+check("the new-partner form starts on 'Logo only'",
+      re.search(r'<option value="image"\s+selected', form) is not None,
+      form[form.find("display_mode"):][:400])
+check("and not on the text option",
+      re.search(r'<option value="text"\s+selected', form) is None)
+check("the upload field says what size to supply",
+      "400x200px PNG with a transparent background" in form
+      and "fitted automatically" in form)
+r = client.get("/admin/partners/%d/edit" % legacy_id)
+edit = r.data.decode("utf-8")
+check("EDITING AN EXISTING PARTNER KEEPS ITS OWN MODE",
+      re.search(r'<option value="text"\s+selected', edit) is not None
+      and re.search(r'<option value="image"\s+selected', edit) is None,
+      edit[edit.find("display_mode"):][:400])
 
 # ---- create with a logo, mode 'image'
 r = client.post("/admin/partners/new", data={
@@ -208,6 +238,66 @@ with app.app_context():
 check("logo file cleaned up with the partner", not os.path.isfile(new_path))
 check("deleted partner absent from the homepage",
       "Trust For London" not in home())
+
+# ---- four or fewer stay a static row; five or more become a scroller
+def partner_count(n):
+    """Leave exactly n partners in the database."""
+    with app.app_context():
+        for row in Partner.query.all():
+            if row.logo and os.path.isfile(os.path.join(UPLOAD_DIR, row.logo)):
+                os.remove(os.path.join(UPLOAD_DIR, row.logo))
+            db.session.delete(row)
+        db.session.commit()
+        for i in range(n):
+            db.session.add(Partner(name="Partner %d" % i,
+                                   url="https://example.org/%d" % i,
+                                   display_mode="text", sort=i))
+        db.session.commit()
+
+
+for n in (1, 4):
+    partner_count(n)
+    html = home()
+    check("%d partners: still the static row" % n,
+          'class="partner-grid"' in html and "partner-marquee" not in html)
+    check("%d partners: one card each" % n,
+          html.count('class="partner-card"') == n,
+          str(html.count('class="partner-card"')))
+
+partner_count(5)
+html = home()
+check("FIVE PARTNERS TIP INTO THE SCROLLER",
+      "partner-marquee" in html and 'class="partner-grid"' not in html)
+check("the scroller holds two sets", html.count('class="partner-set"') == 2,
+      str(html.count('class="partner-set"')))
+check("one real card and one copy per partner",
+      html.count('class="partner-card"') == 10,
+      str(html.count('class="partner-card"')))
+check("the copy is hidden from screen readers",
+      'class="partner-set" aria-hidden="true"' in html)
+check("the copy is out of the tab order",
+      html.count('tabindex="-1"') == 5, str(html.count('tabindex="-1"')))
+check("the real set is not aria-hidden and not tabindexed",
+      html.split('aria-hidden="true"')[0].count('tabindex="-1"') == 0)
+check("the count reaches the CSS, so the speed suits the row",
+      "--partner-count:5" in html, html[html.find("partner-marquee"):][:120])
+check("every partner is named once for a screen reader",
+      all(html.count(">Partner %d<" % i) + html.count('"Partner %d"' % i) >= 1
+          for i in range(5)))
+
+partner_count(9)
+html = home()
+check("nine partners: still one scroller, eighteen cards",
+      html.count('class="partner-set"') == 2
+      and html.count('class="partner-card"') == 18,
+      str(html.count('class="partner-card"')))
+check("nine partners: the duration follows the count",
+      "--partner-count:9" in html)
+
+# back to four: the scroller goes away again
+partner_count(4)
+check("dropping back to four returns the static row",
+      "partner-marquee" not in home())
 
 # ---- the Donate button follows the donations flag
 set_flag("donations", True)

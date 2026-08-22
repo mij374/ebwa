@@ -30,7 +30,9 @@
     <label for="display_mode">What the card shows</label>
     <select id="display_mode" name="display_mode">
       {% for m in modes %}
-      <option value="{{ m }}" {{ 'selected' if pt and pt.display_mode == m }}>
+      {#- A new partner starts on "Logo only"; an existing one keeps what
+          it has. -#}
+      <option value="{{ m }}" {{ 'selected' if (pt.display_mode if pt else 'image') == m }}>
         {% if m == 'text' %}Name and description{% elif m == 'image' %}Logo only{% else %}Logo, then name and description{% endif %}
       </option>
       {% endfor %}
@@ -45,8 +47,9 @@
     <p><img class="admin-thumb" src="{{ thumb_url(pt.logo) }}" alt="Current logo"></p>
     {% endif %}
     <input type="file" id="logo" name="logo" accept="image/*">
-    <small>A PNG with a transparent or white background works best.
-      Uploading a new one replaces the old.</small>
+    <small>Recommended: 400x200px PNG with a transparent background.
+      Other sizes and shapes will be fitted automatically. Uploading a
+      new one replaces the old.</small>
   </div>
 
   <div class="field">

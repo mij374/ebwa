@@ -898,6 +898,38 @@ Built (post-signing variation, Jul 2026):
   `ALTER TABLE partner ADD COLUMN logo VARCHAR(255) DEFAULT '';` and
   `ALTER TABLE partner ADD COLUMN display_mode VARCHAR(10) NOT NULL
   DEFAULT 'text';`
+  - A NEW partner defaults to 'image'; the column's `server_default`
+    stays 'text' so the ALTER above still backfills existing rows with
+    the look they had. Two different defaults on purpose — new rows get
+    the app's, rows already on disk keep theirs — which is why
+    `_suggested_alter()` prefers a server default over the Python one.
+    Never "tidy" that by migrating existing partners: a row whose mode
+    said logo when it had none would be fine (it falls back), but a row
+    that deliberately shows its name and blurb would silently lose them.
+  - Every logo renders in an IDENTICAL 200x100 box, `object-fit:
+    contain`, on a white tile with a hairline border. The tile is the
+    point: without it a transparent PNG floats on the card and a
+    white-background JPEG shows as a rectangle, and the wall of partners
+    looks like a mistake. Never crop or stretch a partner's mark to fill
+    a box — it is somebody's identity, and the admin field says what
+    size to supply (400x200 PNG, transparent).
+  - More than four partners becomes a scroller (`.partner-marquee`),
+    four or fewer stay the static `.partner-grid`. Rules for it:
+    - The movement is ONE CSS animation on the track. No script, no
+      library — a marquee is not worth a byte of JavaScript.
+    - It pauses on `:hover`, `:focus-within` and `:active`, so it stops
+      for anybody actually reading it, by pointer, keyboard or finger.
+    - The loop needs a duplicate set. That copy is decoration:
+      `aria-hidden="true"` on the set AND `tabindex="-1"` with empty alt
+      on every card inside it, or a screen reader reads the partner list
+      twice and Tab walks through phantom links.
+    - Under `prefers-reduced-motion` the animation is off (the global
+      rule at the top of the stylesheet) and the copy set is
+      `display:none`, leaving a plain scrollable row — not the same
+      logos repeated for no reason.
+    - The logos are deliberately NOT `loading="lazy"`: a transform does
+      not reliably wake a lazy image, so tiles scrolled into view can
+      stay blank. This is the one place that exception applies.
 - Legal pages: /privacy and /terms rendering `legal` group Blocks
   (title + multi-paragraph body, split on newlines like `about_body`),
   linked in the footer and listed in the sitemap. Core pages — not

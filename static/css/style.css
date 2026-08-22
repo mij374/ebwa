@@ -1005,9 +1005,61 @@ body.has-notice footer{padding-bottom:110px}
   transition:transform .15s ease, box-shadow .15s ease;
 }
 a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56,42,.10)}
+/* One box for every logo, whatever shape the file is: contain, never
+   crop or stretch. The white tile with a hairline edge is what makes a
+   transparent PNG and a white-background JPEG look like the same kind of
+   thing — without it one floats on the card and the other shows a
+   rectangle. 200x100 displayed, so a wide wordmark and a square mark
+   both sit centred in identical space. */
 .partner-logo{
-  display:block;width:100%;height:56px;margin:0 auto 10px;
-  object-fit:contain;
+  display:block;width:200px;height:100px;max-width:100%;
+  margin:0 auto 12px;padding:10px;box-sizing:border-box;
+  object-fit:contain;object-position:center;
+  background:var(--white);border:1px solid var(--line);border-radius:10px;
+}
+/* A logo-only card has nothing under the tile, so it should not carry the
+   gap meant to separate the two. */
+.partner-card .partner-logo:only-child{margin-bottom:0}
+
+/* ---------- Partners: the scroller (more than four) ----------
+   Movement is one CSS animation on the track and nothing else: no
+   script, no library. The track holds the real set and an aria-hidden
+   copy, so translating by exactly one set width loops seamlessly.
+   The container scrolls natively too, so it can be dragged or swiped,
+   and snaps to a card when let go. */
+.partner-marquee{
+  --partner-gap:18px;
+  margin-top:36px;overflow-x:auto;max-width:100%;
+  scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;padding-bottom:10px;
+}
+.partner-track{
+  display:flex;gap:var(--partner-gap);width:max-content;
+  animation:partner-scroll linear infinite;
+  animation-duration:calc(var(--partner-count, 8) * 4s);
+}
+.partner-set{display:flex;gap:var(--partner-gap)}
+.partner-marquee .partner-card{
+  flex:0 0 260px;width:260px;scroll-snap-align:center;
+}
+/* Pause for anybody reading: pointer over it, keyboard focus inside it,
+   or a finger held on it mid-drag. */
+.partner-marquee:hover .partner-track,
+.partner-marquee:focus-within .partner-track,
+.partner-marquee:active .partner-track{animation-play-state:paused}
+/* Half the gap, because the gap between the two sets is part of the
+   distance one set occupies. */
+@keyframes partner-scroll{
+  from{transform:translateX(0)}
+  to{transform:translateX(calc(-50% - var(--partner-gap) / 2))}
+}
+/* The animation is already off under prefers-reduced-motion (the global
+   rule at the top of this file). The copy set exists only to feed that
+   animation, so with it off the copy is just the same logos again —
+   hide it and leave a plain scrollable row. */
+@media (prefers-reduced-motion: reduce){
+  .partner-set[aria-hidden="true"]{display:none}
+  .partner-marquee{scroll-snap-type:x mandatory}
 }
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}
