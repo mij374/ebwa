@@ -28,6 +28,26 @@ flask --app app run --debug
 
 Site: http://127.0.0.1:5000 — Admin: http://127.0.0.1:5000/admin
 
+### Local settings: .env
+
+Copy the example and fill in what you need — the file is gitignored:
+
+```bash
+cp .env.example .env
+```
+
+`.env.example` lists **every** variable the app reads, with a note on
+each, so it doubles as the list of what there is to configure. Anything
+left out simply keeps its default: the site runs with none of it set,
+with email, payments and NAS transfers switched off accordingly.
+
+**.env is for local development only.** It is read at startup if it
+exists, does nothing when it does not, and never overrides a variable
+that is already set — so it changes nothing on the server. Production
+secrets live in `/etc/ebwa/env`, owned `root:www-data` and mode `640`,
+which systemd reads via `EnvironmentFile`. Never copy a live key into a
+`.env`, and never put a `.env` on the VPS.
+
 ### Outgoing email (optional locally, required in production)
 
 The contact form emails enquiries to EBWA. Set these in the environment —

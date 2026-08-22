@@ -51,6 +51,25 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
+# Local development only: read a .env file sitting beside this one, so a
+# developer can keep SECRET_KEY, FERNET_KEY, the SMTP password and the
+# Stripe TEST keys in a file instead of exporting shell variables.
+#
+# It happens BEFORE anything reads os.environ below, does nothing when
+# there is no .env, and never overrides a variable that is already set —
+# so the VPS, which gets its environment from systemd's EnvironmentFile,
+# behaves exactly as it did. Production secrets live in /etc/ebwa/env and
+# nowhere near this repository.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             ".env"), override=False)
+except ImportError:
+    # python-dotenv is in requirements.txt, but a deploy that pulls the
+    # code before pip install must still start rather than crash on an
+    # import — it simply reads the environment it was given.
+    pass
+
 # Where this install lives on its server. NOTHING reads or writes these
 # paths — they exist so the admin can print accurate instructions (the
 # "how to change the SMTP password" box on Settings). A deployment

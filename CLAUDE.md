@@ -120,6 +120,15 @@ Built and maintained by Netbus IT Support.
     rewritten when it is too wide, carries EXIF, or would be at least a
     tenth smaller — "any saving at all" would re-encode the same JPEGs
     on every run and degrade them a little each time.
+- Configuration: `app.py` loads a `.env` beside it at startup, before
+  anything reads `os.environ`, with `override=False` — so a variable
+  already in the environment always wins. **This is a local-development
+  convenience only.** Production secrets live in `/etc/ebwa/env` (mode
+  640, root:www-data), read by systemd's `EnvironmentFile`; the VPS has
+  no `.env` and is unaffected by this. `.env` is gitignored;
+  `.env.example` is committed and must list EVERY variable the app
+  reads — it is the only complete inventory of them, so add to it in the
+  same commit that adds a variable.
 - Email: everything outbound goes through `send_mail(to, subject, body,
   reply_to=None)`. Membership and ticketing will use it as it stands.
   - **It never raises.** Callers save the visitor's data FIRST and send
