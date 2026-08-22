@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-22 — Collections listing page
+## a4b8783 — 2026-08-22 — Collections listing page
 
 **Nothing to run.** A new public page at `/collections`, plus template
 and stylesheet changes — no tables, no columns, no new seeded rows.
