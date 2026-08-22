@@ -40,6 +40,11 @@
             <li><a href="{{ url_for('about') }}">About EBWA</a></li>
             {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
             {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
+            {#- The resources directory is something EBWA gives to people
+                who need help, not something a visitor does to support
+                EBWA — it belongs with who we are, not with volunteering
+                and donating. -#}
+            {% if features.resources %}<li><a href="{{ url_for('resources') }}">Community resources</a></li>{% endif %}
           </ul>
         </li>
         <li class="nav-group">
@@ -55,7 +60,6 @@
           <ul class="nav-drop">
             {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Become a member</a></li>{% endif %}
             {% if features.donations %}<li><a href="{{ url_for('collections') }}">Support a collection</a></li>{% endif %}
-            {% if features.resources %}<li><a href="{{ url_for('resources') }}">Community resources</a></li>{% endif %}
             <li><a href="{{ url_for('contact') }}">Contact us</a></li>
           </ul>
         </li>
@@ -106,13 +110,16 @@
       <div>
         <h4>Quick links</h4>
         <ul>
+          {#- Same order as the menu: about us, what's on, get involved.
+              Two lists in different orders is two things to keep in
+              step, and one of them will drift. -#}
           <li><a href="{{ url_for('about') }}">About us</a></li>
+          {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
+          {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
+          {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
           <li><a href="{{ url_for('events') }}">Events</a></li>
           {% if features.news %}<li><a href="{{ url_for('news') }}">News</a></li>{% endif %}
-          {% if features.resources %}<li><a href="{{ url_for('resources') }}">Resources</a></li>{% endif %}
-          {% if features.our_journey %}<li><a href="{{ url_for('journey') }}">Our Journey</a></li>{% endif %}
           <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
-          {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
           {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join us</a></li>{% endif %}
           {% if features.donations %}<li><a href="{{ url_for('collections') }}">Collections</a></li>{% endif %}
           <li><a href="{{ url_for('contact') }}">Contact</a></li>

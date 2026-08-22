@@ -507,6 +507,20 @@ Built and maintained by Netbus IT Support.
     join the row. Ten flat items had filled the row and each addition
     was buying space from something else, which is what the grouping
     ended.
+  - What each group MEANS, because that decides where a new page goes:
+    - **About us** — who EBWA is and what it offers: About, Our Journey,
+      FAQ, and the community resources directory.
+    - **What's on** — what is happening: events, news, gallery.
+    - **Get involved** — what a VISITOR DOES to support EBWA:
+      membership, collections, contact (and Donate beside it).
+    Community resources sat under Get involved and was moved: the
+    directory is a service EBWA provides to people who may need help, and
+    filing it beside volunteering and donating asks something of the
+    reader at the moment they are looking for support. Group by what the
+    page is FOR, not by which list has room.
+  - The footer's quick links carry the same items in the same order as
+    the menu. Two lists in different orders is two things to keep in
+    step, and one of them drifts.
   - Every group trigger is a real link to a CORE page (`about`,
     `events`, `contact` — none of them flaggable), so a click always
     lands somewhere and a group can never end up empty. Dropdown items
