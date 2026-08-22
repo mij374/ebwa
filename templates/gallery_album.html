@@ -114,9 +114,16 @@
   document.getElementById('lightboxNext').addEventListener('click', function () {
     show(current + 1);
   });
+  // Anything that is not the photograph or a control closes it. The old
+  // rule was "did the click land on the backdrop ELEMENT", which missed
+  // every part of the overlay covered by the figure: the gap under a
+  // wide photo, the space either side of a tall one, and the caption —
+  // all of which look like backdrop and were dead to the click.
+  var KEEPS_OPEN = '#lightboxImage, .lightbox-nav, .lightbox-close';
   box.addEventListener('click', function (event) {
-    // Only the backdrop closes; clicks on the photo or the buttons stay.
-    if (event.target === box) { close(); }
+    var target = event.target;
+    if (target && target.closest && target.closest(KEEPS_OPEN)) { return; }
+    close();
   });
 
   document.addEventListener('keydown', function (event) {
