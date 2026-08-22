@@ -677,6 +677,31 @@ It needs a browser so it is NOT part of the smoke suite (`smoke_test_*`);
 run it by hand after touching the header, nav or breakpoints:
 `python tests/check_header_layout.py [--shots DIR]`.
 
+`tests/check_partner_marquee.py` is the other behavioural one, for the
+partner scroller — the half of it that only a browser can answer, the
+markup half staying in `tests/smoke_test_partners.py`. It drives the row
+at all six widths and at 5/7/9 partners and asserts the loop closes with
+NO GAP (measured as a reader sees it — cards clipped to the visible
+strip, widest empty run found — at rest and after each of a drag, a
+wheel and a Tab, the three things that used to open one), that a step is
+exactly one card plus one gap and then rests, the pause on hover and
+focus, drag-to-scroll not swallowing the click while a sub-threshold
+wobble still opens the partner, the arrows appearing only for a still
+row with somewhere to go, a touch swipe still panning, and every mode
+falling back to still under reduced motion. Run it after touching the
+row, its script or `PARTNER_MOTIONS`:
+`python tests/check_partner_marquee.py [--shots DIR]`. Three things it
+knows that are easy to rediscover the hard way: Playwright's Chromium
+has OVERLAY scrollbars, so hiding one frees no layout space and only the
+computed `scrollbar-width` means anything; a smooth `scrollBy` is still
+gliding on the next line, so positions are read through `settle()`
+rather than after a guessed timeout; and click coordinates come from the
+widest VISIBLE slice of a card, since a fixed offset lands in the gap
+between two cards at some widths and a card is wider than the strip at
+390px. Touch is driven with raw `Input.dispatchTouchEvent` over CDP —
+`Input.synthesizeScrollGesture` moves nothing at all in this headless
+build, in either direction.
+
 Every browser check runs STILL by default — `prefers-reduced-motion:
 reduce`, set per context through `tests/browser_motion.py`
 (`new_page()` / `new_context()`). Rules for it:
@@ -694,12 +719,16 @@ reduce`, set per context through `tests/browser_motion.py`
 - Still is the DEFAULT and is passed explicitly, never left to
   Chromium's own default, so what the check assumes is written where the
   page is opened.
-- **A check testing motion itself asks for `MOVING` at the check** — the
-  partners marquee, whose drift, stepping and arrow-swapping are the
-  behaviour under test. Inheriting the still default there would pass
-  while measuring a row that never moved, and under reduced motion the
-  stylesheet also hides the duplicate `.partner-set` and turns snapping
-  back on, so the thing being asserted is not even on the page.
+- **A check testing motion itself asks for `MOVING` at the check** —
+  `tests/check_partner_marquee.py`, whose drift, stepping and
+  arrow-swapping are the behaviour under test. Inheriting the still
+  default there would pass while measuring a row that never moved, and
+  under reduced motion the stylesheet also hides the duplicate
+  `.partner-set` and turns snapping back on, so the thing being asserted
+  is not even on the page. That file mixes both on purpose: MOVING for
+  the drift and the steps, STILL for the drag, the arrows and the touch
+  pan — which is the state those are about, and which stops the row
+  sliding under the pointer while the check measures it.
 - It is a CONTEXT option and not a launch flag (`--force-prefers-
   reduced-motion`) on purpose: a launch flag is the whole browser, so
   the motion-enabled checks could not opt out, and the choice would stop
