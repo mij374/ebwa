@@ -59,6 +59,35 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-22 — Server health panel
+
+**No schema change**, no new settings. One new package:
+
+```bash
+pip install -r requirements.txt      # adds psutil
+sudo systemctl restart ebwa
+```
+
+The panel works without psutil — it falls back to `/proc` and
+`os.statvfs` — but with it installed the memory, load and network figures
+are read the same way on every platform, so install it.
+
+It reads the machine and nothing else: no restart button, no logs, no
+commands. The one thing it runs is `systemctl is-active` on the `ebwa`
+and `nginx` units, with the names fixed at startup rather than taken from
+a request. Nothing here needs sudo, and the service user needs no new
+permissions.
+
+Worth a look after deploying: Settings → Server health should show real
+figures for memory and load (rather than "not available here"), both
+services active, and the schema up to date.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## a4b8783 — 2026-08-22 — Collections listing page
 
 **Nothing to run.** A new public page at `/collections`, plus template

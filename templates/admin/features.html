@@ -367,6 +367,116 @@
     hammering a NAS that is switched off.</small>
 </div>
 
+<h2 class="admin-stats-head">Server health</h2>
+<p class="admin-sub">A window on the machine, nothing more. There are no
+  buttons here that do anything to it — restarts, logs and everything else
+  that acts stay on SSH, where they can be seen and undone.</p>
+
+<div class="health-grid" id="healthPanel">
+  <div class="health-card is-{{ health.cpu.level }}">
+    <h3>Processor</h3>
+    {% if health.cpu.load %}
+    <b data-health="cpu.load.0">{{ '%.2f'|format(health.cpu.load[0]) }}</b>
+    <span>load on {{ health.cpu.cores }} core{{ '' if health.cpu.cores == 1 else 's' }}
+      — <span data-health="cpu.per_core">{{ '%.2f'|format(health.cpu.per_core) }}</span> per core</span>
+    <em>5 min {{ '%.2f'|format(health.cpu.load[1]) }} · 15 min {{ '%.2f'|format(health.cpu.load[2]) }}</em>
+    {% else %}
+    <b>{{ health.cpu.cores or '—' }}</b>
+    <span>cores</span>
+    <em>Load average is not available on this machine.</em>
+    {% endif %}
+  </div>
+
+  <div class="health-card is-{{ health.memory.level }}">
+    <h3>Memory</h3>
+    {% if health.memory.total %}
+    <b data-health="memory.percent">{{ health.memory.percent }}%</b>
+    <span>{{ health.memory.used|filesize }} of {{ health.memory.total|filesize }} used</span>
+    <em>{{ health.memory.available|filesize }} available</em>
+    {% else %}
+    <b>—</b><span>not available here</span>
+    <em>Needs psutil or /proc — both present on the server.</em>
+    {% endif %}
+  </div>
+
+  <div class="health-card is-{{ health.disk.level }}">
+    <h3>Disk</h3>
+    {% if health.disk.total %}
+    <b data-health="disk.percent">{{ health.disk.percent }}%</b>
+    <span>{{ health.disk.used|filesize }} of {{ health.disk.total|filesize }} used</span>
+    <em>{{ health.disk.free|filesize }} free</em>
+    {% else %}
+    <b>—</b><span>not available here</span>
+    {% endif %}
+  </div>
+
+  <div class="health-card">
+    <h3>What this site holds</h3>
+    <ul class="health-list">
+      <li>Database <b>{{ health.disk.database|filesize }}</b></li>
+      <li>Uploads <b>{{ health.disk.uploads|filesize }}</b> ({{ health.disk.upload_files }} files)</li>
+      <li>Backups <b>{{ health.disk.backups|filesize }}</b> ({{ health.disk.backup_files }} files)</li>
+    </ul>
+  </div>
+
+  <div class="health-card">
+    <h3>Services</h3>
+    <ul class="health-list">
+      {% for svc in health.services %}
+      <li>
+        {{ svc.unit }}
+        {% if svc.state == 'active' %}<span class="pill pill-green">Active</span>
+        {% elif svc.state == 'inactive' %}<span class="pill pill-red">Not running</span>
+        {% else %}<span class="pill pill-grey">Unknown</span>{% endif %}
+        {% if svc.note %}<small>{{ svc.note }}</small>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="health-card">
+    <h3>Uptime</h3>
+    <ul class="health-list">
+      <li>Server booted <b>{{ health.uptime.boot|uk_datetime if health.uptime.boot else 'unknown' }}</b></li>
+      <li>Website started <b>{{ health.uptime.app_started|uk_datetime }}</b></li>
+    </ul>
+  </div>
+
+  <div class="health-card">
+    <h3>Network since boot</h3>
+    {% if health.network.received is not none %}
+    <ul class="health-list">
+      <li>In <b>{{ health.network.received|filesize }}</b></li>
+      <li>Out <b>{{ health.network.sent|filesize }}</b></li>
+    </ul>
+    {% else %}
+    <b>—</b><span>not available here</span>
+    {% endif %}
+    {# True whether or not the counters can be read, so it is said
+       either way. #}
+    <em>No speed test: that would mean running traffic on this server to
+      make a number.</em>
+  </div>
+
+  <div class="health-card is-{{ 'green' if health.schema.ok else 'red' }}">
+    <h3>Software</h3>
+    <ul class="health-list">
+      <li>Version <b>{{ health.version or 'unknown' }}</b></li>
+      <li>Python <b>{{ health.python }}</b></li>
+      <li>System <b>{{ health.system }}</b></li>
+      <li>Schema
+        {% if health.schema.ok %}<b>up to date</b> ({{ health.schema.tables }} tables)
+        {% else %}<b class="health-bad">behind the code</b>
+          — {{ (health.schema.missing_tables + health.schema.missing_columns)|join(', ') }}
+        {% endif %}
+      </li>
+    </ul>
+  </div>
+</div>
+
+<p class="admin-sub" id="healthChecked">Read {{ health.checked_at|uk_datetime }}.
+  <label class="health-auto"><input type="checkbox" id="healthAuto"> Refresh every 30 seconds</label></p>
+
 <h2 class="admin-stats-head">Optional modules</h2>
 {# Scrolls in its own box on a phone: the descriptions are long and the
    action column cannot wrap, and a table has no business dragging the
@@ -394,4 +504,59 @@
   </tbody>
 </table>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var toggle = document.getElementById('healthAuto');
+  var stamp = document.getElementById('healthChecked');
+  if (!toggle || !stamp) { return; }
+  var timer = null;
+
+  function paint(data) {
+    // Only ever writes text into fields it owns; the panel has no
+    // controls, so there is nothing here that could act on the server.
+    var nodes = document.querySelectorAll('[data-health]');
+    for (var i = 0; i < nodes.length; i++) {
+      var path = nodes[i].getAttribute('data-health').split('.');
+      var value = data;
+      for (var j = 0; j < path.length && value !== null
+           && value !== undefined; j++) {
+        value = value[path[j]];
+      }
+      if (value === null || value === undefined) { continue; }
+      nodes[i].textContent = path[0] === 'cpu' ? Number(value).toFixed(2)
+                                               : value + '%';
+    }
+    var levels = {memory: data.memory.level, disk: data.disk.level,
+                  cpu: data.cpu.level};
+    var cards = document.querySelectorAll('.health-card');
+    var keys = ['cpu', 'memory', 'disk'];
+    for (var k = 0; k < keys.length; k++) {
+      if (cards[k] && levels[keys[k]]) {
+        cards[k].className = 'health-card is-' + levels[keys[k]];
+      }
+    }
+    stamp.firstChild.nodeValue = 'Read ' + data.checked_at + '. ';
+  }
+
+  function refresh() {
+    fetch('{{ url_for("admin_health_json") }}', {credentials: 'same-origin'})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && !data.error) { paint(data); } })
+      .catch(function () { /* a failed refresh is not worth a message */ });
+  }
+
+  toggle.addEventListener('change', function () {
+    if (toggle.checked) {
+      refresh();
+      timer = setInterval(refresh, 30000);
+    } else if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  });
+})();
+</script>
 {% endblock %}

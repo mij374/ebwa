@@ -187,6 +187,31 @@ Built and maintained by Netbus IT Support.
     answers them directly. There is deliberately NO auto-reply to the
     enquirer yet: it needs a decision on wording and on what happens
     when it bounces. Worth adding — ask before building it.
+- Server health panel (Settings, super admins only) — **READ-ONLY, and
+  that is a hard boundary, not a current state of things**:
+  - No restart button, no service control, no log tailing, no shell, no
+    file browser, no command execution of any kind. Anything that ACTS
+    stays on SSH, where it is visible and reversible. If somebody asks
+    for a restart button, the answer is no: a website that can restart
+    its own server is a website whose next vulnerability restarts the
+    server.
+  - **No value from a request may reach a shell, a path or a unit name.**
+    The JSON endpoint takes no parameters at all, which is the simplest
+    way to guarantee it. The two units come from `HEALTH_UNITS`, fixed at
+    startup from the environment.
+  - The one command it runs is `systemctl is-active --quiet <unit>` with
+    a fixed argv list, `shell=False` and a three-second timeout. That is
+    the whole exception, and it exists because reading systemd's state
+    any other way needs a D-Bus dependency for the same answer.
+  - Metrics come from psutil where it is installed, and from `/proc`,
+    `os.statvfs` and `shutil.disk_usage` where it is not. **Every metric
+    degrades to None with a note rather than raising** — a development
+    box has no `/proc` and no systemd, and the panel is not worth a 500
+    on the settings page.
+  - No speed test, ever: it would mean putting traffic on a client's
+    server to produce a number nobody acts on.
+  - The auto-refresh is opt-in, every 30 seconds, and rate limited like
+    everything else that reads the machine.
 - Backups: `run_backup()` writes a database snapshot (through sqlite3's
   own backup API, so it is consistent while the site is serving) plus
   every upload into one timestamped zip in `BACKUP_DIR`, and records a
@@ -684,6 +709,12 @@ thumbnails, `thumb_url()`/`upload_url()` template helpers and the
 photographs straight off a phone: 8,915 KB of images before, 926 KB
 after (90% less). Deploy: `pip install -r requirements.txt` for Pillow,
 then `flask --app app reprocess-images` once.
+
+Server health panel (rules above): read-only CPU, memory, disk, uptime,
+service state, network counters, version and schema state on the
+super-admin Settings page, with an opt-in 30-second refresh from
+`/admin/settings/health.json`. Deploy: `pip install -r requirements.txt`
+for psutil — the panel works without it, with fewer numbers.
 
 NAS transfer (rules above): paramiko SFTP upload of each archive over
 Tailscale, settings and an encrypted password on the Settings page,

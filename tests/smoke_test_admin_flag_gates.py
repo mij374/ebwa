@@ -62,6 +62,12 @@ def drop_flag(name):
         db.session.commit()
 
 
+def super_admin_only(endpoint):
+    """Is this endpoint Netbus-only? Asked of the view, not a list here."""
+    view = app.view_functions.get(endpoint)
+    return bool(getattr(view, "_super_admin_only", False))
+
+
 def admin_get_routes():
     """Every GET-able /admin page, as URLs, from the URL MAP itself.
 
@@ -113,10 +119,19 @@ check("every gate names a real flag",
 client.post("/admin/login", data={"email": "client@example.com",
                                   "password": PW})
 
+# ---- the Netbus-only routes really are refused, so skipping them below
+# is a statement about them and not a hole in this test
+super_only = [(e, r) for e, r in ROUTES if super_admin_only(e)]
+check("some routes are marked Netbus-only", len(super_only) >= 3,
+      str(super_only))
+for endpoint, rule in super_only:
+    check("client admin refused %s" % rule,
+          client.get(rule).status_code == 403, str(rule))
+
 # ---- with every flag ON, a client admin can reach the ordinary pages
 for endpoint, rule in ROUTES:
-    if endpoint in ("admin_features", "admin_users"):
-        continue                      # super-admin only, by design
+    if super_admin_only(endpoint):
+        continue                      # Netbus-only, by design
     status = client.get(rule).status_code
     check("flags on: %s reachable" % rule, status == 200, str(status))
 
@@ -125,7 +140,7 @@ for flag in sorted(FEATURE_DEFAULTS):
     set_flag(flag, False)
     gated = [e for e, f in ADMIN_FLAG_GATES.items() if f == flag]
     for endpoint, rule in ROUTES:
-        if endpoint in ("admin_features", "admin_users"):
+        if super_admin_only(endpoint):
             continue
         status = client.get(rule).status_code
         if endpoint in gated:
@@ -142,7 +157,7 @@ for flag in sorted(FEATURE_DEFAULTS):
 for flag in FEATURE_DEFAULTS:
     set_flag(flag, False)
 for endpoint, rule in ROUTES:
-    if endpoint in ("admin_features", "admin_users"):
+    if super_admin_only(endpoint):
         continue
     status = client.get(rule).status_code
     expected = 403 if endpoint in ADMIN_FLAG_GATES else 200

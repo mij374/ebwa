@@ -17,11 +17,13 @@ import io
 import json
 import os
 import re
+import platform
 import secrets
 import shutil
 import smtplib
 import socket
 import sqlite3
+import subprocess
 import ssl
 import time
 import uuid
@@ -42,8 +44,8 @@ from PIL import Image, ImageOps
 from cryptography.fernet import Fernet
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, abort, send_from_directory, has_request_context,
-                   session as flask_session)
+                   flash, abort, jsonify, send_from_directory,
+                   has_request_context, session as flask_session)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          login_required, current_user)
@@ -1325,7 +1327,12 @@ def super_admin_required(fn):
         if not current_user.is_super_admin:
             abort(403)
         return fn(*args, **kwargs)
-    return login_required(wrapper)
+    guarded = login_required(wrapper)
+    # Marked so a test can ask which routes are Netbus-only rather than
+    # keeping a hand-written list that goes stale the moment somebody
+    # adds a page.
+    guarded._super_admin_only = True
+    return guarded
 
 
 # ------------------------------------------------------------ audit log
@@ -1459,6 +1466,9 @@ RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     # plenty, and the nightly cron does the rest.
     "backup": (2, 3600),
     "sftp_test": (5, 3600),   # a connection test is cheap, but not free
+    # The health panel refreshes every 30s; this allows that with room to
+    # spare and still stops the endpoint being hammered.
+    "health": (180, 3600),
 }
 _rate_buckets = {}       # (scope, ip) -> [attempt timestamps]
 
@@ -2346,6 +2356,268 @@ def transfer_with_retry(run):
                         % (run.filename, run.transfer_attempts or 0,
                            run.transfer_error)))
     return False
+
+
+# --------------------------------------------------------- server health
+# A READ-ONLY window on the machine, for the super admin who gets the
+# call when something is slow. See CLAUDE.md for the constraints; the
+# short version is that nothing here acts. No restart, no service
+# control, no log tailing, no command execution beyond the one fixed
+# `systemctl is-active` below, and no value from a request ever reaches a
+# shell, a path or a unit name.
+#
+# Everything degrades: a metric that cannot be read on this machine —
+# Windows in development, a container without /proc — comes back None and
+# the panel says "not available here" rather than the page erroring.
+APP_STARTED_AT = datetime.utcnow()
+HEALTH_UNITS = (DEPLOY_SERVICE, "nginx")   # fixed at startup, never from a
+# request
+SYSTEMCTL_TIMEOUT = 3
+
+
+def _psutil():
+    """psutil if it is installed, else None. It is in requirements, but
+    the panel must not be the reason a deploy that skipped pip install
+    cannot start."""
+    try:
+        import psutil
+        return psutil
+    except ImportError:
+        return None
+
+
+def health_cpu():
+    ps = _psutil()
+    cores = os.cpu_count()
+    load = None
+    if hasattr(os, "getloadavg"):
+        try:
+            load = [round(v, 2) for v in os.getloadavg()]
+        except OSError:
+            load = None
+    elif ps is not None and hasattr(ps, "getloadavg"):
+        try:
+            load = [round(v, 2) for v in ps.getloadavg()]
+        except Exception:
+            load = None
+    # Load against cores is the only reading that means anything: 4.0 is
+    # a quiet afternoon on eight cores and a queue on one.
+    per_core = round(load[0] / cores, 2) if load and cores else None
+    return {"cores": cores, "load": load, "per_core": per_core,
+            "level": _level(per_core * 100 if per_core is not None else None,
+                            amber=70, red=100)}
+
+
+def health_memory():
+    ps = _psutil()
+    if ps is not None:
+        try:
+            mem = ps.virtual_memory()
+            return {"total": mem.total, "used": mem.total - mem.available,
+                    "available": mem.available,
+                    "percent": round(mem.percent, 1),
+                    "level": _level(mem.percent, amber=80, red=92)}
+        except Exception:
+            pass
+    info = _meminfo()          # /proc/meminfo, where there is one
+    if not info:
+        return {"total": None, "used": None, "available": None,
+                "percent": None, "level": "unknown"}
+    total, available = info["MemTotal"], info.get("MemAvailable", 0)
+    used = total - available
+    percent = round(used * 100.0 / total, 1) if total else None
+    return {"total": total, "used": used, "available": available,
+            "percent": percent, "level": _level(percent, amber=80, red=92)}
+
+
+def _meminfo():
+    """/proc/meminfo as bytes, or {} where there is no /proc."""
+    try:
+        with open("/proc/meminfo", "r") as fh:
+            out = {}
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].isdigit():
+                    out[parts[0].rstrip(":")] = int(parts[1]) * 1024
+            return out
+    except OSError:
+        return {}
+
+
+def health_disk():
+    """The filesystem holding the app, plus what this app puts on it."""
+    try:
+        usage = shutil.disk_usage(BASE_DIR)
+        percent = round(usage.used * 100.0 / usage.total, 1) \
+            if usage.total else None
+        disk = {"total": usage.total, "used": usage.used,
+                "free": usage.free, "percent": percent,
+                "level": _level(percent, amber=80, red=92)}
+    except OSError:
+        disk = {"total": None, "used": None, "free": None, "percent": None,
+                "level": "unknown"}
+    paths = backup_paths()
+    database = (os.path.getsize(paths["database"])
+                if paths["database"] and os.path.isfile(paths["database"])
+                else 0)
+    uploads, upload_files = _dir_size(paths["uploads"])
+    backups, backup_files = _dir_size(paths["dir"])
+    disk.update({"database": database, "uploads": uploads,
+                 "upload_files": upload_files, "backups": backups,
+                 "backup_files": backup_files})
+    return disk
+
+
+def health_uptime():
+    ps = _psutil()
+    boot = None
+    if ps is not None:
+        try:
+            boot = datetime.utcfromtimestamp(ps.boot_time())
+        except Exception:
+            boot = None
+    if boot is None:
+        try:                    # /proc/uptime: seconds since boot
+            with open("/proc/uptime", "r") as fh:
+                boot = datetime.utcnow() - timedelta(
+                    seconds=float(fh.read().split()[0]))
+        except (OSError, ValueError, IndexError):
+            boot = None
+    return {"boot": boot, "app_started": APP_STARTED_AT,
+            "boot_seconds": (datetime.utcnow() - boot).total_seconds()
+            if boot else None,
+            "app_seconds": (datetime.utcnow()
+                            - APP_STARTED_AT).total_seconds()}
+
+
+def health_services():
+    """Whether the units are active, via ONE fixed command per unit.
+
+    The names come from HEALTH_UNITS, decided at startup from the
+    environment — never from a request, never joined with anything a
+    request supplied. No shell: a fixed argv list, so there is nothing to
+    quote and nothing to escape.
+    """
+    out = []
+    systemctl = shutil.which("systemctl")
+    for unit in HEALTH_UNITS:
+        if not systemctl:
+            out.append({"unit": unit, "state": None,
+                        "note": "systemd is not available here"})
+            continue
+        try:
+            result = subprocess.run(
+                [systemctl, "is-active", "--quiet", unit],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=SYSTEMCTL_TIMEOUT, shell=False)
+            out.append({"unit": unit,
+                        "state": "active" if result.returncode == 0
+                                 else "inactive", "note": ""})
+        except Exception as exc:
+            out.append({"unit": unit, "state": None,
+                        "note": type(exc).__name__})
+    return out
+
+
+def health_network():
+    """Bytes in and out since boot. Deliberately NOT a speed test: that
+    means putting traffic on a client's server to make a number."""
+    ps = _psutil()
+    if ps is not None:
+        try:
+            io = ps.net_io_counters()
+            return {"sent": io.bytes_sent, "received": io.bytes_recv}
+        except Exception:
+            pass
+    try:
+        sent = received = 0
+        with open("/proc/net/dev", "r") as fh:
+            for line in fh.readlines()[2:]:
+                name, _, rest = line.partition(":")
+                if name.strip() == "lo":
+                    continue
+                parts = rest.split()
+                received += int(parts[0])
+                sent += int(parts[8])
+        return {"sent": sent, "received": received}
+    except (OSError, ValueError, IndexError):
+        return {"sent": None, "received": None}
+
+
+def app_version():
+    """The deployed commit, read from .git — no subprocess, no git needed.
+
+    Returns the short hash, or None outside a checkout (a release
+    unpacked from an archive, for instance).
+    """
+    head = os.path.join(BASE_DIR, ".git", "HEAD")
+    try:
+        with open(head, "r") as fh:
+            ref = fh.read().strip()
+        if ref.startswith("ref: "):
+            name = ref[5:]
+            # Only ever a path INSIDE .git, from .git's own contents.
+            direct = os.path.join(BASE_DIR, ".git", *name.split("/"))
+            if os.path.isfile(direct):
+                with open(direct, "r") as fh:
+                    return fh.read().strip()[:7]
+            packed = os.path.join(BASE_DIR, ".git", "packed-refs")
+            if os.path.isfile(packed):
+                with open(packed, "r") as fh:
+                    for line in fh:
+                        if line.rstrip().endswith(" " + name):
+                            return line.split()[0][:7]
+            return None
+        return ref[:7]
+    except (OSError, IndexError):
+        return None
+
+
+def schema_state():
+    """What `check-schema` would say, as a fact rather than an exit code."""
+    try:
+        from sqlalchemy import inspect
+        insp = inspect(db.engine)
+        present = set(insp.get_table_names())
+        missing_tables, missing_columns = [], []
+        for table in db.metadata.sorted_tables:
+            if table.name not in present:
+                missing_tables.append(table.name)
+                continue
+            actual = {c["name"] for c in insp.get_columns(table.name)}
+            missing_columns += ["%s.%s" % (table.name, col.name)
+                                for col in table.columns
+                                if col.name not in actual]
+        return {"tables": len(db.metadata.sorted_tables),
+                "missing_tables": missing_tables,
+                "missing_columns": missing_columns,
+                "ok": not missing_tables and not missing_columns}
+    except Exception as exc:
+        return {"tables": None, "missing_tables": [], "missing_columns": [],
+                "ok": None, "error": type(exc).__name__}
+
+
+def _level(percent, amber, red):
+    """green / amber / red, or unknown when there is nothing to judge."""
+    if percent is None:
+        return "unknown"
+    if percent >= red:
+        return "red"
+    if percent >= amber:
+        return "amber"
+    return "green"
+
+
+def server_health():
+    """Every metric, in one dict. Read-only from top to bottom."""
+    return {"cpu": health_cpu(), "memory": health_memory(),
+            "disk": health_disk(), "uptime": health_uptime(),
+            "services": health_services(), "network": health_network(),
+            "python": platform.python_version(),
+            "system": "%s %s" % (platform.system(), platform.release()),
+            "version": app_version(), "schema": schema_state(),
+            "psutil": _psutil() is not None,
+            "checked_at": datetime.utcnow()}
 
 
 @app.template_filter("filesize")
@@ -5106,6 +5378,7 @@ def admin_features():
         modes=SECURITY_MODES, mail_ready=mail_configured(),
         password_set=password_is_set(), password_setting=mail_password_setting(),
         fernet_key_present=fernet() is not None,
+        health=server_health(),
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
         last_transfer=(BackupRun.query
@@ -5444,6 +5717,29 @@ def admin_sftp_test():
     flash("Connection test: %s." % message if ok else
           "Could not use the NAS — %s." % message, "ok" if ok else "error")
     return redirect(url_for("admin_features"))
+
+
+@app.route("/admin/settings/health.json")
+@super_admin_required
+def admin_health_json():
+    """The health panel's numbers, for its 30-second refresh.
+
+    Super admins only and rate limited: it is cheap, but it reads the
+    machine, and an endpoint that reads the machine should not be
+    something anybody can sit on. READ-ONLY — it takes no parameters at
+    all, so there is nothing from the request to sanitise.
+    """
+    if rate_limited("health"):
+        return jsonify({"error": "Too many refreshes — slow down."}), 429
+    health = server_health()
+    # Datetimes out as text; the panel only ever displays them.
+    health["checked_at"] = utc_as_uk(health["checked_at"]).strftime(
+        "%d %b %Y, %H:%M:%S")
+    up = health["uptime"]
+    up["boot"] = utc_as_uk(up["boot"]).strftime("%d %b %Y, %H:%M")         if up["boot"] else None
+    up["app_started"] = utc_as_uk(up["app_started"]).strftime(
+        "%d %b %Y, %H:%M")
+    return jsonify(health)
 
 
 @app.route("/admin/features/<name>/toggle", methods=["POST"])
