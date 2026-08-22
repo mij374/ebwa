@@ -2416,7 +2416,8 @@ def sitemap():
         ("home", None), ("about", None), ("events", None),
         ("news", "news"), ("resources", "resources"),
         ("journey", "our_journey"), ("gallery", None),
-        ("faq", "faq"),
+        ("faq", "faq"), ("collections", "donations"),
+        ("donate", "donations"),
         ("membership", "membership_form"), ("contact", None),
         ("privacy", None), ("terms", None)]
     urls = [url_for(e) for e, f in pages if f is None or flags[f]]
@@ -2747,6 +2748,23 @@ def donate():
                 db.session.commit()
                 return redirect(session.url, code=303)
     return render_template("donate.html")
+
+
+@app.route("/collections")
+@feature_required("donations")
+def collections():
+    """Every open collection, so campaigns are reachable from the menu.
+
+    They were only ever linked from the homepage strip, which meant a
+    campaign fell off the site the moment three newer things pushed it
+    out of that row.
+    """
+    open_now = (Campaign.query.filter_by(active=True)
+                .order_by(Campaign.created_at.desc()).all())
+    closed = (Campaign.query.filter_by(active=False)
+              .order_by(Campaign.created_at.desc()).all())
+    return render_template("collections.html", open_now=open_now,
+                           closed=closed)
 
 
 @app.route("/collections/<slug>", methods=["GET", "POST"])

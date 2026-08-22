@@ -54,6 +54,7 @@
           <a href="{{ url_for('contact') }}">Get involved</a>
           <ul class="nav-drop">
             {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Become a member</a></li>{% endif %}
+            {% if features.donations %}<li><a href="{{ url_for('collections') }}">Support a collection</a></li>{% endif %}
             {% if features.resources %}<li><a href="{{ url_for('resources') }}">Community resources</a></li>{% endif %}
             <li><a href="{{ url_for('contact') }}">Contact us</a></li>
           </ul>
@@ -113,6 +114,7 @@
           <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
           {% if features.faq %}<li><a href="{{ url_for('faq') }}">FAQ</a></li>{% endif %}
           {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Join us</a></li>{% endif %}
+          {% if features.donations %}<li><a href="{{ url_for('collections') }}">Collections</a></li>{% endif %}
           <li><a href="{{ url_for('contact') }}">Contact</a></li>
         </ul>
       </div>

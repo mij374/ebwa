@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Support a collection — EBWA{% endblock %}
+{% block meta_description %}Collections and appeals you can contribute to — trips, equipment and community projects run by EBWA in Enfield, each showing what has been raised so far.{% endblock %}
+{% block content %}
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Support a collection <span class="bn">· সহযোগিতা করুন</span></p>
+    <h2>Collections you can support</h2>
+    <p class="lede">Each collection pays for one thing — a trip, a piece of
+      equipment, a project — and shows what has been raised towards it.
+      You can pay for a place, add a donation on top, or simply give.</p>
+
+    {% if open_now %}
+    <div class="event-cards">
+      {% for camp in open_now %}
+      <a class="event-card" href="{{ url_for('collection_detail', slug=camp.slug) }}">
+        {% if camp.image %}<img src="{{ thumb_url(camp.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          {% if camp.fee_pence %}
+          <span class="event-date">{{ camp.fee_pence|pounds }} a place</span>
+          {% endif %}
+          <h3>{{ camp.title }}</h3>
+          {% if camp.description %}
+          <p>{{ camp.description.split('\n')[0] }}</p>
+          {% endif %}
+          {% if camp.target_pence %}
+          <p class="collection-raised">
+            <b>{{ camp.raised_pence|pounds }}</b> of {{ camp.target_pence|pounds }} raised
+          </p>
+          {% else %}
+          <p class="collection-raised"><b>{{ camp.raised_pence|pounds }}</b> raised so far</p>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="lede">There are no open collections just now. Our
+      <a href="{{ url_for('donate') }}">general donations page</a> supports
+      everything we do.</p>
+    {% endif %}
+
+    {% if closed %}
+    <h2 style="margin-top:56px">Finished</h2>
+    <p class="lede">Thank you to everyone who gave to these.</p>
+    <ul class="collection-closed">
+      {% for camp in closed %}
+      <li><b>{{ camp.title }}</b> — {{ camp.raised_pence|pounds }} raised</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <p class="faq-foot" style="margin-top:44px">Would you rather give to
+      our work in general? <a href="{{ url_for('donate') }}">Make a
+      donation</a>.</p>
+  </div>
+</section>
+{% endblock %}

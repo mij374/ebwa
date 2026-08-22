@@ -388,6 +388,12 @@ header{
 .faq-foot{margin-top:36px;color:var(--ink-soft)}
 .faq-foot a{color:var(--green);font-weight:700}
 
+/* ---------- Collections listing ---------- */
+.collection-raised{margin-top:10px;font-size:14px;color:var(--ink-soft)}
+.collection-raised b{color:var(--green);font-size:16px}
+.collection-closed{list-style:none;display:grid;gap:10px;margin-top:20px;max-width:68ch}
+.collection-closed li{color:var(--ink-soft);font-size:15.5px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+
 /* ---------- Stats ---------- */
 .stats{background:var(--green);color:#fff;padding:50px 0}
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:28px;text-align:center}
@@ -542,12 +548,6 @@ body.lightbox-open .cookie-notice{display:none}
 .contact-form h3{font-size:20px;margin-bottom:20px}
 .contact-form .field{margin-bottom:18px}
 .contact-form label{display:block;font-weight:700;font-size:14px;margin-bottom:6px}
-.contact-form input[type=text],.contact-form input[type=email],
-.contact-form textarea{
-  width:100%;padding:12px 14px;border:1.5px solid var(--line);
-  border-radius:10px;font:inherit;background:var(--paper);
-}
-.contact-form input:focus,.contact-form textarea:focus{outline:none;border-color:var(--green)}
 .form-privacy{
   margin-top:16px;font-size:13.5px;color:var(--ink-soft);line-height:1.6;
   max-width:70ch;
@@ -650,20 +650,45 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .admin-form{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:30px;max-width:680px}
 .field{margin-bottom:20px}
 .field label{display:block;font-weight:700;font-size:14px;margin-bottom:6px}
-.field input[type=text],.field input[type=date],.field input[type=email],
-.field input[type=password],.field textarea{
-  width:100%;padding:11px 14px;border:1.5px solid var(--line);border-radius:10px;
-  font:inherit;background:var(--paper);
+/* ---------- Form controls: ONE definition for the whole site ----------
+   Public forms and admin forms both use .field inside .admin-form, and
+   the contact form and login card are the two that do not — so all four
+   contexts are listed here and nowhere else. Selecting by CONTAINER
+   rather than by input type is deliberate: type=number was missing from
+   the old list, which is why the donation amount box sat there small and
+   square while everything around it was rounded, and any type added
+   later would have gone the same way. Checkboxes, radios and file
+   pickers keep their native look. */
+.field input:not([type=checkbox]):not([type=radio]):not([type=file]),
+.field textarea,
+.field select,
+.contact-form input:not([type=checkbox]):not([type=radio]):not([type=file]),
+.contact-form textarea,
+.contact-form select,
+.login-card input{
+  width:100%;padding:11px 14px;
+  border:1.5px solid var(--line);border-radius:10px;
+  font:inherit;font-size:16px;line-height:1.4;background:var(--paper);
+  color:var(--ink);
 }
-/* Selects were never styled, so a long option (“Use the server setting
-   (starttls)”) sized the box to its content and pushed the page
-   sideways on a phone. They now match the inputs and stay in their
-   column. */
-.field select{
-  width:100%;max-width:100%;padding:11px 14px;border:1.5px solid var(--line);
-  border-radius:10px;font:inherit;background:var(--paper);
+.field input:focus,.field textarea:focus,.field select:focus,
+.contact-form input:focus,.contact-form textarea:focus,
+.contact-form select:focus,.login-card input:focus{
+  outline:none;border-color:var(--green);
 }
-.field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--green)}
+.field input::placeholder,.contact-form input::placeholder,
+.field textarea::placeholder,.contact-form textarea::placeholder{
+  color:var(--ink-soft);opacity:.7;
+}
+/* A select sizes itself to its longest option unless told otherwise —
+   that is what pushed the settings page sideways on a phone. */
+.field select,.contact-form select{max-width:100%}
+/* A number never needs the width of a name, and a stretched one invites
+   a phone number to be typed into it. Everything else is shared.
+   (max-width only bites here because the rule above no longer sets one
+   on inputs: the shared selector's :not() chain outranks this one.) */
+.field input[type=number]{max-width:220px}
+.field textarea,.contact-form textarea{min-height:120px;resize:vertical}
 .field small{display:block;color:var(--ink-soft);font-size:13px;margin-top:5px}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .field-thumb{
@@ -744,7 +769,10 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .admin-help pre code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;white-space:pre}
 .admin-help p{color:var(--ink-soft);font-size:15px;margin-top:16px}
 .admin-move-bar label{font-weight:700;font-size:14px}
-.admin-move-bar select{padding:9px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:var(--paper)}
+.admin-move-bar select{
+  padding:11px 14px;border:1.5px solid var(--line);border-radius:10px;
+  font:inherit;font-size:16px;background:var(--paper);
+}
 .is-hidden{display:none}
 
 /* ---------- Login ---------- */
@@ -756,10 +784,6 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .login-card .brand-mark{justify-content:center}
 .login-card h1{font-size:24px}
 .login-card label{text-align:left;font-weight:700;font-size:14px;display:grid;gap:6px}
-.login-card input{
-  padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:var(--paper);
-}
-.login-card input:focus{outline:none;border-color:var(--green)}
 .login-note{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0}
 .login-back{font-size:14px;color:var(--ink-soft);text-decoration:none}
 
@@ -978,9 +1002,14 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 
 /* ---------- Footer newsletter ---------- */
 .foot-subscribe{display:flex;gap:8px}
+/* Same height and font as every other input; the colours differ because
+   it sits on the dark footer, and the pill shape because it pairs with a
+   pill button beside it. */
 .foot-subscribe input{
-  flex:1;min-width:0;padding:10px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.25);
-  background:rgba(255,255,255,.10);color:#fff;font:inherit;font-size:14px;
+  flex:1;min-width:0;padding:11px 16px;border-radius:999px;
+  border:1.5px solid rgba(255,255,255,.25);
+  background:rgba(255,255,255,.10);color:#fff;font:inherit;font-size:16px;
+  line-height:1.4;
 }
 .foot-subscribe input::placeholder{color:rgba(255,255,255,.55)}
 .foot-subscribe input:focus{outline:none;border-color:rgba(255,255,255,.6)}

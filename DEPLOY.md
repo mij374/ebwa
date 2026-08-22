@@ -59,6 +59,23 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-22 — Collections listing page
+
+**Nothing to run.** A new public page at `/collections`, plus template
+and stylesheet changes — no tables, no columns, no new seeded rows.
+Confirmed with `flask --app app check-schema`.
+
+The page lists open collections and is linked from the menu under Get
+involved and from the footer, so campaign pages are no longer reachable
+only from the homepage strip. It follows the `donations` flag: with that
+off the page 404s and both links disappear, as before.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 59a07cc — 2026-08-22 — The SMTP password can be set on the Settings page
 
 **No schema change.** One new content Block, seeded empty:

@@ -458,6 +458,26 @@ Built and maintained by Netbus IT Support.
     is one sentence in plain British English plus a link to where the
     fix happens. Anything still holding seeded PLACEHOLDER copy shows
     there, with the legal pages called out as a LAUNCH BLOCKER.
+- Form controls have ONE definition, selected by CONTAINER (`.field`,
+  `.contact-form`, `.login-card`) rather than by input type. The old list
+  named types, `number` was not among them, and the donation amount box
+  sat small and square beside rounded ones for months — any type added
+  later would have gone the same way. Do not add a per-form copy of the
+  padding/radius/border: if a form looks wrong, the shared rule is
+  wrong. The footer newsletter is the one deliberate variant (dark
+  ground, pill shape to match the button beside it) and still shares the
+  height and font size.
+  - Only genuine differences belong per field: `input[type=number]` is
+    narrower and nothing else. Note that the shared selector's `:not()`
+    chain outranks a plain `.field input[type=x]`, so a per-type
+    override needs the shared rule to leave that property alone.
+- Every public page must be reachable from the nav or the footer.
+  `tests/smoke_test_navigation.py` walks the URL map and fails otherwise;
+  a page reached from inside a section (`/gallery/all`) is listed there
+  with its parent and the link is CHECKED on that page, and the handful
+  that nothing links (crawler and Stripe-return URLs) are listed with the
+  reason. Legal pages are footer-only, which is conventional — do not
+  add them to the header.
 - CSS: extend `static/css/style.css` using the existing custom properties
   (`--green`, `--red`, `--paper`, etc.) and class naming style. Design
   identity: Bangladeshi flag bottle green + red circle motif, Bengali
