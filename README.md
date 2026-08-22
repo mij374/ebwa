@@ -343,9 +343,14 @@ Nightly, as a cron job for the service user:
 ```
 
 Or from the website: **Settings → Backups → Back up now** (Netbus only,
-twice an hour at most). The same page shows when the last backup ran, how
-big it was, how many archives are kept, the database and uploads sizes,
-and how much disk is free.
+ten an hour at most, and never two at once — it refuses while another run
+is still going, including one started by the cron job above). Both the
+runs and the refusals appear in the audit log. The same page shows when
+the last backup ran, how big it was, how many archives are kept, the
+database and uploads sizes, and how much disk is free.
+
+The hourly limit is `BACKUP_MANUAL_PER_HOUR` in `app.py`, next to the
+other rate-limit scopes, if it ever needs changing.
 
 ### Sending backups to the NAS
 

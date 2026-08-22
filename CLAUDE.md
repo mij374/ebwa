@@ -217,6 +217,19 @@ Built and maintained by Netbus IT Support.
   every upload into one timestamped zip in `BACKUP_DIR`, and records a
   `BackupRun` either way — a backup that failed silently is worse than
   none. `prune_backups()` keeps the newest `BACKUP_KEEP`.
+  - Two runs must never overlap: they write archives and upload at the
+    same time, and the second prunes the first's archive out from under
+    it. `backup_in_progress()` is the shared guard — the Settings button
+    and both CLI commands all check it and refuse rather than starting a
+    second run. It ignores rows older than `BACKUP_STALE_MINUTES`, so a
+    process killed mid-backup cannot block every future backup for ever.
+    The hourly cap (`BACKUP_MANUAL_PER_HOUR`, beside the other rate-limit
+    scopes) is only a brake on a leaned-on button; the guard is the part
+    that matters, so keep them both and do not swap the guard for a
+    tighter count.
+  - Every attempt is audit-logged INCLUDING refusals. "Somebody tried to
+    back up and was told no" is exactly what you want to see when asking
+    why there is no archive from that afternoon.
   - **Nothing here shells out, and nothing ever will.** No subprocess, no
     command built from anything a request supplied. The web button calls
     the same Python the CLI does. A website that can run commands on its

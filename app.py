@@ -1453,6 +1453,15 @@ def security_headers(resp):
 
 # Simple in-memory rate limiter (per worker process — enough to blunt
 # brute force and form spam without new dependencies).
+# Manual backups allowed per hour from the Settings button. Ten is
+# enough to set the NAS up and test it without fighting the limit, and
+# still stops the button being held down.
+BACKUP_MANUAL_PER_HOUR = 10
+# A run that started this long ago and never finished is treated as
+# abandoned rather than active — a process killed mid-backup must not
+# block every future backup with a row that says "running" for ever.
+BACKUP_STALE_MINUTES = 30
+
 RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     "login": (5, 600),
     "totp": (10, 600),   # a 6-digit code is guessable without this
@@ -1462,9 +1471,11 @@ RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     # A "send a test to any address" button is a relay if it is not
     # limited, however few people can reach it.
     "test_mail": (5, 3600),
-    # Writing an archive is real disk work; twice an hour by hand is
-    # plenty, and the nightly cron does the rest.
-    "backup": (2, 3600),
+    # Manual backups. The real risk was never the count but two runs
+    # overlapping, and backup_in_progress() handles that properly now, so
+    # this is only a brake on someone leaning on the button. Adjust
+    # BACKUP_MANUAL_PER_HOUR above rather than editing this line.
+    "backup": (BACKUP_MANUAL_PER_HOUR, 3600),
     "sftp_test": (5, 3600),   # a connection test is cheap, but not free
     # The health panel refreshes every 30s; this allows that with room to
     # spare and still stops the endpoint being hammered.
@@ -2036,6 +2047,25 @@ def prune_backups(keep=None):
         except OSError:
             pass
     return removed
+
+
+def backup_in_progress():
+    """The BackupRun currently running, or None.
+
+    This is what the rate limit was really standing in for. Two
+    overlapping runs would write archives at the same time and upload
+    them at the same time, over one connection each, for no gain — and
+    the second would prune the first's archive out from under it.
+
+    A row left at "running" by a crash stops counting after
+    BACKUP_STALE_MINUTES: a guard that can lock everybody out for ever
+    because a process died is worse than the thing it guards against.
+    """
+    cutoff = datetime.utcnow() - timedelta(minutes=BACKUP_STALE_MINUTES)
+    return (BackupRun.query
+            .filter(BackupRun.status == "running",
+                    BackupRun.started_at >= cutoff)
+            .order_by(BackupRun.started_at.desc()).first())
 
 
 def backup_status():
@@ -5378,7 +5408,7 @@ def admin_features():
         modes=SECURITY_MODES, mail_ready=mail_configured(),
         password_set=password_is_set(), password_setting=mail_password_setting(),
         fernet_key_present=fernet() is not None,
-        health=server_health(),
+        health=server_health(), backup_limit=BACKUP_MANUAL_PER_HOUR,
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
         last_transfer=(BackupRun.query
@@ -5524,12 +5554,36 @@ def admin_backup_now():
 
     Calls the same Python that the CLI does — no shell, no command built
     from anything a request supplied, nothing on this page that could
-    become one. Rate limited because writing an archive is real disk
-    work, and logged whichever way it goes.
+    become one.
+
+    Refuses while another run is in progress, and beyond
+    BACKUP_MANUAL_PER_HOUR an hour. Both refusals are logged: the audit
+    trail should show that somebody tried, not just the runs that
+    happened. The in-progress check is not a lock — two workers could
+    still pass it in the same instant — but the button is one person
+    clicking, and the real overlap it prevents is a click landing on top
+    of the nightly cron run.
     """
+    # Concurrency before counting: one running backup is a real reason to
+    # refuse, where "you have pressed this a lot" is only a brake.
+    running = backup_in_progress()
+    if running:
+        log_action("backup",
+                   summary="Refused a backup from the Settings page: one "
+                           "started at %s is still running."
+                           % utc_as_uk(running.started_at)
+                           .strftime("%H:%M"))
+        flash("A backup is already running (started %s). Wait for it to "
+              "finish rather than starting a second one alongside it."
+              % utc_as_uk(running.started_at).strftime("%H:%M"), "error")
+        return redirect(url_for("admin_features"))
     if rate_limited("backup"):
-        flash("A backup has just run. The button is limited to twice an "
-              "hour; the nightly job is what keeps them current.", "error")
+        log_action("backup",
+                   summary="Refused a backup from the Settings page: more "
+                           "than %d in an hour." % BACKUP_MANUAL_PER_HOUR)
+        flash("That is %d backups in an hour, which is the limit for this "
+              "button. The nightly job is what keeps them current."
+              % BACKUP_MANUAL_PER_HOUR, "error")
         return redirect(url_for("admin_features"))
     run = run_backup(reason="manual")
     if run.status == "ok":
@@ -6143,6 +6197,11 @@ def backup_now(keep):
     database survives a mistake, not a dead machine — see the README for
     the rsync cron line that turns it into a real backup.
     """
+    running = backup_in_progress()
+    if running:
+        print("A backup started at %s is still running. Not starting a "
+              "second one." % running.started_at)
+        raise SystemExit(1)
     status = backup_status()
     print("Database : %s (%s)" % (status["database"] or "—",
                                   filesize_filter(status["db_size"])))
@@ -6221,6 +6280,13 @@ def run_scheduled_backup():
     Idempotent within the day — run it as often as you like; it does
     nothing until the configured time has passed without a good run.
     """
+    running = backup_in_progress()
+    if running:
+        # Most likely cause: somebody pressed the button a minute before
+        # cron fired. Leave it alone; the next tick is 15 minutes away.
+        print("A backup started at %s is still running. Leaving it."
+              % running.started_at)
+        return
     due, why = scheduled_run_due()
     if not due:
         print("Nothing to do: %s." % why)

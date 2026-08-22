@@ -267,13 +267,75 @@ with app.app_context():
     check("backup logged", entry is not None
           and "Settings page" in entry.summary,
           entry.summary if entry else "none")
+LIMIT = appmod.BACKUP_MANUAL_PER_HOUR
+check("the limit is a named constant, not a number in the route",
+      appmod.RATE_LIMITS["backup"][0] == LIMIT and LIMIT == 10, str(LIMIT))
+check("the panel states the real limit",
+      "Up to %d an hour" % LIMIT in page, "panel text")
+
 accepted = 1
-for _i in range(3):
+for _i in range(LIMIT + 2):
     r = client.post("/admin/settings/backup", follow_redirects=True)
     if b"Backup written" in r.data:
         accepted += 1
-check("the button is rate limited", accepted == 2, "%d accepted" % accepted)
-check("and says why", b"limited to twice an hour" in r.data)
+check("the button allows the stated number an hour", accepted == LIMIT,
+      "%d accepted, limit %d" % (accepted, LIMIT))
+check("and the refusal states the actual limit",
+      ("That is %d backups in an hour" % LIMIT).encode() in r.data,
+      r.data.decode("utf-8", "replace")[:200])
+check("no stale 'twice an hour' wording survives anywhere",
+      b"twice an hour" not in r.data
+      and "twice an hour" not in page.lower())
+with app.app_context():
+    refusal = (AuditLog.query.filter_by(action="backup")
+               .order_by(AuditLog.id.desc()).first())
+    check("a refused backup is logged too, not silently dropped",
+          refusal is not None and "Refused" in refusal.summary
+          and str(LIMIT) in refusal.summary,
+          refusal.summary if refusal else "none")
+appmod._rate_buckets.clear()
+
+# ---- the concurrency guard: the real reason not to start a second run
+with app.app_context():
+    before = BackupRun.query.count()
+    db.session.add(BackupRun(status="running", reason="cli",
+                             started_at=datetime.utcnow()))
+    db.session.commit()
+    check("a running backup is detected", appmod.backup_in_progress()
+          is not None)
+r = client.post("/admin/settings/backup", follow_redirects=True)
+check("a second backup is refused while one is running",
+      b"already running" in r.data)
+check("and it does not just say it is rate limited",
+      b"backups in an hour" not in r.data)
+with app.app_context():
+    check("no second run was started", BackupRun.query.count() == before + 1,
+          str(BackupRun.query.count() - before))
+    entry = (AuditLog.query.filter_by(action="backup")
+             .order_by(AuditLog.id.desc()).first())
+    check("the refusal is logged", entry is not None
+          and "still running" in entry.summary,
+          entry.summary if entry else "none")
+    check("the refusal names no file path or command",
+          ARCHIVES not in entry.summary)
+
+# a run abandoned by a crash must not block backups for ever
+with app.app_context():
+    stuck = (BackupRun.query.filter_by(status="running")
+             .order_by(BackupRun.id.desc()).first())
+    stuck.started_at = (datetime.utcnow()
+                        - timedelta(minutes=appmod.BACKUP_STALE_MINUTES + 5))
+    db.session.commit()
+    check("a stale 'running' row stops counting",
+          appmod.backup_in_progress() is None)
+appmod._rate_buckets.clear()
+r = client.post("/admin/settings/backup", follow_redirects=True)
+check("so a backup can still be run after a crash",
+      b"Backup written" in r.data)
+with app.app_context():
+    for row in BackupRun.query.filter_by(status="running").all():
+        db.session.delete(row)
+    db.session.commit()
 appmod._rate_buckets.clear()
 
 # ---- failed sign-ins on the dashboard, only above the threshold

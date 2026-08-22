@@ -262,7 +262,8 @@
         onsubmit="return confirm('Write a backup archive now?');">
     <button class="btn btn-green" type="submit">Back up now</button>
     <small style="display:block;margin-top:8px;color:var(--ink-soft)">
-      Twice an hour at most. The site keeps working while it runs.</small>
+      Up to {{ backup_limit }} an hour, and never two at once. The site
+      keeps working while one runs.</small>
   </form>
 </div>
 
