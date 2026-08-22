@@ -59,7 +59,7 @@ not been deployed yet — tick them as you go.
 
 ---
 
-## (pending) — 2026-08-22 — The SMTP password can be set on the Settings page
+## 59a07cc — 2026-08-22 — The SMTP password can be set on the Settings page
 
 **No schema change.** One new content Block, seeded empty:
 
