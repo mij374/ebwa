@@ -10,6 +10,12 @@ two-paragraph body) and Events (a longer one), it asserts that:
   * alternating never leaves a half-empty row on a short body, and
     stacks to one column on a phone
 
+Every page here is opened STILL (prefers-reduced-motion: reduce) through
+tests/browser_motion.py: the presets carry transitions, and a measured
+width or column count taken mid-transition is not the one a reader ends
+up with. Nothing here is testing motion; a check that were would ask for
+MOVING itself.
+
 Run:  python tests/check_rich_layouts.py [--shots DIR]
 """
 import os
@@ -24,9 +30,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_DB = os.path.join(HERE, "test_ebwa_layouts.db")
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
 
 from werkzeug.serving import make_server  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
+
+from browser_motion import new_context  # noqa: E402
 
 from app import (app, db, Block, ContentImage, DEFAULT_BLOCKS,  # noqa: E402
                  Event, FEATURES, FeatureFlag, NewsPost, UPLOAD_DIR)
@@ -129,8 +138,7 @@ with sync_playwright() as pw:
         for layout in LAYOUTS:
             set_layout(layout)
             for label, path, paras in PAGES:
-                ctx = browser.new_context(viewport={"width": width,
-                                                    "height": 1000})
+                ctx = new_context(browser, width, height=1000)
                 page = ctx.new_page()
                 page.goto(BASE + path, wait_until="load")
                 page.wait_for_timeout(250)

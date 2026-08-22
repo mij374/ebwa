@@ -677,6 +677,37 @@ It needs a browser so it is NOT part of the smoke suite (`smoke_test_*`);
 run it by hand after touching the header, nav or breakpoints:
 `python tests/check_header_layout.py [--shots DIR]`.
 
+Every browser check runs STILL by default — `prefers-reduced-motion:
+reduce`, set per context through `tests/browser_motion.py`
+(`new_page()` / `new_context()`). Rules for it:
+
+- **A check that scrolls and then measures is only correct in a still
+  context.** The stylesheet's first block turns
+  `html{scroll-behavior:smooth}` off under reduced motion; with it on,
+  `window.scrollTo` ANIMATES, so anything measured before it lands is
+  measured against a moving page. That is exactly what made the
+  cookie-notice check read a fixed strip at the bottom of the VIEWPORT
+  as overlapping a footer still below the fold — at all six widths, and
+  worse the taller the page (31px short at 1440, 481px at 390). The site
+  was never wrong; the measurement was. The same goes for reading a
+  computed opacity or transform mid-transition.
+- Still is the DEFAULT and is passed explicitly, never left to
+  Chromium's own default, so what the check assumes is written where the
+  page is opened.
+- **A check testing motion itself asks for `MOVING` at the check** — the
+  partners marquee, whose drift, stepping and arrow-swapping are the
+  behaviour under test. Inheriting the still default there would pass
+  while measuring a row that never moved, and under reduced motion the
+  stylesheet also hides the duplicate `.partner-set` and turns snapping
+  back on, so the thing being asserted is not even on the page.
+- It is a CONTEXT option and not a launch flag (`--force-prefers-
+  reduced-motion`) on purpose: a launch flag is the whole browser, so
+  the motion-enabled checks could not opt out, and the choice would stop
+  being visible at the check that depends on it.
+- Belt and braces still belong in the check: the cookie-notice
+  measurement asks for an instant scroll AND waits for it to land,
+  rather than trusting the context to have made that true.
+
 ## Deploy (production pattern)
 
 ```

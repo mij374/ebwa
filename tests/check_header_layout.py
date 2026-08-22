@@ -10,6 +10,11 @@ that the panels stay shut until hovered or focused, that a keyboard alone
 reaches every destination in them, and that on a phone the groups expand
 in place inside the menu instead of hiding behind a hover.
 
+Every page here is opened STILL (prefers-reduced-motion: reduce) through
+tests/browser_motion.py, so nothing measured is mid-animation. Nothing
+in this file is testing motion; a check that were would ask for MOVING
+itself. See that module for why.
+
 Run:  python tests/check_header_layout.py [--shots DIR]
 """
 import os
@@ -21,9 +26,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_DB = os.path.join(HERE, "test_ebwa_header.db")
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
 
 from werkzeug.serving import make_server  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
+
+from browser_motion import new_page  # noqa: E402
 
 from app import app, db, DEFAULT_BLOCKS, Block, FEATURES, FeatureFlag  # noqa: E402
 
@@ -68,7 +76,7 @@ BASE = "http://127.0.0.1:5099"
 with sync_playwright() as pw:
     browser = pw.chromium.launch()
     for width in WIDTHS:
-        page = browser.new_page(viewport={"width": width, "height": 900})
+        page = new_page(browser, width)
         page.goto(BASE + "/", wait_until="networkidle")
 
         # ---- no horizontal overflow anywhere on the page
@@ -275,19 +283,40 @@ with sync_playwright() as pw:
         check("%dpx: cookie notice shown on a first visit" % width,
               notice.count() == 1, str(notice.count()))
         if notice.count():
-            page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(300)
+            # This page is STILL, so scroll-behavior:smooth is off and
+            # the jump lands at once. Both belt and braces stay: ask for
+            # an instant scroll, then WAIT for it to land before
+            # measuring. Under smooth scrolling a fixed wait measured
+            # whatever the animation had reached — further short of the
+            # bottom the taller the page — so the footer was still below
+            # the fold while the fixed notice sat at the bottom of the
+            # VIEWPORT, and every width read as an overlap it does not
+            # have. The notice's position only means anything once the
+            # page is genuinely at its end, so assert that rather than
+            # trusting the context to have made it true.
+            page.evaluate("""() => window.scrollTo(
+                {top: document.documentElement.scrollHeight,
+                 behavior: 'instant'})""")
+            page.wait_for_function("""() => {
+                const de = document.documentElement;
+                return Math.abs(de.scrollHeight - de.clientHeight
+                                - Math.round(window.scrollY)) <= 1;
+            }""")
             room = page.evaluate("""() => {
                 const n = document.querySelector('.cookie-notice')
                     .getBoundingClientRect();
                 const f = document.querySelector('.foot-bar')
                     .getBoundingClientRect();
+                const de = document.documentElement;
                 return {gap: Math.round(n.top - f.bottom),
+                        short: de.scrollHeight - de.clientHeight
+                               - Math.round(window.scrollY),
                         over: document.documentElement.scrollWidth
                               - document.documentElement.clientWidth};
             }""")
             check("%dpx: footer clears the cookie notice" % width,
-                  room["gap"] >= 0, "%dpx of overlap" % -room["gap"])
+                  room["gap"] >= 0, "%dpx of overlap, %dpx short of the "
+                  "bottom" % (-room["gap"], room["short"]))
             check("%dpx: cookie notice causes no sideways scroll" % width,
                   room["over"] <= 0, "%dpx" % room["over"])
             with page.expect_navigation(wait_until="load"):
