@@ -234,12 +234,27 @@ Built and maintained by Netbus IT Support.
     command built from anything a request supplied. The web button calls
     the same Python the CLI does. A website that can run commands on its
     own server is one vulnerability away from being a shell.
-  - **Copying archives off the server is NOT this app's job.** That is
-    cron plus rsync/scp with a key that lives on the server. The Settings
-    panel says so in as many words, and the README carries the cron line.
-    Do not add remote-destination settings, credentials or an "upload to
-    Dropbox" button — the app makes and tracks archives, and that is the
-    whole boundary.
+  - **An archive beside the database is not a backup.** It protects
+    against a mistake — a deleted album, a bad edit — not against losing
+    the server, so getting a copy onto another machine is part of the
+    job and not somebody else's. The app therefore owns the whole of
+    it: writing the archive, transferring it to ONE configured SFTP
+    destination on the private network, and recording both outcomes on
+    the same `BackupRun` (see Offsite transfer below).
+    (This supersedes an earlier note saying the app made archives and
+    nothing else, and that copying them off was cron's job with rsync or
+    scp. The NAS transfer replaced it; that note contradicted the code
+    directly beneath it.)
+    - The destination's credentials are Fernet-encrypted with the key in
+      `FERNET_KEY`, per the shared credential rule above. This is the
+      case that made the rule: the archive contains the database, so a
+      plaintext password in it would be posted to the very machine it
+      opens.
+    - The boundary that DID survive: no shelling out for any of it (no
+      rsync, no scp, no subprocess), and one destination the admin
+      configures — not arbitrary remote endpoints, not a consumer cloud
+      account, not an "upload to Dropbox" button. Transfer over paramiko
+      to a host on the tailnet, or not at all.
   - `backups/` is gitignored: an archive holds the entire database,
     personal data and all.
 - Offsite transfer: after a backup, `upload_backup()` sends the archive
@@ -740,8 +755,9 @@ Backups and security visibility (rules above): `BackupRun` +
 `backup-now` CLI + a read-only Settings panel with a "Back up now"
 button, failed-sign-in counts on the dashboard and an optional alert
 email. Deploy: new table — `flask --app app init-db` — plus optional
-`BACKUP_DIR` / `BACKUP_KEEP`, and the off-server copy is a cron job
-Netbus sets up (README).
+`BACKUP_DIR` / `BACKUP_KEEP`. (The off-server copy was a cron job Netbus
+set up by hand when this was written; the NAS transfer entry above
+replaced it.)
 
 Contact form and mail layer (rules above): `send_mail()` over smtplib
 with settings from the environment, `test-mail` CLI, a super-admin-only
