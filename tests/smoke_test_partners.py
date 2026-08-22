@@ -22,8 +22,12 @@ TEST_DB = os.path.join(HERE, "test_ebwa_partners.db")
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
 
-from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
-                 FeatureFlag, PARTNER_MODES, Partner, UPLOAD_DIR, User)
+from app import (app, db, AuditLog, Block, DEFAULT_BLOCKS,  # noqa: E402
+                 FEATURES,
+                 FeatureFlag, PARTNER_MODES, PARTNER_MOTIONS,
+                 PARTNER_MOTION_KEY, PARTNER_STEP_DEFAULT,
+                 PARTNER_STEP_KEY, Partner, UPLOAD_DIR, User,
+                 partner_motion)
 
 app.config["TESTING"] = True
 
@@ -298,6 +302,107 @@ check("nine partners: the duration follows the count",
 partner_count(4)
 check("dropping back to four returns the static row",
       "partner-marquee" not in home())
+
+# ---- how the row moves: one site setting, not a field per partner
+partner_count(5)
+with app.app_context():
+    check("the movement setting starts on continuous scrolling",
+          partner_motion() == {"mode": "scroll",
+                               "step_seconds": PARTNER_STEP_DEFAULT},
+          str(partner_motion()))
+html = home()
+check("the row carries the mode for the CSS and the script",
+      'data-motion="scroll"' in html, html[html.find("partner-marquee"):][:200])
+check("and the interval, so no Jinja is needed inside the script",
+      'data-step-seconds="%d"' % PARTNER_STEP_DEFAULT in html)
+
+r = client.get("/admin/partners")
+page = r.data.decode("utf-8")
+check("the admin page offers every movement option",
+      all(('value="%s"' % m).encode() in r.data
+          for m, _l, _h in PARTNER_MOTIONS), str(r.status_code))
+check("the admin page names them in plain English",
+      "Continuous smooth scroll" in page and "Step every few seconds" in page
+      and "No movement" in page)
+check("the admin page says reduced motion overrides the choice",
+      "reduce motion" in page)
+check("the interval is a field too", 'name="step_seconds"' in page)
+
+r = client.post("/admin/partners/motion",
+                data={"motion": "step", "step_seconds": "7"},
+                follow_redirects=True)
+check("saving the setting works", b"movement saved" in r.data)
+with app.app_context():
+    check("STEPPING IS STORED AS A BLOCK",
+          partner_motion() == {"mode": "step", "step_seconds": 7},
+          str(partner_motion()))
+    keys = {b.key for b in Block.query.filter_by(group="partners").all()}
+    check("both settings live in the partners group",
+          keys == {PARTNER_MOTION_KEY, PARTNER_STEP_KEY}, str(keys))
+    entry = (AuditLog.query.filter_by(action="edit")
+             .order_by(AuditLog.id.desc()).first())
+    check("the change is audit-logged in plain words",
+          entry is not None and "partner row moves" in (entry.summary or ""),
+          entry.summary if entry else "none")
+html = home()
+check("the row now says step, with the chosen interval",
+      'data-motion="step"' in html and 'data-step-seconds="7"' in html)
+
+r = client.post("/admin/partners/motion",
+                data={"motion": "none", "step_seconds": "4"},
+                follow_redirects=True)
+check("no movement can be chosen too", b"movement saved" in r.data
+      and 'data-motion="none"' in home())
+
+# rubbish in is refused, and does not damage what is stored
+for bad in ({"motion": "spin", "step_seconds": "4"},
+            {"motion": "step", "step_seconds": "0"},
+            {"motion": "step", "step_seconds": "600"},
+            {"motion": "step", "step_seconds": "soon"}):
+    r = client.post("/admin/partners/motion", data=bad, follow_redirects=True)
+    check("refused: %s" % bad, b"movement saved" not in r.data, str(bad))
+with app.app_context():
+    check("and the stored setting survived every refusal",
+          partner_motion()["mode"] == "none", str(partner_motion()))
+
+# the settings are not loose in the page editor (HIDDEN_BLOCK_KEYS)
+r = client.get("/admin/content")
+check("the content editor opens", r.status_code == 200, str(r.status_code))
+check("the movement settings stay OUT of the content editor",
+      PARTNER_MOTION_KEY.encode() not in r.data
+      and PARTNER_STEP_KEY.encode() not in r.data, str(r.status_code))
+check("(and the editor really does list other blocks)",
+      b"Hero headline" in r.data and b'name="block_' in r.data)
+
+# a database that predates the settings still renders
+with app.app_context():
+    for row in Block.query.filter_by(group="partners").all():
+        db.session.delete(row)
+    db.session.commit()
+    check("with no rows at all it falls back to scrolling",
+          partner_motion() == {"mode": "scroll",
+                               "step_seconds": PARTNER_STEP_DEFAULT},
+          str(partner_motion()))
+check("and the homepage still renders", 'data-motion="scroll"' in home())
+r = client.post("/admin/partners/motion",
+                data={"motion": "step", "step_seconds": "3"},
+                follow_redirects=True)
+check("saving recreates the missing rows", b"movement saved" in r.data)
+with app.app_context():
+    check("and they hold the new values",
+          partner_motion() == {"mode": "step", "step_seconds": 3},
+          str(partner_motion()))
+
+# anonymous visitors cannot change it
+r = anon.post("/admin/partners/motion", data={"motion": "none",
+                                              "step_seconds": "4"})
+check("anon POST /admin/partners/motion -> login redirect",
+      r.status_code == 302 and "/admin/login" in r.headers.get("Location", ""),
+      str(r.status_code))
+with app.app_context():
+    check("and nothing changed", partner_motion()["mode"] == "step")
+
+partner_count(4)
 
 # ---- the Donate button follows the donations flag
 set_flag("donations", True)

@@ -42,4 +42,40 @@
 <p class="admin-sub">No partners yet — the section is hidden from the
   homepage until you add one.</p>
 {% endif %}
+
+<h2 class="admin-stats-head">How the row moves</h2>
+<div class="admin-form">
+  <p class="admin-sub" style="margin-bottom:16px">This applies to the
+    whole row, not to one partner. With more than four partners the row
+    becomes a scroller; with four or fewer it is a plain grid and sits
+    still whatever is chosen here.</p>
+  <form method="post" action="{{ url_for('admin_partner_motion') }}">
+    <div class="field">
+      <label for="motion">Movement</label>
+      <select id="motion" name="motion">
+        {% for value, label, _help in motions %}
+        <option value="{{ value }}" {{ 'selected' if motion.mode == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <small>
+        {% for value, _label, help in motions %}
+        <b>{{ _label }}:</b> {{ help }}{% if not loop.last %}<br>{% endif %}
+        {% endfor %}
+      </small>
+    </div>
+    <div class="field">
+      <label for="step_seconds">Seconds between steps</label>
+      <input type="number" id="step_seconds" name="step_seconds"
+             min="{{ step_min }}" max="{{ step_max }}"
+             value="{{ motion.step_seconds }}">
+      <small>Only used by “Step every few seconds”.</small>
+    </div>
+    <p class="admin-sub">Anyone whose device is set to reduce motion sees
+      a still row whichever option is chosen — that setting is theirs to
+      make, and this page does not override it.</p>
+    <div class="form-actions">
+      <button class="btn btn-green" type="submit">Save movement</button>
+    </div>
+  </form>
+</div>
 {% endblock %}

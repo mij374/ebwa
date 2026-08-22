@@ -1033,20 +1033,44 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
   scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;
   scrollbar-width:thin;padding-bottom:10px;
 }
-.partner-track{
-  display:flex;gap:var(--partner-gap);width:max-content;
+.partner-track{display:flex;gap:var(--partner-gap);width:max-content}
+/* Continuous: the CSS animation. Stepping: the script moves the track
+   and this transition is the glide between stops. No movement: neither,
+   and the copy set goes, since it exists only to feed a loop. */
+.partner-marquee[data-motion="scroll"] .partner-track{
   animation:partner-scroll linear infinite;
   animation-duration:calc(var(--partner-count, 8) * 4s);
+}
+.partner-marquee[data-motion="step"] .partner-track{
+  transition:transform .6s ease;
+}
+.partner-marquee[data-motion="none"] .partner-set[aria-hidden="true"]{
+  display:none;
 }
 .partner-set{display:flex;gap:var(--partner-gap)}
 .partner-marquee .partner-card{
   flex:0 0 260px;width:260px;scroll-snap-align:center;
 }
 /* Pause for anybody reading: pointer over it, keyboard focus inside it,
-   or a finger held on it mid-drag. */
+   or a finger held on it mid-drag. (Stepping mode does the same in the
+   script, which is the only place it can be done.) */
 .partner-marquee:hover .partner-track,
 .partner-marquee:focus-within .partner-track,
-.partner-marquee:active .partner-track{animation-play-state:paused}
+.partner-marquee:active .partner-track,
+.partner-marquee.is-dragging .partner-track{animation-play-state:paused}
+/* Drag to scroll, for the mouse user the hidden scrollbar left without
+   one. The cursor is the whole affordance, so it has to be right. */
+.partner-marquee[data-motion="scroll"],
+.partner-marquee[data-motion="step"]{cursor:grab}
+/* Without these the browser starts its own drag of the logo or the link
+   as soon as the pointer moves, which cancels the pointer stream — no
+   further move, no pointerup, and no click either. The script cancels
+   dragstart as well, for browsers that do not honour user-drag. */
+.partner-marquee{user-select:none;-webkit-user-select:none}
+.partner-marquee img,
+.partner-marquee a{-webkit-user-drag:none}
+.partner-marquee.is-dragging{cursor:grabbing;scroll-snap-type:none}
+.partner-marquee.is-dragging .partner-track{transition:none}
 /* Half the gap, because the gap between the two sets is part of the
    distance one set occupies. */
 @keyframes partner-scroll{
@@ -1061,8 +1085,12 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
    scrollbars, so "display:none then put it back" leaves a scrollbar
    that needs a thumb painting to be seen at all. */
 @media (prefers-reduced-motion: no-preference){
-  .partner-marquee{scrollbar-width:none;-ms-overflow-style:none}
-  .partner-marquee::-webkit-scrollbar{display:none}
+  .partner-marquee[data-motion="scroll"],
+  .partner-marquee[data-motion="step"]{
+    scrollbar-width:none;-ms-overflow-style:none;
+  }
+  .partner-marquee[data-motion="scroll"]::-webkit-scrollbar,
+  .partner-marquee[data-motion="step"]::-webkit-scrollbar{display:none}
 }
 /* The animation is already off under prefers-reduced-motion (the global
    rule at the top of this file). The copy set exists only to feed that
@@ -1074,7 +1102,12 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
    the people who asked for less movement. */
 @media (prefers-reduced-motion: reduce){
   .partner-set[aria-hidden="true"]{display:none}
-  .partner-marquee{scroll-snap-type:x mandatory;scrollbar-width:auto}
+  .partner-marquee{scroll-snap-type:x mandatory;scrollbar-width:auto;
+    cursor:default}
+  /* Whatever the admin chose, this wins. The script makes the same
+     check before it starts stepping. */
+  .partner-marquee .partner-track{animation:none;transition:none;
+    transform:none}
 }
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}

@@ -154,11 +154,16 @@
       {% else %}<div class="partner-card">{{ body }}</div>{% endif %}
     {% endmacro %}
     {% if partners|length > 4 %}
-    {#- More than four: a scroller rather than a wrapping grid. The
-        movement is CSS only, pauses on hover and on focus, and is off
-        entirely under prefers-reduced-motion (the global rule at the top
-        of the stylesheet), leaving a row that can still be dragged. -#}
-    <div class="partner-marquee" style="--partner-count:{{ partners|length }}">
+    {#- More than four: a scroller rather than a wrapping grid. Which
+        movement it makes is a site setting (admin → Partners); every
+        mode is off under prefers-reduced-motion, the continuous one by
+        the global rule at the top of the stylesheet and the stepping one
+        because the script checks. Either way the row can still be
+        scrolled, dragged, swiped and tabbed through. -#}
+    <div class="partner-marquee" id="partnerRow"
+         data-motion="{{ motion.mode }}"
+         data-step-seconds="{{ motion.step_seconds }}"
+         style="--partner-count:{{ partners|length }}">
       <div class="partner-track">
         <div class="partner-set">
           {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
@@ -217,6 +222,125 @@
       }
     }, { threshold: 0.4 });
     io.observe(document.querySelector('.stats'));
+  }
+
+  /* ---- The partner row: drag to scroll, and the stepping mode.
+     Values come from data attributes on the row (set from the admin
+     setting), never from Jinja inside this script. Continuous scrolling
+     is CSS and is not touched here. */
+  var partnerRow = document.getElementById('partnerRow');
+  if (partnerRow) {
+    var partnerTrack = partnerRow.querySelector('.partner-track');
+    var stillPlease = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var dragFrom = 0, dragScroll = 0, dragMoved = 0;
+    var dragging = false, dragCaught = false;
+    var DRAG_MIN = 6;      /* below this it was a click, not a drag */
+
+    /* Press and hold to pull the row along. A mouse cannot pan a scroll
+       container by itself — that is touch behaviour — and hiding the
+       scrollbar while the row moves took the other option away. Touch is
+       left alone: the browser already pans, and taking it over here
+       would make it worse, not better. */
+    partnerRow.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'touch' || e.button !== 0) return;
+      dragging = true;
+      dragCaught = false;
+      dragMoved = 0;
+      dragFrom = e.clientX;
+      dragScroll = partnerRow.scrollLeft;
+      /* Deliberately NO pointer capture yet. Capturing here retargets
+         the pointer events — and the mouseup the browser builds from
+         them — to this container, so the click that follows fires on the
+         row rather than on the partner that was pressed, and the link
+         never opens. Capture once it is a drag, below. */
+    });
+    partnerRow.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - dragFrom;
+      if (Math.abs(dx) > dragMoved) dragMoved = Math.abs(dx);
+      if (!dragCaught && dragMoved > DRAG_MIN) {
+        /* Now it is a drag: hold the pointer so it keeps working if it
+           leaves the row, and show it. */
+        dragCaught = true;
+        partnerRow.classList.add('is-dragging');
+        if (partnerRow.setPointerCapture) {
+          partnerRow.setPointerCapture(e.pointerId);
+        }
+      }
+      if (!dragCaught) return;
+      partnerRow.scrollLeft = dragScroll - dx;
+      e.preventDefault();
+    });
+    function partnerDragEnd(e) {
+      if (!dragging) return;
+      dragging = false;
+      partnerRow.classList.remove('is-dragging');
+      if (dragCaught && partnerRow.releasePointerCapture &&
+          partnerRow.hasPointerCapture &&
+          partnerRow.hasPointerCapture(e.pointerId)) {
+        partnerRow.releasePointerCapture(e.pointerId);
+      }
+      dragCaught = false;
+    }
+    partnerRow.addEventListener('pointerup', partnerDragEnd);
+    partnerRow.addEventListener('pointercancel', partnerDragEnd);
+    /* The browser's own drag of a logo or a link would fire instead of
+       ours and take the whole pointer stream with it — no pointerup, and
+       no click afterwards either. */
+    partnerRow.addEventListener('dragstart', function (e) {
+      e.preventDefault();
+    });
+    /* A drag that happened to start on a partner must not open it, but a
+       plain click must. Six pixels is the line: below it nobody meant to
+       drag, above it nobody meant to click. */
+    partnerRow.addEventListener('click', function (e) {
+      if (dragMoved > DRAG_MIN) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      dragMoved = 0;
+    }, true);
+
+    /* Stepping mode: one partner at a time, right to left, with a wait
+       in between. Continuous mode needs nothing here; "none" needs
+       nothing anywhere. */
+    if (partnerRow.getAttribute('data-motion') === 'step' &&
+        !stillPlease.matches) {
+      var stepEvery = parseInt(
+        partnerRow.getAttribute('data-step-seconds'), 10);
+      if (!stepEvery || stepEvery < 1) stepEvery = 4;
+      var cards = partnerRow.querySelectorAll(
+        '.partner-set:not([aria-hidden]) .partner-card');
+      var stepIndex = 0;
+      var held = false;
+      var hold = function () { held = true; };
+      var release = function () { held = false; };
+      partnerRow.addEventListener('mouseenter', hold);
+      partnerRow.addEventListener('mouseleave', release);
+      partnerRow.addEventListener('focusin', hold);
+      partnerRow.addEventListener('focusout', release);
+
+      var stepOnce = function () {
+        if (held || dragging || !cards.length) return;
+        var card = cards[0].getBoundingClientRect();
+        var gap = parseFloat(getComputedStyle(partnerTrack).columnGap) || 0;
+        var advance = card.width + gap;
+        if (stepIndex >= cards.length) {
+          /* One whole set has passed, and the copy behind it is showing
+             exactly what the start of the row shows — so jump back with
+             no transition and nobody sees the join. */
+          partnerTrack.style.transition = 'none';
+          partnerTrack.style.transform = 'translateX(0px)';
+          void partnerTrack.offsetWidth;
+          partnerTrack.style.transition = '';
+          stepIndex = 0;
+        }
+        stepIndex += 1;
+        partnerTrack.style.transform =
+          'translateX(' + (-stepIndex * advance) + 'px)';
+      };
+      setInterval(stepOnce, stepEvery * 1000);
+    }
   }
 </script>
 {% endblock %}

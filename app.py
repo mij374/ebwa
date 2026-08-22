@@ -357,6 +357,28 @@ class Service(db.Model):
 
 PARTNER_MODES = ("text", "image", "both")
 
+# How the partner row moves, chosen once for the site on the partners
+# admin page rather than per partner — it is a property of the row, not
+# of any one organisation. Every mode falls back to no movement under
+# prefers-reduced-motion; that is not a fourth setting and must not
+# become one.
+PARTNER_MOTIONS = (
+    ("scroll", "Continuous smooth scroll",
+     "The row glides from right to left and loops. Pauses when the "
+     "pointer is over it, when something in it has keyboard focus, and "
+     "while it is being dragged."),
+    ("step", "Step every few seconds",
+     "The row advances one partner at a time, right to left, and waits "
+     "in between."),
+    ("none", "No movement",
+     "A still row that can be scrolled or dragged. The scrollbar stays "
+     "visible in this mode, because nothing else says there is more."),
+)
+PARTNER_MOTION_KEY = "partners_motion"
+PARTNER_STEP_KEY = "partners_step_seconds"
+PARTNER_STEP_DEFAULT = 4
+PARTNER_STEP_MIN, PARTNER_STEP_MAX = 1, 60
+
 
 class Partner(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -831,6 +853,25 @@ def blocks_for(group):
     return {b.key: b.value for b in rows}
 
 
+def partner_motion():
+    """How the partner row should move, ready for the template.
+
+    Falls back to the defaults when the Blocks are missing (a database
+    that has not had init-db run yet) or hold something unexpected, so
+    the homepage can never be broken by a bad value in a settings row.
+    """
+    rows = blocks_for("partners")
+    mode = (rows.get(PARTNER_MOTION_KEY) or "").strip()
+    if mode not in [m for m, _label, _help in PARTNER_MOTIONS]:
+        mode = "scroll"
+    try:
+        seconds = int((rows.get(PARTNER_STEP_KEY) or "").strip())
+    except ValueError:
+        seconds = PARTNER_STEP_DEFAULT
+    seconds = max(PARTNER_STEP_MIN, min(PARTNER_STEP_MAX, seconds))
+    return {"mode": mode, "step_seconds": seconds}
+
+
 # ------------------------------------------------------- rich content
 # One generic attachment table plus one set of helpers, so a content type
 # opts in by naming itself here and rendering the shared macro. 'about' is
@@ -850,7 +891,8 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
                      "security_alert_email", "site_security_alert_to",
                      "sftp_enabled", "sftp_host", "sftp_port", "sftp_user",
                      "sftp_password_enc", "sftp_remote_path",
-                     "sftp_schedule", "sftp_keep")
+                     "sftp_schedule", "sftp_keep",
+                     PARTNER_MOTION_KEY, PARTNER_STEP_KEY)
 
 
 class LegacyLeadImage:
@@ -2696,7 +2738,7 @@ def home():
     return render_template("index.html", c=content, upcoming=upcoming,
                            latest_news=latest_news, campaigns=campaigns,
                            testimonials=testimonials, partners=partners,
-                           services=services)
+                           motion=partner_motion(), services=services)
 
 
 @app.route("/subscribe", methods=["POST"])
@@ -4506,7 +4548,50 @@ def admin_testimonial_toggle(t_id):
 @login_required
 def admin_partners():
     rows = Partner.query.order_by(Partner.sort, Partner.name).all()
-    return render_template("admin/partners.html", rows=rows)
+    return render_template("admin/partners.html", rows=rows,
+                           motions=PARTNER_MOTIONS, motion=partner_motion(),
+                           step_min=PARTNER_STEP_MIN,
+                           step_max=PARTNER_STEP_MAX)
+
+
+@app.route("/admin/partners/motion", methods=["POST"])
+@login_required
+def admin_partner_motion():
+    """Save how the partner row moves. One setting for the row, not a
+    field on every partner — see PARTNER_MOTIONS."""
+    mode = (request.form.get("motion") or "").strip()
+    if mode not in [m for m, _label, _help in PARTNER_MOTIONS]:
+        flash("Unknown movement option.", "error")
+        return redirect(url_for("admin_partners"))
+    try:
+        seconds = int((request.form.get("step_seconds") or "").strip())
+    except ValueError:
+        flash("The step interval must be a whole number of seconds.",
+              "error")
+        return redirect(url_for("admin_partners"))
+    if not PARTNER_STEP_MIN <= seconds <= PARTNER_STEP_MAX:
+        flash("The step interval must be between %d and %d seconds."
+              % (PARTNER_STEP_MIN, PARTNER_STEP_MAX), "error")
+        return redirect(url_for("admin_partners"))
+
+    changed = []
+    for key, value in ((PARTNER_MOTION_KEY, mode),
+                       (PARTNER_STEP_KEY, str(seconds))):
+        block = Block.query.filter_by(key=key).first()
+        if block is None:      # a database predating these settings
+            block = Block(group="partners", key=key, label=key, kind="text")
+            db.session.add(block)
+        if (block.value or "") != value:
+            changed.append(key)
+        block.value = value
+    db.session.commit()
+    if changed:
+        log_action("edit", entity=("Block", None),
+                   summary="Changed how the partner row moves: %s."
+                           % dict((m, label) for m, label, _h
+                                  in PARTNER_MOTIONS)[mode].lower())
+    flash("Partner row movement saved.", "ok")
+    return redirect(url_for("admin_partners"))
 
 
 @app.route("/admin/partners/new", methods=["GET", "POST"])
@@ -5869,6 +5954,12 @@ DEFAULT_BLOCKS = [
     ("home", "home_stat_2", "Stat 2 (women trained)", "text", "24"),
     ("home", "home_stat_3", "Stat 3 (cricket project)", "text", "25"),
     ("home", "home_stat_4", "Stat 4 (first aid trained)", "text", "20"),
+    # How the partner row moves. Set on the partners admin page, not in
+    # the text editor, so both are hidden below.
+    ("partners", PARTNER_MOTION_KEY, "Partner row movement", "text",
+     "scroll"),
+    ("partners", PARTNER_STEP_KEY, "Seconds between steps", "text",
+     str(PARTNER_STEP_DEFAULT)),
     ("about", "about_title", "Page title", "text", "About EBWA"),
     ("about", "about_body", "Main text", "text",
      "Founded by Choudhury Mohammed Anwar MBE, former Mayor of Enfield, EBWA provides "

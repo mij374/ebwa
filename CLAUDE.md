@@ -941,11 +941,34 @@ Built (post-signing variation, Jul 2026):
       and do not "restore" the bar by re-styling `::-webkit-scrollbar` —
       touching that selector at all opts Chromium into custom scrollbars
       and then the thumb needs painting by hand.
-    - A press-and-drag with a MOUSE does not pan the row: no browser
-      does that for a scroll container. A mouse user has the wheel or
-      trackpad, the row arriving on its own, and the scrollbar under
-      reduced motion. Making drag work would mean drag-to-scroll
-      JavaScript — ask before adding it.
+    - How it moves is a SITE setting, not a per-partner one:
+      `PARTNER_MOTIONS` (scroll / step / none) plus
+      `partners_step_seconds`, both Blocks, both set at Admin →
+      Partners and both in `HIDDEN_BLOCK_KEYS`. The mode reaches the
+      page as `data-motion` on the row, never as Jinja inside the
+      script. Continuous scrolling is CSS; stepping is the script
+      moving the track with a transition for the glide; "none" runs
+      nothing and keeps its scrollbar.
+    - **Every mode falls back to no movement under
+      `prefers-reduced-motion`**, and that is not a fourth option for an
+      admin to override. The CSS handles the continuous mode, the script
+      checks `matchMedia` before it starts stepping — keep BOTH, since
+      neither covers the other.
+    - Drag-to-scroll (pointer events, no library) gives the mouse user
+      back what hiding the scrollbar took away. Two things it must keep
+      doing, both learned by breaking them:
+      - **Pointer capture only AFTER the drag threshold** (`DRAG_MIN`,
+        6px). Capturing on pointerdown retargets the pointer events, and
+        the mouseup the browser builds from them, to the row — so the
+        click fires on the row instead of the partner and the link never
+        opens.
+      - **The browser's own drag of a logo or link must be cancelled**
+        (`user-select`/`-webkit-user-drag` in the stylesheet plus a
+        `dragstart` preventDefault). Otherwise Chromium starts a native
+        drag on the first pointermove and takes the rest of the pointer
+        stream with it: no pointerup, no click, no scrolling.
+      Touch is left alone — the browser pans natively, and the handler
+      returns immediately for `pointerType === 'touch'`.
 - Legal pages: /privacy and /terms rendering `legal` group Blocks
   (title + multi-paragraph body, split on newlines like `about_body`),
   linked in the footer and listed in the sitemap. Core pages — not

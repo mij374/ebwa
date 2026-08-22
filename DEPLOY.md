@@ -59,6 +59,35 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-22 — Partner row movement setting
+
+**No schema change**, but TWO NEW BLOCKS, so `init-db` must run or the
+partners admin page saves into rows that do not exist yet (it recreates
+them itself, but the homepage falls back to continuous scrolling until
+somebody saves):
+
+```bash
+flask --app app init-db      # seeds partners_motion + partners_step_seconds
+sudo systemctl restart ebwa
+```
+
+New settings, both editable at **Admin → Partners → How the row moves**
+and both hidden from the ordinary content editor:
+
+| Block | Default | Meaning |
+| --- | --- | --- |
+| `partners_motion` | `scroll` | `scroll`, `step` or `none` |
+| `partners_step_seconds` | `4` | seconds between steps, 1–60 |
+
+Nothing to run afterwards. Anyone whose device asks for reduced motion
+sees a still row whichever mode is set.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## ea3ecdc — 2026-08-22 — Server health panel
 
 **No schema change**, no new settings. One new package:
