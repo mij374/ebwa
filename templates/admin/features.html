@@ -224,13 +224,21 @@
   </div>
 
   <p class="admin-sub" style="margin:18px 0 0">
-    <b>An archive on this server is not a backup.</b> It protects against a
-    mistake — a deleted album, a bad edit — not against losing the server.
-    Copying archives off the machine to a NAS or another host is a
-    scheduled job on the server (cron with rsync or scp and a key), set up
-    by Netbus. <b>This page cannot configure that</b>, and deliberately
-    does not try: the website has no business holding keys to other
-    machines or running commands anybody typed into it.</p>
+    <b>An archive on this server alone is not a backup.</b> It protects
+    against a mistake — a deleted album, a bad edit — not against losing
+    the server. So each archive is written here, keeping the newest
+    {{ backup.keep }}, and then <b>sent to the SFTP destination set up
+    below</b>, across the private network, where the newest
+    {{ sftp.keep }} are kept. Retention is separate at each end on
+    purpose: the other machine has room for far more history.
+    {% if not sftp.enabled %}
+      Transfer is currently <b>off</b>, so nothing is leaving this
+      server — until it is on, the archives above are only half a backup.
+    {% endif %}
+    The password for that destination is encrypted before it is stored,
+    with the key held in the server's environment and never in the
+    database, so a stolen archive does not open the machine it was sent
+    to.</p>
 
   <div class="table-scroll">
   <table class="admin-table" style="margin-top:18px">

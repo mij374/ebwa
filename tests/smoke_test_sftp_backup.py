@@ -17,6 +17,7 @@ paramiko replaced by a fake server. Nothing real is touched.
 Run:  python tests/smoke_test_sftp_backup.py
 """
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -237,6 +238,18 @@ with app.app_context():
 
 page = client.get("/admin/features").data.decode("utf-8")
 check("password never rendered", NAS_PASSWORD not in page)
+# With transfer ON the Backups panel must describe the whole journey:
+# written here, sent there, retention at each end. The off state is
+# covered in smoke_test_backup_security.py.
+prose = " ".join(re.sub(r"<[^>]+>", " ", page).split())
+check("panel says archives are sent to the destination",
+      "sent to the SFTP destination set up below" in prose)
+check("panel states both retentions", "keeping the newest" in prose
+      and "the newest 3 are kept" in prose)
+check("panel does not warn that nothing leaves the server",
+      "nothing is leaving this server" not in prose)
+check("panel says the stored password is encrypted",
+      "encrypted before it is stored" in prose)
 check("page says a password is set", "Password set" in page)
 check("password field is a password field",
       'type="password"' in page and 'name="password"' in page)

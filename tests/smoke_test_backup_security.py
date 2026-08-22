@@ -19,6 +19,7 @@ nothing real is touched. Deletes all three afterwards.
 Run:  python tests/smoke_test_backup_security.py
 """
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -251,10 +252,27 @@ check("panel shows the directory", ARCHIVES in page)
 check("panel shows retention", "keeping the newest 3" in page)
 check("panel shows the last backup size", "Last backup" in page)
 check("panel shows disk free", "Free disk space" in page)
+# Prose checks read the page as a reader does: tags stripped and
+# whitespace collapsed, so a phrase that happens to wrap or carry a <b>
+# in the middle still matches.
+prose = " ".join(re.sub(r"<[^>]+>", " ", page).split())
 check("panel says an on-server archive is not a backup",
-      "not a backup" in page)
-check("panel says this page cannot configure the copy off the box",
-      "cannot configure that" in page)
+      "not a backup" in prose)
+# The old wording claimed this page could not configure the copy off the
+# server, which stopped being true when the NAS transfer landed directly
+# beneath it. It now describes what actually happens, and the check
+# follows the claim rather than being dropped.
+check("panel says archives are sent to the destination below",
+      "sent to the SFTP destination set up below" in prose)
+check("panel says retention applies at both ends",
+      "keeping the newest" in prose and "are kept" in prose
+      and "Retention is separate at each end" in prose)
+check("panel says the destination password is encrypted",
+      "encrypted before it is stored" in prose)
+check("panel no longer claims it cannot configure the transfer",
+      "cannot configure that" not in prose)
+check("panel says plainly when nothing is leaving the server",
+      "nothing is leaving this server" in prose)   # transfer off here
 check("panel never shows the SMTP password", SECRET_PASSWORD not in page)
 
 # ---- the button works, is logged, and is rate limited

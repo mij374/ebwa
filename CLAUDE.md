@@ -596,8 +596,10 @@ Built and maintained by Netbus IT Support.
   - On a phone the groups do not become nested menus: inside the open
     `.nav-links.open` the panels are `position:static` and always
     visible, each group a heading with its pages beneath it.
-  - `tests/check_header_layout.py` is the proof, at 1440/1280/1024/900/
-    390: one line (measured by item CENTRES, since a trigger is taller
+  - `tests/check_header_layout.py` is the proof, at the widths in its
+    own `WIDTHS` list — 1440/1280/1024/900/768/390, which includes 900
+    and 768 either side of the 899px shed point, since that is where a
+    header regression would land: one line (measured by item CENTRES, since a trigger is taller
     than the pill), no sideways scroll, panels shut until hovered or
     focused, every destination reachable by Tab alone, and the mobile
     menu listing all of them. Run it after touching the header, the nav
@@ -667,8 +669,10 @@ tests/; run them against a scratchpad DATABASE_URL, never
 instance/ebwa.db.
 
 Layout changes also have `tests/check_header_layout.py` — a Playwright
-run against real Chromium at 1440/1280/1024/768/390px asserting the nav
-stays on one line, nothing scrolls sideways, and the mobile menu opens.
+run against real Chromium at 1440/1280/1024/900/768/390px asserting the
+nav stays on one line, nothing scrolls sideways, and the mobile menu
+opens. 900 and 768 straddle the 899px shed point deliberately; keep both
+if you change the list.
 It needs a browser so it is NOT part of the smoke suite (`smoke_test_*`);
 run it by hand after touching the header, nav or breakpoints:
 `python tests/check_header_layout.py [--shots DIR]`.
@@ -759,13 +763,17 @@ email. Deploy: new table — `flask --app app init-db` — plus optional
 set up by hand when this was written; the NAS transfer entry above
 replaced it.)
 
-Contact form and mail layer (rules above): `send_mail()` over smtplib
-with settings from the environment, `test-mail` CLI, a super-admin-only
-recipient override on Settings, the form on /contact behind the
-`contact_form` flag with honeypot + timing + rate limiting, and
-`ContactMessage` with an admin list at /admin/messages (statuses, unread
-badge, mailto reply, no export). Deploy: new table — `flask --app app
-init-db` — plus the SMTP environment variables.
+Contact form and mail layer (rules above): `send_mail()` over smtplib,
+every setting resolved by `mail_settings()` — the Block a super admin
+filled in wins, the environment variable is the fallback — including the
+password, which is Fernet-encrypted at rest when set on Settings and
+falls back to `SMTP_PASSWORD`. Plus the `test-mail` CLI, the whole of
+Settings → Email (host, port, encryption, user, from, recipient, test
+send), the form on /contact behind the `contact_form` flag with honeypot
++ timing + rate limiting, and `ContactMessage` with an admin list at
+/admin/messages (statuses, unread badge, mailto reply, no export).
+Deploy: new table — `flask --app app init-db` — plus `FERNET_KEY`, and
+the SMTP environment variables for any setting not typed on Settings.
 
 FAQ module (rules above): `Faq` model, public /faq with accordions and
 FAQPage structured data, admin CRUD at /admin/faq, behind the `faq`
@@ -814,9 +822,11 @@ Built (post-signing variation, Jul 2026):
   harmless orphan `funding_record` table and `track_record` Block row.)
 - Super-admin tier + feature flags (conventions above): `User.role`
   ('admin' | 'super_admin'), `flask --app app promote-super-admin`;
-  `FeatureFlag` table seeded from `FEATURES` (news, resources,
-  our_journey, membership_form, donations); super-admin-only Settings
-  page at /admin/features with per-feature on/off toggles. Deploy:
+  `FeatureFlag` table seeded from `FEATURES` in `app.py`, which is the
+  authoritative list — read it there rather than looking for one here,
+  because a list kept in two places drifts (this one named five flags
+  for a while after there were nine); super-admin-only Settings page at
+  /admin/features with per-feature on/off toggles. Deploy:
   `ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT
   'admin';` then `flask --app app init-db` for the new table.
 - Account settings at /admin/account (all roles): change your own

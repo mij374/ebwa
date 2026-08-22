@@ -27,7 +27,10 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 from app import app, db, DEFAULT_BLOCKS, Block, FEATURES, FeatureFlag  # noqa: E402
 
-WIDTHS = [1440, 1280, 1024, 768, 390]
+# 900 and 768 sit either side of the 899px shed point, where the whole
+# nav collapses to the menu button: 900 is the last width that must fit
+# every group on one line, so it is the case most likely to regress.
+WIDTHS = [1440, 1280, 1024, 900, 768, 390]
 MOBILE_MENU_MAX = 899          # below this the hamburger takes over
 PAGES = ["/", "/about", "/events", "/contact", "/admin/login"]
 
