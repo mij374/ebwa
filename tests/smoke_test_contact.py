@@ -351,8 +351,11 @@ client.post("/admin/login", data={"email": "netbus@example.com",
 r = client.get("/admin/features")
 check("settings page shows the recipient", b"enquiries@example.org" in r.data)
 check("settings page never shows the password", b"hunter2" not in r.data)
-check("settings page says credentials live on the server",
-      b"SMTP_PASSWORD" in r.data and b"not editable here" in r.data)
+# The password is settable here now, but encrypted and never shown; the
+# environment variable stays as the fallback and is still named.
+check("settings page names the fallback and hides the password",
+      b"SMTP_PASSWORD" in r.data and b"never shown again" in r.data
+      and b"hunter2" not in r.data)
 r = client.post("/admin/settings/mail",
                 data={"recipient": "info@ebwa.org.uk"},
                 follow_redirects=True)

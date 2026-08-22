@@ -59,6 +59,33 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-22 — The SMTP password can be set on the Settings page
+
+**No schema change.** One new content Block, seeded empty:
+
+```bash
+flask --app app init-db     # seeds smtp_password_enc
+```
+
+Nothing changes for an existing install: with no password saved on the
+page, `SMTP_PASSWORD` from the environment is still used, and the
+Settings page says which of the two is in force.
+
+**It needs `FERNET_KEY`** — the same key the NAS password already uses.
+If it is not set, the page refuses to store a password and says so; the
+environment variable keeps working meanwhile. Deployments that did the
+NAS entry already have this.
+
+The seven-step "change it on the server" box is now a short note: use
+Settings → Email, and the server route stays documented for when the
+admin is unreachable.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## a9d7c7d — 2026-08-21 — Send backups to the NAS over SFTP
 
 Five new columns on `backup_run`, eight new Blocks, two new packages and

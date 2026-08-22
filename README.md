@@ -91,12 +91,17 @@ flask --app app test-mail you@example.com
 With none of this set the form still works and still saves every enquiry
 — they are just not emailed, and each attempt is noted in the audit log.
 
-Everything except the password can also be set through the web, under
-**Settings → Email** (Netbus only). A value typed there overrides the
-environment variable; leaving a box empty falls back to it, and the page
-shows which of the two is in force for every setting. The password is
-read from `SMTP_PASSWORD` only: it is never stored in the database, never
-shown, and there is no box to type it into.
+All of it can also be set through the web, under **Settings → Email**
+(Netbus only). A value typed there overrides the environment variable;
+leaving a box empty falls back to it, and the page shows which of the two
+is in force for every setting.
+
+The password included — it is encrypted before being stored (which is
+what `FERNET_KEY` is for) and never shown again: the page says only
+whether one is set and where it came from. Leave the box empty to keep
+the current one. `SMTP_PASSWORD` remains the fallback when nothing has
+been saved, so nothing changes for an existing install and there is still
+a way in when the admin itself is unreachable.
 
 ## The dashboard
 
@@ -407,12 +412,14 @@ Points worth keeping:
 
 ## Changing the SMTP password
 
-The mail password is the one setting that is **not** editable in the
-website's Settings page. Everything in the database is included in the
-nightly backups, and a live mail password does not belong in a backup —
-so it stays in a file on the server. (The same steps are shown, with this
-deployment's real paths, in the collapsible box under the password on
-Settings → Email.)
+Normally: **Settings → Email**, type the new password, Save. It is
+encrypted before it is stored, so this needs no server access — and the
+backups stay safe to hold, because the key that decrypts it lives in the
+environment and not in the archive.
+
+The steps below are the fallback for when the website itself is
+unreachable, or nobody can sign in. A password saved on the Settings page
+takes precedence over the one in this file.
 
 1. Connect to the server over SSH.
 2. Open the environment file:

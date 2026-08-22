@@ -839,6 +839,7 @@ ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
 HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
                      "smtp_port", "smtp_user", "smtp_security", "smtp_from",
+                     "smtp_password_enc",
                      "security_alert_email", "site_security_alert_to",
                      "sftp_enabled", "sftp_host", "sftp_port", "sftp_user",
                      "sftp_password_enc", "sftp_remote_path",
@@ -1453,12 +1454,13 @@ def rate_limited(scope):
 # carries on exactly as it did, and anything set through the web overrides
 # it without a redeploy.
 #
-# THE PASSWORD IS THE ONE EXCEPTION. It is read from SMTP_PASSWORD and
-# from nowhere else: never stored in the database, never rendered, never
-# editable through the web. Encrypting it at rest would still need a key
-# in the environment, so it would add a moving part without removing the
-# dependency it was meant to remove — and a settings page that can write
-# the password is a settings page that can leak it.
+# THE PASSWORD is handled differently from the rest: it can be set on
+# the Settings page, but it is ENCRYPTED AT REST with Fernet (key in
+# FERNET_KEY) and never rendered — the page shows only whether one is
+# stored. SMTP_PASSWORD stays as the fallback when nothing is saved, so
+# an existing deployment is unaffected. The reasoning is in CLAUDE.md,
+# and is the same as for the NAS credential: a backup archive contains
+# the database, so the key must live somewhere the archive does not.
 MAIL_TIMEOUT = 10                # seconds; a hung server must not hang a page
 MAIL_TO_KEY = "site_mail_to"     # kept: the recipient's Block key
 
@@ -1546,8 +1548,9 @@ def mail_config():
     return {"host": settings["host"]["value"],
             "port": port,
             "user": settings["user"]["value"],
-            # From the environment ONLY. See the note at the top.
-            "password": os.environ.get("SMTP_PASSWORD", ""),
+            # Settings page first, environment as the fallback — and
+            # encrypted at rest either way. See the note at the top.
+            "password": mail_password(),
             "security": security,
             "sender": settings["sender"]["value"]}
 
@@ -1557,9 +1560,40 @@ def mail_recipient():
     return mail_settings()["recipient"]["value"]
 
 
+MAIL_PASSWORD_KEY = "smtp_password_enc"   # Fernet ciphertext, never plain
+
+
+def mail_password():
+    """The SMTP password: the one saved on Settings, else the environment.
+
+    Stored ENCRYPTED (Fernet, key in FERNET_KEY) for the same reason the
+    NAS password is — see the note in CLAUDE.md. Nothing else in the app
+    may read the Block directly.
+    """
+    block = Block.query.filter_by(key=MAIL_PASSWORD_KEY).first()
+    stored = decrypt_secret(block.value if block else "")
+    return stored or os.environ.get("SMTP_PASSWORD", "")
+
+
+def mail_password_setting():
+    """Whether a password is set and which one is in force. NEVER the value.
+
+    Reported like every other mail setting, because "which of the two is
+    the server actually using?" is the question when authentication
+    fails.
+    """
+    block = Block.query.filter_by(key=MAIL_PASSWORD_KEY).first()
+    if block and (block.value or "").strip():
+        return {"stored": True, "source": "database", "label": "This page"}
+    if os.environ.get("SMTP_PASSWORD", ""):
+        return {"stored": True, "source": "environment",
+                "label": "Server (SMTP_PASSWORD)"}
+    return {"stored": False, "source": "unset", "label": "Not set"}
+
+
 def password_is_set():
-    """Whether SMTP_PASSWORD has a value. Never the value itself."""
-    return bool(os.environ.get("SMTP_PASSWORD", ""))
+    """Whether a password exists at all. Never the value itself."""
+    return mail_password_setting()["stored"]
 
 
 def mail_configured():
@@ -5020,7 +5054,8 @@ def admin_features():
         "admin/features.html", rows=FEATURES, flags=feature_flags(),
         settings=mail_settings(), fields=MAIL_SETTINGS,
         modes=SECURITY_MODES, mail_ready=mail_configured(),
-        password_set=password_is_set(),
+        password_set=password_is_set(), password_setting=mail_password_setting(),
+        fernet_key_present=fernet() is not None,
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
         last_transfer=(BackupRun.query
@@ -5068,8 +5103,14 @@ def admin_mail_settings():
     security = request.form.get("security", "").strip()
     sender = request.form.get("sender", "").strip()
     recipient = request.form.get("recipient", "").strip()
+    # NEVER stripped, never logged, never echoed back: an empty box means
+    # "keep the one already stored", exactly as the field says.
+    password = request.form.get("password", "")
 
     errors = []
+    if password and not fernet():
+        errors.append("There is no FERNET_KEY on the server, so a password "
+                      "cannot be stored safely. Ask Netbus to set one.")
     if port:
         if not port.isdigit() or not (1 <= int(port) <= 65535):
             errors.append("The port must be a number between 1 and 65535.")
@@ -5097,14 +5138,18 @@ def admin_mail_settings():
                        ("smtp_user", user), ("smtp_security", security),
                        ("smtp_from", sender), (MAIL_TO_KEY, recipient)):
         set_mail_block(key, value)
+    if password:
+        set_mail_block(MAIL_PASSWORD_KEY, encrypt_secret(password))
     db.session.commit()
 
     after = {f: v["value"] for f, v in mail_settings().items()}
     changed = sorted(f for f in after if after[f] != before[f])
+    # The summary says THAT the password changed, never what it is — the
+    # same rule as every other credential in here.
+    note = "%s%s" % (describe_changes(changed) if changed else "no changes",
+                     "; password changed" if password else "")
     log_action("edit", entity=("Block", None),
-               summary=("Changed the email settings (%s). The password is "
-                        "not stored here." % describe_changes(changed))
-               if changed else "Saved the email settings; nothing changed.")
+               summary="Saved the email settings (%s)." % note)
     flash("Email settings saved. Enquiries go to %s."
           % (mail_recipient() or "nobody — set an address"),
           "ok" if mail_recipient() else "error")
@@ -5388,6 +5433,9 @@ DEFAULT_BLOCKS = [
     ("site", "smtp_user", "Mail server username", "text", ""),
     ("site", "smtp_security", "Mail server encryption", "text", ""),
     ("site", "smtp_from", "Email is sent from", "text", ""),
+    # Fernet ciphertext, never plaintext; empty means "use SMTP_PASSWORD".
+    ("site", "smtp_password_enc", "Mail server password (encrypted)",
+     "text", ""),
     # "1" switches on the failed-sign-in alert email. Off by default:
     # nobody wants a mailbox full of alerts they did not ask for.
     ("site", "security_alert_email", "Email alerts for failed sign-ins",

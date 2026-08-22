@@ -35,57 +35,55 @@
     <tr>
       <td class="nowrap"><b>Password</b></td>
       <td>
-        {% if password_set %}••••••••  <small>set on the server</small>
-        {% else %}<b>Not set</b>{% endif %}
+        {% if password_setting.stored %}••••••••{% else %}<b>Not set</b>{% endif %}
       </td>
-      <td class="nowrap"><span class="pill pill-grey">Server (SMTP_PASSWORD)</span></td>
+      <td class="nowrap">
+        {% if password_setting.source == 'database' %}
+        <span class="pill pill-green">This page</span>
+        {% elif password_setting.source == 'environment' %}
+        <span class="pill pill-grey">Server (SMTP_PASSWORD)</span>
+        {% else %}
+        <span class="pill pill-red">Not set</span>
+        {% endif %}
+      </td>
     </tr>
   </tbody>
 </table>
 </div>
 
-<p class="admin-sub"><b>The password is deliberately not editable here.</b>
-  It is read from <code>SMTP_PASSWORD</code> on the server and is never
-  stored in the database or shown on this page. The database is included
-  in the nightly backups, and a mail password does not belong in a backup
-  — that is the whole reason this one box lives on the server instead.</p>
+<p class="admin-sub">The password is stored encrypted and is never
+  shown again — the table says only whether one is set, and which. Type a
+  new one below to change it, or leave the box empty to keep the current
+  one.</p>
 
-{# Same accordion as the public FAQ: plain <details>, so the browser
-   brings the keyboard handling and it works with no script at all. Every
-   path below comes from the app's deployment settings, so an install
-   somewhere else prints its own paths rather than these. #}
+{% if not fernet_key_present %}
+<p class="admin-sub"><b>No encryption key on the server.</b> Passwords are
+  stored encrypted, so <code>FERNET_KEY</code> has to be set in the
+  environment before one can be saved here. Ask Netbus.</p>
+{% endif %}
+
 <details class="faq-item admin-help">
-  <summary>How to change the SMTP password</summary>
+  <summary>Setting it on the server instead</summary>
   <div class="faq-answer">
+    <p>Only needed if this page is unreachable — the site is down, or
+      nobody can sign in. The environment setting is used whenever no
+      password has been saved here.</p>
     <ol class="admin-steps">
-      <li>Connect to the server over SSH.</li>
-      <li>Open the environment file:
-        <pre><code>sudo nano {{ deploy.env_file }}</code></pre>
+      <li>Edit the environment file and set the password, in single
+        quotes:
+        <pre><code>sudo nano {{ deploy.env_file }}
+SMTP_PASSWORD='new-password-here'</code></pre>
       </li>
-      <li>Edit or add the line below. No spaces around the equals sign,
-        and single quotes around the value — the quotes protect
-        <code>$</code>, <code>#</code>, <code>!</code> and spaces:
-        <pre><code>SMTP_PASSWORD='new-password-here'</code></pre>
-      </li>
-      <li>Save and exit: <b>Ctrl+O</b>, <b>Enter</b>, <b>Ctrl+X</b>.</li>
-      <li>Check the file still parses. One malformed line stops the
-        service reading <em>any</em> of its settings, so this step is
-        worth the ten seconds:
-        <pre><code>sudo -u {{ deploy.user }} bash -c 'set -a; source {{ deploy.env_file }}; set +a; echo "env OK"'</code></pre>
-      </li>
-      <li>Restart the service so it picks up the change:
+      <li>Restart the service:
         <pre><code>sudo systemctl restart {{ deploy.service }}</code></pre>
       </li>
-      <li>Confirm it works — put your own address in:
+      <li>Check it works:
         <pre><code>sudo -u {{ deploy.user }} bash -c 'cd {{ deploy.path }} && set -a && source {{ deploy.env_file }} && set +a && ./venv/bin/flask --app app test-mail your@address.com'</code></pre>
-        Or use <b>Send a test email</b> below, once the service has
-        restarted.
       </li>
     </ol>
-    <p>Leave the file's permissions as <code>root:{{ deploy.user }}</code>
-      and <code>640</code> — readable by the service, by nobody else:</p>
-    <pre><code>sudo chown root:{{ deploy.user }} {{ deploy.env_file }}
-sudo chmod 640 {{ deploy.env_file }}</code></pre>
+    <p>Keep that file <code>root:{{ deploy.user }}</code> and
+      <code>640</code>. A password saved on this page takes precedence
+      over it.</p>
   </div>
 </details>
 
@@ -139,6 +137,16 @@ sudo chmod 640 {{ deploy.env_file }}</code></pre>
              value="{{ settings.recipient.value if settings.recipient.source == 'database' else '' }}"
              placeholder="{{ settings.recipient.value or 'info@ebwa.org.uk' }}">
     </div>
+  </div>
+  <div class="field">
+    <label for="smtp_password">Password</label>
+    <input type="password" id="smtp_password" name="password"
+           maxlength="200" autocomplete="new-password"
+           placeholder="{{ 'Password set — leave empty to keep it' if password_setting.stored else 'Type the mail server password' }}">
+    <small>
+      {% if password_setting.stored %}<b>Password set</b> ({{ password_setting.label }}).{% else %}<b>No password stored.</b>{% endif %}
+      Encrypted before it is stored, and never shown again. Leave empty to
+      keep the current one.</small>
   </div>
   <button class="btn btn-green" type="submit">Save email settings</button>
 </form>

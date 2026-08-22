@@ -147,13 +147,27 @@ Built and maintained by Netbus IT Support.
   - The Blocks are all seeded EMPTY and all listed in
     `HIDDEN_BLOCK_KEYS`: empty means "use the environment", and none of
     them belongs in the ordinary content editor.
-  - **THE PASSWORD IS THE EXCEPTION.** `SMTP_PASSWORD` is read from the
-    environment and nowhere else: never written to the database, never
-    rendered (the page shows set/not set via `password_is_set()`), and
-    with no input to type it into. Encrypting it at rest with Fernet
-    would still need a key in the environment, so it adds a moving part
-    without removing the dependency it was meant to remove. If that ever
-    changes, the key management has to be designed first.
+  - **Both credentials — SMTP and the NAS — are ENCRYPTED AT REST with
+    Fernet, the key in `FERNET_KEY`.** (This supersedes an earlier note
+    saying SMTP was different and env-only; the split was inconsistent
+    and the usability cost was real — changing a mail password meant
+    server access.) The rule is the same for any credential the app ever
+    stores:
+    - ciphertext in the database, key in the environment. The nightly
+      backup archive CONTAINS THE DATABASE and is copied to the NAS, so
+      an archive must never hold anything that opens anything: with the
+      key elsewhere, a stolen archive yields nothing.
+    - never rendered — the page shows only whether one is stored and
+      which source is in force;
+    - an empty box means "keep the current one", so saving an unrelated
+      field cannot wipe a credential;
+    - never in a flash, an audit summary or an error message; failure
+      text goes through `_scrubbed()`;
+    - refuse to store one at all when `FERNET_KEY` is absent, and say so
+      plainly rather than pretending to keep it.
+  - `SMTP_PASSWORD` stays as the FALLBACK when nothing is stored, so a
+    deployment that only ever set environment variables is unaffected,
+    and the server route still works when the admin is unreachable.
   - `describe_mail_failure()` turns an exception into a sentence an
     admin can act on — refused, credentials rejected, TLS mismatch,
     timeout, name lookup — and `_scrubbed()` removes the password from
@@ -197,18 +211,12 @@ Built and maintained by Netbus IT Support.
   `transfer_attempts`) rather than in a second table — one row answers
   "did we back up, and did it leave the building?", which is the only
   pair of questions anybody asks.
-  - **The NAS password is encrypted at rest with Fernet, and this
-    deliberately differs from `SMTP_PASSWORD`, which stays in the
-    environment.** The reason is what a backup archive contains: the
-    database. A plaintext credential to the backup destination, stored in
-    the database, would be copied into every archive and then onto the
-    NAS — a key to the safe, inside the safe, sent to the offsite copy of
-    the safe. Encrypting it with a key held in `FERNET_KEY` means an
-    archive on its own opens nothing. The SMTP password has no such
-    problem: it is never in the database at all. Neither is ever
-    rendered; the page shows "Password set" and an empty box means "keep
-    the current one" — a save of an unrelated field must never wipe a
-    credential.
+  - The NAS password follows the shared credential rule above:
+    Fernet-encrypted with the key in `FERNET_KEY`, never rendered, empty
+    box keeps the current one. It is the credential that made the rule —
+    a plaintext key to the backup destination, stored in the database,
+    would be copied into every archive and then onto the NAS: a key to
+    the safe, inside the safe, posted to the offsite copy of the safe.
   - Two attempts, then stop until the next scheduled run. A NAS that is
     switched off must not be hammered, and the settings page promises
     exactly this behaviour — keep them in step.
