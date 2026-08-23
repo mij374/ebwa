@@ -43,7 +43,8 @@
     </div>
     <div class="field">
       <label for="port">Port {{ source_tag(settings.port, "SMTP_PORT") }}</label>
-      <input type="text" id="port" name="port" maxlength="5"
+      <input type="number" id="port" name="port"
+             min="1" max="65535" step="1"
              value="{{ settings.port.value if settings.port.source == 'database' else '' }}"
              placeholder="{{ settings.port.value or '587' }}">
       <small>587 for STARTTLS, 465 for SSL/TLS.</small>
@@ -306,7 +307,8 @@
       </div>
       <div class="field">
         <label for="sftp_port">Port</label>
-        <input type="text" id="sftp_port" name="port" maxlength="5"
+        <input type="number" id="sftp_port" name="port"
+               min="1" max="65535" step="1"
                value="{{ sftp.port }}">
       </div>
     </div>
@@ -347,7 +349,8 @@
 
     <div class="field">
       <label for="sftp_keep">Archives to keep on the NAS</label>
-      <input type="text" id="sftp_keep" name="keep" maxlength="4"
+      <input type="number" id="sftp_keep" name="keep"
+             min="1" max="9999" step="1"
              value="{{ sftp.keep }}">
       <small>Separate from the {{ backup.keep }} kept on this server — the
         NAS has room for more history, which is rather the point of

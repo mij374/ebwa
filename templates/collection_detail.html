@@ -39,6 +39,16 @@
 
       <div class="field">
         <label for="donation">Optional extra donation (£)</label>
+        {#- Quick picks rather than a bigger step: money has to accept
+            £12.50, which means step="0.01", which means the arrows move
+            a penny at a time. These are what replaces them. Same markup
+            and the same tiny script as the donate page. -#}
+        <div class="amount-presets">
+          <button type="button" class="btn btn-ghost" data-amount="5">£5</button>
+          <button type="button" class="btn btn-ghost" data-amount="10">£10</button>
+          <button type="button" class="btn btn-ghost" data-amount="25">£25</button>
+          <button type="button" class="btn btn-ghost" data-amount="50">£50</button>
+        </div>
         <input type="number" id="donation" name="donation"
                min="0" max="10000" step="0.01" placeholder="e.g. 5">
       </div>
@@ -110,5 +120,18 @@
   donationInput.addEventListener('input', syncGiftAid);
   giftAidToggle.addEventListener('change', syncGiftAid);
   syncGiftAid();
+
+  /* The quick-pick buttons, which are what this field has instead of
+     useful arrows: money steps by a penny so that £12.50 can be typed.
+     Setting .value from script fires no 'input' event, so syncGiftAid
+     is called by hand — without that, picking £25 would leave the Gift
+     Aid tick-box disabled on a donation that plainly qualifies. */
+  var presets = document.querySelectorAll('.amount-presets [data-amount]');
+  for (var i = 0; i < presets.length; i++) {
+    presets[i].addEventListener('click', function () {
+      donationInput.value = this.getAttribute('data-amount');
+      syncGiftAid();
+    });
+  }
 </script>
 {% endblock %}

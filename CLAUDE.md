@@ -530,6 +530,35 @@ Built and maintained by Netbus IT Support.
     narrower and nothing else. Note that the shared selector's `:not()`
     chain outranks a plain `.field input[type=x]`, so a per-type
     override needs the shared rule to leave that property alone.
+  - **Every `type="number"` carries a `step` that matches its natural
+    increment, and `min`/`max` mirroring whatever the ROUTE enforces.**
+    The arrows are the point: a field whose real increment is 50 and
+    whose step is 1 has arrows nobody can use, and a field with no `max`
+    lets somebody arrow past a bound into a rejection they could have
+    been stopped from reaching. `tests/check_number_inputs.py` drives
+    every one of them in Chromium — presses the arrow and measures what
+    moved, types an off-step value and asks the browser whether it would
+    submit — and is the list of what exists.
+    - **The step BASE is `min`, not zero.** `min="300" step="50"` makes
+      300, 350, 400 ... valid and 360 INVALID, so a form nobody has
+      touched refuses to submit with "the two nearest valid values are
+      350 and 400". That is why the glide steps by 20 rather than the 50
+      its range would suggest: 20 keeps the shipped 360 default and the
+      3000 ceiling both on the grid. Check any new step against the
+      DEFAULT VALUE, not just the range.
+    - **Money keeps `step="0.01"` and gets quick-pick buttons instead.**
+      A step of 5 would make the arrows useful and £12.50 unenterable,
+      and somebody donating £12.50 matters more than somebody's arrows.
+      `.amount-presets` is the shared markup (donate and the collection
+      donation both use it, and both drive a tiny inline script). If a
+      preset sets a value the page reacts to, call the handler by hand:
+      assigning `.value` fires no `input` event, which would have left
+      the Gift Aid box disabled on a £25 donation.
+    - Sort fields keep `step="1"` and NO `min`: sorting is ascending and
+      the route parses a bare `int()`, so a negative is a legitimate way
+      to pin something to the top. The 10s in the content-image sort box
+      are a suggested STARTING value, not a convention every row
+      follows — `step="10"` would reject a hand-typed 15.
 - Grid tracks that hold anything unbreakable are `minmax(0,1fr)`, never
   a bare `1fr`: an `fr` track's automatic minimum is MIN-CONTENT, so one
   item that cannot shrink sizes the track wider than its container and
@@ -762,6 +791,13 @@ the list, and add a height with any width.
 It needs a browser so it is NOT part of the smoke suite (`smoke_test_*`);
 run it by hand after touching the header, nav or breakpoints:
 `python tests/check_header_layout.py [--shots DIR]`.
+
+`tests/check_number_inputs.py` is the third: it opens every page with a
+number field, presses the arrows and measures the increment, types
+off-step and out-of-range values to see what the browser would refuse,
+and asserts each `min`/`max` against the range its route enforces. Run
+it after adding or changing any number input:
+`python tests/check_number_inputs.py`.
 
 `tests/check_partner_marquee.py` is the other behavioural one, for the
 partner scroller — the half of it that only a browser can answer, the

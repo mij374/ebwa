@@ -86,7 +86,7 @@
       <div class="field">
         <label for="glide_ms">How long one step takes</label>
         <input type="number" id="glide_ms" name="glide_ms"
-               min="{{ glide_min }}" max="{{ glide_max }}"
+               min="{{ glide_min }}" max="{{ glide_max }}" step="20"
                value="{{ motion.glide_ms }}">
         <small>Milliseconds the row spends sliding from one partner to
           the next — the movement itself, not the wait in between.
@@ -98,7 +98,7 @@
       <div class="field">
         <label for="drift_speed">Continuous drift speed</label>
         <input type="number" id="drift_speed" name="drift_speed"
-               min="{{ drift_min }}" max="{{ drift_max }}"
+               min="{{ drift_min }}" max="{{ drift_max }}" step="5"
                value="{{ motion.drift_speed }}">
         <small>Pixels a second, for “Continuous smooth scroll”. The
           default of {{ motion.drift_default }} moves about one partner
