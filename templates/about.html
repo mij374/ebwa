@@ -7,7 +7,10 @@
     <p class="eyebrow">About us <span class="bn">· আমাদের সম্পর্কে</span></p>
     <h2>{{ c.get('about_title','About EBWA') }}</h2>
     {{ rich_content(paragraphs, images, layout,
-                placeholder='Upload a photo in Admin → Content → about') }}
+                placeholder='Upload a photo in Admin → Content → about',
+                video=video_of({'video_url': c.get('about_video_url',''),
+                                'video_thumb': c.get('about_video_thumb','')},
+                               c.get('about_image',''))) }}
   </div>
 </section>
 {% endblock %}

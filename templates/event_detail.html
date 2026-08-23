@@ -12,7 +12,8 @@
       {% if ev.venue %}<span>📍 {{ ev.venue }}</span>{% endif %}
       {% if ev.is_past %}<span class="badge-past">Past event</span>{% endif %}
     </div>
-    {{ rich_content(paragraphs, images, layout) }}
+    {{ rich_content(paragraphs, images, layout,
+                    video=video_of(ev, ev.image)) }}
   </div>
 </section>
 {% endblock %}

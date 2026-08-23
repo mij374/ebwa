@@ -59,6 +59,49 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-23 — Video embedding (YouTube / Vimeo)
+
+**EIGHT NEW COLUMNS and two new Blocks.** Run the statements first, then
+`init-db`, then `check-schema`, then restart:
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+ALTER TABLE campaign  ADD COLUMN video_url   VARCHAR(300) DEFAULT '';
+ALTER TABLE campaign  ADD COLUMN video_thumb VARCHAR(255) DEFAULT '';
+ALTER TABLE event     ADD COLUMN video_url   VARCHAR(300) DEFAULT '';
+ALTER TABLE event     ADD COLUMN video_thumb VARCHAR(255) DEFAULT '';
+ALTER TABLE milestone ADD COLUMN video_url   VARCHAR(300) DEFAULT '';
+ALTER TABLE milestone ADD COLUMN video_thumb VARCHAR(255) DEFAULT '';
+ALTER TABLE news_post ADD COLUMN video_url   VARCHAR(300) DEFAULT '';
+ALTER TABLE news_post ADD COLUMN video_thumb VARCHAR(255) DEFAULT '';
+SQL
+flask --app app init-db        # seeds about_video_url / about_video_thumb
+flask --app app check-schema   # must print "Schema is up to date"
+sudo systemctl restart ebwa
+```
+
+New feature flag `video`, on by default, seeded by the same `init-db`.
+
+**The server now makes an outbound HTTPS request when a video is saved**
+— once, to fetch the poster image from `i.ytimg.com` or Vimeo's oEmbed
+endpoint — and stores the result in `static/uploads/` like any other
+image. If the VPS blocks outbound HTTPS, saving still works: the video
+is stored and the page falls back to the content's own photo. Nothing is
+fetched when a page is VIEWED.
+
+**No `img-src` change was needed** and none was made: posters are served
+from this site. `frame-src` gains `https://www.youtube-nocookie.com` and
+`https://player.vimeo.com`, and nothing else.
+
+Nothing appears on the public site until somebody adds a video link, so
+this deploy changes no existing page.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-23 — Testimonials: editing, scroller, settings
 
 **No schema change**, but FOUR NEW BLOCKS, so `init-db` must run:

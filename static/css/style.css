@@ -1382,6 +1382,57 @@ input.money{-moz-appearance:textfield;appearance:textfield}
   body.admin-body{background:#fff}
 }
 
+/* ---------- Video: click to load ----------
+   The box holds either the poster button or, after a click, the iframe
+   — both fill it, so the page does not jump when one becomes the
+   other. 16:9 by default and set from the macro, so the aspect ratio is
+   reserved before anything loads. */
+.rc-video{
+  position:relative;width:100%;aspect-ratio:var(--rc-ratio, 16 / 9);
+  border-radius:var(--radius);overflow:hidden;background:var(--green-deep);
+}
+.rc-video iframe,
+.rc-video .video-play{
+  position:absolute;inset:0;width:100%;height:100%;border:0;
+}
+.video-play{
+  padding:0;cursor:pointer;background:var(--green-deep);
+  display:flex;align-items:center;justify-content:center;
+}
+.video-play img{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  /* Dimmed, so the play button and the label read against any frame. */
+  filter:brightness(.78);
+}
+.video-play:hover img{filter:brightness(.9)}
+.video-play-icon{
+  position:relative;width:74px;height:74px;border-radius:50%;
+  background:var(--red);display:flex;align-items:center;
+  justify-content:center;box-shadow:0 8px 26px rgba(0,0,0,.35);
+  transition:transform .15s ease;
+}
+/* The triangle is drawn with borders rather than a glyph: no font to
+   wait for, and it is the same shape in every browser. */
+.video-play-icon::before{
+  content:"";border-style:solid;border-width:15px 0 15px 25px;
+  border-color:transparent transparent transparent #fff;
+  margin-left:6px;
+}
+.video-play:hover .video-play-icon{transform:scale(1.06)}
+.video-play:focus-visible{outline:3px solid #fff;outline-offset:-6px}
+.video-play-note{
+  position:absolute;left:0;right:0;bottom:14px;color:#fff;
+  font-size:14px;font-weight:600;text-shadow:0 1px 6px rgba(0,0,0,.6);
+}
+.video-fallback{
+  position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;color:#fff;font-weight:700;
+}
+/* Inside the alternating preset the media column already has its own
+   frame, so the video simply fills it. */
+.rc-alt-media .rc-video{height:100%}
+.rc-lead-video{margin-bottom:26px}
+
 /* ---------- Footer newsletter ---------- */
 .foot-subscribe{display:flex;gap:8px}
 /* Same height and font as every other input; the colours differ because

@@ -27,6 +27,8 @@ import sqlite3
 import subprocess
 import ssl
 import time
+import urllib.parse
+import urllib.request
 import uuid
 import zipfile
 from email.message import EmailMessage
@@ -45,7 +47,7 @@ from PIL import Image, ImageOps
 from cryptography.fernet import Fernet
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, abort, jsonify, send_from_directory,
+                   flash, abort, g, jsonify, send_from_directory,
                    has_request_context, session as flask_session)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
@@ -280,6 +282,12 @@ class Event(db.Model):
     image = db.Column(db.String(255), default="")         # uploads filename
     published = db.Column(db.Boolean, default=True)
     layout = db.Column(db.String(20), nullable=False, default="classic")
+    # A YouTube or Vimeo link, validated on the way in — never raw
+    # markup — and the poster fetched to our own uploads folder so that
+    # nothing third-party is contacted until a visitor presses play.
+    # See parse_video_url() and fetch_video_poster().
+    video_url = db.Column(db.String(300), default="")
+    video_thumb = db.Column(db.String(255), default="")   # uploads filename
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
     @property
@@ -297,6 +305,12 @@ class NewsPost(db.Model):
     image = db.Column(db.String(255), default="")         # uploads filename
     published = db.Column(db.Boolean, default=True)
     layout = db.Column(db.String(20), nullable=False, default="classic")
+    # A YouTube or Vimeo link, validated on the way in — never raw
+    # markup — and the poster fetched to our own uploads folder so that
+    # nothing third-party is contacted until a visitor presses play.
+    # See parse_video_url() and fetch_video_poster().
+    video_url = db.Column(db.String(300), default="")
+    video_thumb = db.Column(db.String(255), default="")   # uploads filename
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
@@ -546,6 +560,12 @@ class Milestone(db.Model):
     sort = db.Column(db.Integer, default=0)
     published = db.Column(db.Boolean, default=True)
     layout = db.Column(db.String(20), nullable=False, default="classic")
+    # A YouTube or Vimeo link, validated on the way in — never raw
+    # markup — and the poster fetched to our own uploads folder so that
+    # nothing third-party is contacted until a visitor presses play.
+    # See parse_video_url() and fetch_video_poster().
+    video_url = db.Column(db.String(300), default="")
+    video_thumb = db.Column(db.String(255), default="")   # uploads filename
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
@@ -637,6 +657,12 @@ class Campaign(db.Model):
     image = db.Column(db.String(255), default="")          # uploads filename
     target_pence = db.Column(db.Integer)                   # optional target amount
     fee_pence = db.Column(db.Integer)                      # fixed price per place, if any
+    # A YouTube or Vimeo link, validated on the way in — never raw
+    # markup — and the poster fetched to our own uploads folder so that
+    # nothing third-party is contacted until a visitor presses play.
+    # See parse_video_url() and fetch_video_poster().
+    video_url = db.Column(db.String(300), default="")
+    video_thumb = db.Column(db.String(255), default="")   # uploads filename
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
@@ -1060,7 +1086,8 @@ CONTENT_OWNERS = {
 }
 ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
-HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
+HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
+                     "about_video_thumb", "site_mail_to", "smtp_host",
                      "smtp_port", "smtp_user", "smtp_security", "smtp_from",
                      "smtp_password_enc",
                      "security_alert_email", "site_security_alert_to",
@@ -1160,6 +1187,80 @@ def layout_for(owner_type, owner_id=0):
         obj = db.session.get(model, owner_id) if model else None
         value = getattr(obj, "layout", "") if obj else ""
     return value if value in CONTENT_LAYOUTS else "classic"
+
+
+ABOUT_VIDEO_KEYS = ("about_video_url", "about_video_thumb")
+
+
+def video_settings_for(owner_type, owner_id=0):
+    """This owner's stored (url, thumb) — a row's columns, or About's
+    Blocks, exactly as layout_for does it for the layout."""
+    if owner_type == "about":
+        rows = {b.key: (b.value or "") for b in Block.query
+                .filter(Block.key.in_(ABOUT_VIDEO_KEYS)).all()}
+        return (rows.get("about_video_url", ""),
+                rows.get("about_video_thumb", ""))
+    model = CONTENT_OWNERS.get(owner_type)
+    obj = db.session.get(model, owner_id) if model else None
+    if not obj:
+        return ("", "")
+    return (obj.video_url or "", obj.video_thumb or "")
+
+
+def set_video_settings(owner_type, owner_id, url, thumb):
+    if owner_type == "about":
+        for key, value in zip(ABOUT_VIDEO_KEYS, (url, thumb)):
+            block = Block.query.filter_by(key=key).first()
+            if not block:
+                block = Block(group="about", key=key, label=key, kind="text")
+                db.session.add(block)
+            block.value = value
+        return True
+    model = CONTENT_OWNERS.get(owner_type)
+    obj = db.session.get(model, owner_id) if model else None
+    if not obj:
+        return False
+    obj.video_url, obj.video_thumb = url, thumb
+    return True
+
+
+def store_video(owner_type, owner_id, raw):
+    """Validate a pasted link and store it. Returns (changed, error).
+
+    WHAT IS STORED IS OUR OWN CANONICAL URL, built from the provider and
+    id we extracted — never the text that was pasted. Somebody who
+    pastes a whole <iframe> into the box gets the right video and none
+    of their markup anywhere near the database.
+
+    Clearing the box removes the video and its poster file. Changing it
+    fetches a new poster and removes the old one, on the same terms as
+    replacing an uploaded image.
+    """
+    was_url, was_thumb = video_settings_for(owner_type, owner_id)
+    text = (raw or "").strip()
+    if not text:
+        if not was_url and not was_thumb:
+            return ([], None)
+        set_video_settings(owner_type, owner_id, "", "")
+        if was_thumb:
+            delete_upload(was_thumb)
+        return (["video_url"], None)
+
+    parsed = parse_video_url(text)
+    if not parsed:
+        return ([], "That does not look like a YouTube or Vimeo link. "
+                    "Paste the address from the browser's address bar — "
+                    "for example https://www.youtube.com/watch?v=… or "
+                    "https://vimeo.com/… — or leave the box empty for no "
+                    "video.")
+    canonical = video_watch_url(parsed["provider"], parsed["id"])
+    if canonical == was_url and was_thumb:
+        return ([], None)              # same video, poster already here
+    poster = fetch_video_poster(parsed["provider"], parsed["id"])
+    set_video_settings(owner_type, owner_id, canonical, poster)
+    if was_thumb and was_thumb != poster:
+        delete_upload(was_thumb)
+    return (["video_url"], None)
 
 
 def set_layout(owner_type, owner_id, value):
@@ -1358,6 +1459,230 @@ def events_in_day_order(rows, newest_day_first=False):
     return sorted(rows, key=key)
 
 
+
+# ---------------------------------------------------------------- video
+# YouTube and Vimeo only, and only ever as an ID we extracted ourselves.
+# NOTHING an admin types is stored as markup or put on a page as markup:
+# they paste a link, we pull the provider and the id out of it, and the
+# page is built from those. An admin who pastes an <iframe> gets told to
+# use the video field instead (see body_embed_problem below), because
+# the alternative — rendering somebody's HTML — is how a CMS becomes a
+# way to run scripts on its own site.
+#
+# CLICK TO LOAD, and this is the part that matters beyond tidiness: the
+# poster is fetched ONCE, when the video is saved, and stored in our own
+# uploads folder like any other image. A visitor's browser contacts
+# YouTube or Vimeo only if they press play. That is what keeps the
+# cookie notice honest — the site really does set two first-party
+# cookies and contact nobody — and it is why no consent flow is needed
+# for a page that merely HAS a video on it. See CLAUDE.md.
+VIDEO_PATTERNS = (
+    # (provider, compiled pattern). Each captures the id as group 1.
+    ("youtube", re.compile(
+        r"(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/|"
+        r"youtube\.com/embed/|youtube\.com/shorts/|youtube\.com/v/|"
+        r"youtube-nocookie\.com/embed/)"
+        r"([A-Za-z0-9_-]{11})")),
+    ("vimeo", re.compile(
+        r"vimeo\.com/(?:video/|channels/[A-Za-z0-9_-]+/|groups/"
+        r"[A-Za-z0-9_-]+/videos/)?(\d{6,12})")),
+)
+VIDEO_LABELS = {"youtube": "YouTube", "vimeo": "Vimeo"}
+# Where a poster may be fetched from. Checked against the URL we build
+# ourselves, so it is a belt-and-braces guard rather than the only one.
+VIDEO_POSTER_HOSTS = ("i.ytimg.com", "vimeo.com", "i.vimeocdn.com")
+VIDEO_FETCH_TIMEOUT = 6          # seconds; a save must not hang on this
+VIDEO_POSTER_MAX = 4 * 1024 * 1024
+
+
+def parse_video_url(raw):
+    """A pasted link to (provider, id), or None if it is neither.
+
+    Deliberately generous about the FORM of the link — watch, youtu.be,
+    embed, shorts, a channel URL, extra query parameters, a share hash —
+    and completely ungenerous about anything else. If no provider
+    pattern matches, the answer is None and the caller refuses it.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    for provider, pattern in VIDEO_PATTERNS:
+        found = pattern.search(text)
+        if found:
+            return {"provider": provider, "id": found.group(1)}
+    return None
+
+
+def video_embed_url(provider, video_id):
+    """The player URL, in each provider's least intrusive form.
+
+    youtube-nocookie.com is YouTube's own no-tracking-cookie host, and
+    Vimeo's dnt=1 asks it not to track the session. Neither is contacted
+    at all until the visitor presses play — this is only what they get
+    when they do.
+    """
+    if provider == "youtube":
+        return ("https://www.youtube-nocookie.com/embed/%s"
+                "?autoplay=1&rel=0&modestbranding=1" % video_id)
+    if provider == "vimeo":
+        return ("https://player.vimeo.com/video/%s"
+                "?autoplay=1&dnt=1" % video_id)
+    return ""
+
+
+def video_watch_url(provider, video_id):
+    """Where the video lives, for a plain link in the admin."""
+    if provider == "youtube":
+        return "https://www.youtube.com/watch?v=%s" % video_id
+    if provider == "vimeo":
+        return "https://vimeo.com/%s" % video_id
+    return ""
+
+
+def _poster_source(provider, video_id):
+    """The provider's own thumbnail URL, asked for at SAVE time only."""
+    if provider == "youtube":
+        # hqdefault exists for every video; maxresdefault does not.
+        return "https://i.ytimg.com/vi/%s/hqdefault.jpg" % video_id
+    if provider == "vimeo":
+        try:
+            api = ("https://vimeo.com/api/oembed.json?url="
+                   + urllib.parse.quote(video_watch_url(provider, video_id),
+                                        safe=""))
+            with urllib.request.urlopen(api,
+                                        timeout=VIDEO_FETCH_TIMEOUT) as resp:
+                data = json.loads(resp.read(VIDEO_POSTER_MAX).decode("utf-8"))
+            return (data.get("thumbnail_url") or "").strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def fetch_video_poster(provider, video_id):
+    """Fetch the provider's thumbnail into our own uploads folder.
+
+    Returns a filename, or "" if anything at all went wrong. IT NEVER
+    RAISES, on the same terms as send_mail: a poster is a nicety, and
+    saving somebody's video must not fail because YouTube was slow. The
+    caller falls back to the content's own lead image, and failing that
+    to a plain play button.
+
+    The bytes go through the ordinary image pipeline, so a fetched
+    poster is resized, stripped of metadata and re-encoded exactly like
+    an uploaded photograph, and gets a thumbnail beside it.
+    """
+    source = _poster_source(provider, video_id)
+    if not source:
+        return ""
+    host = urllib.parse.urlparse(source).hostname or ""
+    if not any(host == h or host.endswith("." + h)
+               for h in VIDEO_POSTER_HOSTS):
+        return ""                      # not a host we asked for
+    try:
+        with urllib.request.urlopen(source,
+                                    timeout=VIDEO_FETCH_TIMEOUT) as resp:
+            raw = resp.read(VIDEO_POSTER_MAX + 1)
+        if not raw or len(raw) > VIDEO_POSTER_MAX:
+            return ""
+        processed = process_image(raw, "jpg")
+        if not processed:
+            return ""
+        ext, data, thumb = processed
+        name = "%s.%s" % (uuid.uuid4().hex, ext)
+        with open(os.path.join(UPLOAD_DIR, secure_filename(name)), "wb") as fh:
+            fh.write(data)
+        if thumb:
+            with open(os.path.join(UPLOAD_DIR,
+                                   secure_filename(thumb_name(name))),
+                      "wb") as fh:
+                fh.write(thumb)
+        return name
+    except Exception as err:
+        # Worth knowing about, not worth failing a save over.
+        try:
+            log_action("edit", entity=("Video", None),
+                       summary="Could not fetch the %s poster image — %s."
+                               % (VIDEO_LABELS.get(provider, provider),
+                                  err.__class__.__name__))
+        except Exception:
+            pass
+        return ""
+
+
+# Markup an admin might paste into a BODY field, thinking that is how a
+# video goes in. It is not: it renders as escaped source code on the
+# live page, which is what this refuses so they are told where the
+# video field is instead.
+BODY_EMBED_TAGS = ("iframe", "script", "embed", "object", "video", "source")
+BODY_EMBED_RE = re.compile(r"<\s*/?\s*(%s)\b" % "|".join(BODY_EMBED_TAGS),
+                           re.IGNORECASE)
+
+
+def embed_paste_message(tag):
+    """What to say to somebody who pasted an embed code into a text box.
+
+    They were trying to do the right thing — this is exactly what a CMS
+    without a video field teaches people to do — so it points at the
+    field that does work rather than just refusing.
+    """
+    return ("That looks like a <%s> embed code pasted into a text box. "
+            "It would appear on the page as the code itself rather than "
+            "as a video. Use the Video box on this page instead: paste "
+            "the ordinary YouTube or Vimeo address and the video is "
+            "added for you." % tag)
+
+
+def body_embed_problem(*texts):
+    """The name of the first embed-ish tag found, or None.
+
+    Only these tags, and only as an opening or closing tag: "5 < 10" and
+    "<3" are ordinary things to write and must go through untouched.
+    """
+    for text in texts:
+        found = BODY_EMBED_RE.search(text or "")
+        if found:
+            return found.group(1).lower()
+    return None
+
+
+@app.template_global("video_of")
+def video_of(owner, fallback_image=""):
+    """What the rich-content macro needs to draw a video, or None.
+
+    Takes anything with `video_url` and `video_thumb` — every owner has
+    the same pair — or a dict for About, whose settings live in Blocks.
+    Returns None when the flag is off or there is no video, so the
+    templates simply do not ask the question.
+    """
+    # feature_enabled() is a QUERY, and Our Journey calls this once per
+    # milestone — that is the page whose whole rule is that its cost
+    # must not grow with the number of entries. The context processor
+    # has already read every flag for this request, so use that.
+    if has_request_context():
+        flags = getattr(g, "_feature_flags", None)
+        if flags is None:
+            flags = feature_flags()
+            g._feature_flags = flags
+        allowed = flags.get("video", True)
+    else:
+        allowed = feature_enabled("video")
+    if not allowed:
+        return None
+    url = (owner.get("video_url") if isinstance(owner, dict)
+           else getattr(owner, "video_url", "")) or ""
+    thumb = (owner.get("video_thumb") if isinstance(owner, dict)
+             else getattr(owner, "video_thumb", "")) or ""
+    parsed = parse_video_url(url)
+    if not parsed:
+        return None
+    poster = thumb or fallback_image or ""
+    return {"provider": parsed["provider"],
+            "label": VIDEO_LABELS[parsed["provider"]],
+            "embed": video_embed_url(parsed["provider"], parsed["id"]),
+            "watch": video_watch_url(parsed["provider"], parsed["id"]),
+            "poster": poster}
+
+
 # ------------------------------------------------------- feature flags
 # The optional/phased modules Netbus can switch on or off per site. Core
 # pages (home, about, events, gallery, contact) are deliberately NOT
@@ -1386,6 +1711,10 @@ FEATURES = [
      "stay on the page either way.", True),
     ("faq", "Frequently asked questions",
      "The /faq page and its links in the menu and footer.", True),
+    ("video", "Video embedding",
+     "A YouTube or Vimeo video on a news post, event, milestone, "
+     "campaign or the About page. Videos are click-to-load: nothing "
+     "reaches YouTube or Vimeo until a visitor presses play.", True),
     ("audit_log", "Audit log (client visibility)",
      "Whether EBWA's own admins can see the audit log page. Recording "
      "never stops, and super admins can always read it — this only "
@@ -1725,7 +2054,12 @@ CSP = ("default-src 'self'; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
        "font-src 'self' https://fonts.gstatic.com; "
        "img-src 'self' data:; "
-       "frame-src https://www.google.com; "
+       # The map, and the two video players — and ONLY on the player
+       # hosts, which are the no-cookie/do-not-track ones. Nothing here
+       # is contacted until a visitor presses play: the poster on the
+       # page is our own file. See the video helpers above.
+       "frame-src https://www.google.com "
+       "https://www.youtube-nocookie.com https://player.vimeo.com; "
        "form-action 'self'; "
        "frame-ancestors 'self'; "
        "base-uri 'self'")
@@ -4192,7 +4526,9 @@ def admin_content():
                            owner_type="about", owner_id=0,
                            layouts=CONTENT_LAYOUT_LABELS,
                            layout=layout_for("about"),
-                           images=images_for("about"))
+                           images=images_for("about"),
+                           video_url=video_settings_for("about")[0],
+                           video_thumb=video_settings_for("about")[1])
 
 
 # ---------------------------------------------------------------- admin: content images
@@ -4224,12 +4560,14 @@ def rich_admin_context(owner_type, obj):
                 "rich_hint": obj is None and feature_enabled("rich_layouts"),
                 "owner_type": owner_type, "owner_id": 0,
                 "layouts": CONTENT_LAYOUT_LABELS, "layout": "classic",
-                "images": []}
+                "images": [], "video_url": "", "video_thumb": ""}
+    url, thumb = video_settings_for(owner_type, obj.id)
     return {"rich": True, "rich_hint": False,
             "owner_type": owner_type, "owner_id": obj.id,
             "layouts": CONTENT_LAYOUT_LABELS,
             "layout": layout_for(owner_type, obj.id),
-            "images": images_for(owner_type, obj.id)}
+            "images": images_for(owner_type, obj.id),
+            "video_url": url, "video_thumb": thumb}
 
 
 def rich_layouts_available():
@@ -4348,6 +4686,40 @@ def admin_layout_save(owner_type, owner_id):
     return redirect(owner_admin_url(owner_type, owner_id))
 
 
+@app.route("/admin/<owner_type>/<int:owner_id>/video", methods=["POST"])
+@login_required
+def admin_video_save(owner_type, owner_id):
+    """Save the video link for any rich-content owner.
+
+    One route for News, Events, Our Journey and About, the same way the
+    layout picker works — the video field lives in the shared partial,
+    so a fifth content type would get it by including that partial and
+    nothing else.
+    """
+    if not feature_enabled("video"):
+        return redirect(owner_admin_url(owner_type, owner_id))
+    if not known_owner(owner_type, owner_id):
+        abort(404)
+    changed, problem = store_video(owner_type, owner_id,
+                                   request.form.get("video_url", ""))
+    if problem:
+        db.session.rollback()
+        flash(problem, "error")
+        return redirect(owner_admin_url(owner_type, owner_id))
+    db.session.commit()
+    if changed:
+        url, thumb = video_settings_for(owner_type, owner_id)
+        log_action("edit", entity=("Video", owner_id),
+                   summary="%s the video on the %s page.%s"
+                           % ("Removed" if not url else "Set", owner_type,
+                              "" if url and thumb else
+                              " The poster image could not be fetched, so "
+                              "the page falls back to its own photo."
+                              if url else ""))
+    flash("Video saved." if changed else "No change to the video.", "ok")
+    return redirect(owner_admin_url(owner_type, owner_id))
+
+
 # ---------------------------------------------------------------- admin: events
 @app.route("/admin/events")
 @login_required
@@ -4369,8 +4741,12 @@ def admin_event_form(event_id=None):
     if request.method == "POST":
         title = request.form.get("title", "").strip()
         date_str = request.form.get("event_date", "")
+        pasted = body_embed_problem(request.form.get("description", ""),
+                                    request.form.get("summary", ""))
         if not title or not date_str:
             flash("Title and date are required.", "error")
+        elif pasted:
+            flash(embed_paste_message(pasted), "error")
         else:
             is_new = ev is None
             if is_new:
@@ -4443,8 +4819,12 @@ def admin_news_form(post_id=None):
     if request.method == "POST":
         title = request.form.get("title", "").strip()
         date_str = request.form.get("published_date", "")
+        pasted = body_embed_problem(request.form.get("body", ""),
+                                    request.form.get("summary", ""))
         if not title or not date_str:
             flash("Title and date are required.", "error")
+        elif pasted:
+            flash(embed_paste_message(pasted), "error")
         else:
             is_new = post is None
             if is_new:
@@ -5269,8 +5649,12 @@ def admin_milestone_form(milestone_id=None):
             year = None
         amount_raw = request.form.get("amount", "").strip()
         amount_pence = parse_pounds(amount_raw) if amount_raw else None
+        pasted = body_embed_problem(request.form.get("summary", ""),
+                                    request.form.get("outcome", ""))
         if not title:
             flash("Title is required.", "error")
+        elif pasted:
+            flash(embed_paste_message(pasted), "error")
         elif year is None or year < 1900 or year > 2100:
             flash("Please enter a valid four-digit year.", "error")
         elif amount_raw and (amount_pence is None or amount_pence <= 0):
@@ -5462,8 +5846,17 @@ def admin_campaign_form(campaign_id=None):
         fee_raw = request.form.get("fee", "").strip()
         target_pence = parse_pounds(target_raw) if target_raw else None
         fee_pence = parse_pounds(fee_raw) if fee_raw else None
+        pasted = body_embed_problem(request.form.get("description", ""))
+        video_raw = request.form.get("video_url", "").strip()
+        video = parse_video_url(video_raw) if video_raw else None
         if not title:
             flash("Title is required.", "error")
+        elif pasted:
+            flash(embed_paste_message(pasted), "error")
+        elif video_raw and not video:
+            flash("That does not look like a YouTube or Vimeo link. Paste "
+                  "the address from the browser's address bar, or leave "
+                  "the box empty for no video.", "error")
         elif target_raw and (target_pence is None or target_pence <= 0):
             flash("Target must be a valid amount in pounds.", "error")
         elif fee_raw and (fee_pence is None or fee_pence <= 0):
@@ -5489,6 +5882,18 @@ def admin_campaign_form(campaign_id=None):
                     delete_upload(camp.image)
                     camp.image = new_name
                     changed.append("image")
+            if feature_enabled("video"):
+                canonical = (video_watch_url(video["provider"], video["id"])
+                             if video else "")
+                if canonical != (camp.video_url or ""):
+                    old_thumb = camp.video_thumb or ""
+                    camp.video_url = canonical
+                    camp.video_thumb = (
+                        fetch_video_poster(video["provider"], video["id"])
+                        if video else "")
+                    if old_thumb and old_thumb != camp.video_thumb:
+                        delete_upload(old_thumb)
+                    changed.append("video_url")
             if is_new:
                 db.session.add(camp)
             db.session.commit()
@@ -6443,6 +6848,10 @@ DEFAULT_BLOCKS = [
     ("about", "about_image", "Founder / about photo", "image", ""),
     # Chosen through the layout picker, not the plain text editor.
     ("about", "about_layout", "Page layout", "text", "classic"),
+    # Set with the video box in the shared rich-content partial, not
+    # typed into the content editor — like the layout above.
+    ("about", "about_video_url", "Video link", "text", ""),
+    ("about", "about_video_thumb", "Video poster image", "text", ""),
     ("journey", "journey_intro", "Intro text", "text",
      "From our earliest gatherings to the projects we run today, this is "
      "the story of EBWA's work in Enfield — the milestones we have reached "

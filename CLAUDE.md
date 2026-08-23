@@ -791,6 +791,48 @@ Built and maintained by Netbus IT Support.
     asserting no sideways scroll and that the last group's panel still
     opens inside the window. Run it after touching the header, the nav
     or the breakpoints.
+- Video (YouTube/Vimeo), behind the `video` flag. Two rules, and both
+  are the point of the feature rather than details of it:
+  - **Nothing an admin types is stored or rendered as markup.** They
+    paste a link; `parse_video_url()` pulls the provider and id out of
+    it; what is stored is an address THIS CODE builds
+    (`video_watch_url()`). Paste a whole `<iframe>` into the video box
+    and the right video is saved with none of the markup. There is no
+    path by which admin text becomes HTML on a page, and there must
+    never be one — that is how a CMS becomes a way to run scripts on its
+    own site.
+  - **CLICK TO LOAD, and this is why:** the poster is fetched ONCE when
+    the video is saved and stored in `static/uploads/` like any other
+    image, so a visitor's browser contacts YouTube or Vimeo only if they
+    press play. That keeps the cookie notice honest — the site really
+    does set two first-party cookies and contact nobody — and it is what
+    avoids needing a PECR consent flow, which the cookies section below
+    is explicit would otherwise be required before any third-party
+    script or cookie. **A hot-linked thumbnail or an eager iframe would
+    break both**: it would make the notice's "no tracking of any kind"
+    false and turn a one-line change into a consent-flow project. If
+    somebody asks for the video to autoplay or the thumbnail to come
+    straight from YouTube, that is the trade being proposed.
+  - The player is `youtube-nocookie.com` and Vimeo with `dnt=1`, and
+    those two hosts are the only `frame-src` addition. `img-src` was
+    NOT widened and must not be: posters are our own files.
+  - The poster fetch NEVER RAISES, on the same terms as `send_mail()`:
+    the video saves first and a failed fetch falls back to the content's
+    own photo, then to a plain play button. A charity's news post must
+    not fail to save because YouTube was slow.
+  - The field lives in the shared rich-content partial, so News, Events,
+    Our Journey and About all get it from one place and one route
+    (`admin_video_save`), exactly as the layout picker does. Campaigns
+    are not rich owners and carry their own field.
+  - A video takes the LEAD slot in the macro, where the first image
+    would sit, and every image moves down a place rather than being
+    displaced — adding a video never costs a photograph its spot.
+  - Pasting an embed code into a BODY field is refused with a message
+    pointing at the video box (`body_embed_problem()`). It used to
+    render as escaped source code on the live page, which is what
+    somebody gets for doing the reasonable thing in a CMS that has no
+    video field. Only `<iframe|script|embed|object|video|source>` as
+    tags: "5 < 10" and "<3" are ordinary writing and go through.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 - Cookies: the site sets exactly two, both first-party and strictly
@@ -1464,6 +1506,13 @@ Built (post-signing variation, Jul 2026):
   content with no photo, payments unfinished for over a day), and below
   them the six newest audit entries in UK local time for super admins.
   No schema change.
+
+`tests/check_video.py` proves the claim that matters about video, which
+cannot be read off the HTML: it records EVERY request the page makes and
+asserts that none reaches YouTube, Vimeo or their CDNs before the play
+button is pressed — a hot-linked poster, a preconnect or a stray script
+would all be invisible in the markup. It also checks the 16:9 box, no
+sideways scroll and a fair tap target at every viewport.
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.

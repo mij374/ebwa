@@ -9,7 +9,8 @@
     <div class="event-meta">
       <span>📅 {{ post.published_date.strftime('%A %d %B %Y') }}</span>
     </div>
-    {{ rich_content(paragraphs, images, layout) }}
+    {{ rich_content(paragraphs, images, layout,
+                    video=video_of(post, post.image)) }}
   </div>
 </section>
 {% endblock %}

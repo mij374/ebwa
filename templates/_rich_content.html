@@ -15,6 +15,11 @@
   thumbs      — render the 600px variants instead of the full-size
                 files. For a page carrying MANY owners at entry scale
                 (Our Journey); a detail page wants the full size.
+  video       — video_of(owner), or none. A video takes the LEAD slot,
+                where the first image would otherwise sit, rather than
+                being appended after the words: it is the thing somebody
+                came to watch. The images all keep their places, so
+                nothing is lost by adding one.
 
   Every image is lazy-loaded and sits in a box with a fixed aspect-ratio,
   so nothing jumps around as the page loads.
@@ -29,13 +34,45 @@
 {% endmacro %}
 
 
+{#- Click to load, and nothing before the click.
+
+    The poster is OUR file, fetched when the video was saved, so the
+    page contacts neither YouTube nor Vimeo until somebody presses play.
+    That is what keeps the cookie notice's "no third-party tracking"
+    true, and it is why this page needs no consent flow — see CLAUDE.md.
+
+    A <button> rather than a div with a handler: it is a control, so it
+    gets the keyboard, the focus ring and the role for nothing. With the
+    script gone it falls back to a plain link to the video, because a
+    dead play button would be worse than an honest one. -#}
+{% macro video_player(video, ratio='16 / 9') %}
+<div class="rc-video" style="--rc-ratio: {{ ratio }}">
+  <button type="button" class="video-play" data-embed="{{ video.embed }}"
+          data-title="{{ video.label }} video"
+          aria-label="Play the video (opens the {{ video.label }} player)">
+    {% if video.poster %}
+    <img src="{{ upload_url(video.poster) }}" alt="" loading="lazy"
+         decoding="async">
+    {% endif %}
+    <span class="video-play-icon" aria-hidden="true"></span>
+    <span class="video-play-note">Watch on {{ video.label }}</span>
+  </button>
+  <noscript>
+    <a class="video-fallback" href="{{ video.watch }}" target="_blank"
+       rel="noopener">Watch this video on {{ video.label }}</a>
+  </noscript>
+</div>
+{% endmacro %}
+
+
 {% macro rich_content(paragraphs, images, layout='classic',
-                      placeholder=none, thumbs=false) %}
+                      placeholder=none, thumbs=false, video=none) %}
 {% set images = images or [] %}
 
 {#- ------------------------------------------------------- gallery -#}
-{% if layout == 'gallery' and images %}
+{% if layout == 'gallery' and (images or video) %}
 <div class="rc rc-gallery">
+  {% if video %}<div class="rc-lead-video">{{ video_player(video) }}</div>{% endif %}
   <div class="rc-text">
     {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
   </div>
@@ -45,8 +82,13 @@
 </div>
 
 {#- --------------------------------------------------- alternating -#}
-{% elif layout == 'alternating' and images %}
+{% elif layout == 'alternating' and (images or video) %}
 <div class="rc rc-alt">
+  {% if video %}
+  <div class="rc-alt-row is-mediaonly">
+    <div class="rc-alt-media">{{ video_player(video) }}</div>
+  </div>
+  {% endif %}
   {% for row in interleave_content(paragraphs, images) %}
   {#- A row with no words left to pair becomes a full-width band, rather
       than an image marooned beside an empty column. -#}
@@ -70,11 +112,17 @@
       the full reading width: an empty column beside it is worse than no
       column, and only About wants a "put a photo here" box on the live
       page. -#}
-  <div class="rc-classic-top{{ ' is-textonly' if not images and not placeholder }}">
+  {#- With a video, the lead slot is the video and EVERY image goes to
+      the strip below, so adding one never costs a photograph its
+      place. -#}
+  {% set strip = images if video else images[1:] %}
+  <div class="rc-classic-top{{ ' is-textonly' if not images and not video and not placeholder }}">
     <div class="rc-text">
       {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
     </div>
-    {% if images %}
+    {% if video %}
+    <div class="rc-lead">{{ video_player(video) }}</div>
+    {% elif images %}
     <div class="rc-lead">{{ _figure(images[0], '4 / 3.4', thumbs) }}</div>
     {% elif placeholder %}
     <div class="rc-lead">
@@ -82,9 +130,9 @@
     </div>
     {% endif %}
   </div>
-  {% if images|length > 1 %}
+  {% if strip %}
   <div class="rc-strip">
-    {% for img in images[1:] %}{{ _figure(img, '1 / 1', thumbs) }}{% endfor %}
+    {% for img in strip %}{{ _figure(img, '1 / 1', thumbs) }}{% endfor %}
   </div>
   {% endif %}
 </div>

@@ -195,6 +195,33 @@
       if (e.target.tagName === 'A') setMenu(false);
     });
   }
+
+  /* ---- Click-to-load video.
+     Until this runs and somebody presses the button, the page has
+     contacted neither YouTube nor Vimeo: what is on screen is a poster
+     image from our own uploads folder. The player URL sits in a data
+     attribute and is only ever put into an iframe by the click. That is
+     what keeps the cookie notice true — see CLAUDE.md — and it is why
+     this is here in the shared base rather than on one page: any page
+     that can show a video gets it. */
+  var videoButtons = document.querySelectorAll('.video-play');
+  for (var v = 0; v < videoButtons.length; v++) {
+    videoButtons[v].addEventListener('click', function () {
+      var box = this.parentNode;
+      var frame = document.createElement('iframe');
+      frame.src = this.getAttribute('data-embed');
+      frame.title = this.getAttribute('data-title') || 'Video';
+      frame.setAttribute('allow',
+        'accelerometer; autoplay; clipboard-write; encrypted-media; ' +
+        'gyroscope; picture-in-picture');
+      frame.setAttribute('allowfullscreen', '');
+      frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+      box.replaceChild(frame, this);
+      /* The visitor asked for this one, so give it the focus they were
+         about to use on it. */
+      frame.focus();
+    });
+  }
 </script>
 {% block scripts %}{% endblock %}
 </body>

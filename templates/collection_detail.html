@@ -6,7 +6,14 @@
     <p class="eyebrow"><a href="{{ url_for('home') }}" class="crumb">← Home</a></p>
     <h1 class="event-title">{{ camp.title }}</h1>
 
-    {% if camp.image %}
+    {#- A video takes the lead where the photo would be, the same way it
+        does inside the rich-content macro — a campaign is not a rich
+        owner, so it borrows the player macro alone. -#}
+    {% set video = video_of(camp, camp.image) %}
+    {% if video %}
+      {% from "_rich_content.html" import video_player %}
+      {{ video_player(video) }}
+    {% elif camp.image %}
     <img class="event-hero" src="{{ upload_url(camp.image) }}" alt="">
     {% endif %}
 

@@ -28,6 +28,47 @@
   <button class="btn btn-green" type="submit">Save layout</button>
 </form>
 
+{% if features.video %}
+{#- One video box for every rich-content owner — News, Events, Our
+    Journey and About all include this partial, so all four get it from
+    here. The link is validated on the server and only ever stored as
+    the address we build ourselves from it. -#}
+<h1 class="admin-h1" style="margin-top:44px">Video</h1>
+<p class="admin-sub">A YouTube or Vimeo video, shown where the lead
+  photo would sit. The page shows a still picture with a play button and
+  contacts YouTube or Vimeo <b>only if a visitor presses play</b> — so
+  nobody is tracked for simply reading the page.</p>
+
+<form method="post" class="admin-form"
+      action="{{ url_for('admin_video_save', owner_type=owner_type, owner_id=owner_id) }}">
+  <div class="field">
+    <label for="video_url">Video link</label>
+    <input type="url" id="video_url" name="video_url" maxlength="300"
+           value="{{ video_url }}"
+           placeholder="https://www.youtube.com/watch?v=…">
+    <small>Paste the ordinary address from the browser's address bar —
+      YouTube or Vimeo, either the long or the short form. Leave it empty
+      to remove the video.
+      <b>Do not paste embed code</b>: it would appear on the page as the
+      code itself, and this box does the same job properly.</small>
+  </div>
+  {% if video_thumb %}
+  <div class="field">
+    <img class="field-thumb" src="{{ thumb_url(video_thumb) }}" alt="">
+    <small>The still picture visitors see before they press play, fetched
+      from the video and stored here — so the page loads it from this
+      site, not from YouTube.</small>
+  </div>
+  {% elif video_url %}
+  <div class="field">
+    <small>No still picture could be fetched for this video, so the page
+      falls back to the photo above, or a plain play button.</small>
+  </div>
+  {% endif %}
+  <button class="btn btn-green" type="submit">Save video</button>
+</form>
+{% endif %}
+
 <h1 class="admin-h1" style="margin-top:44px">Photos</h1>
 <p class="admin-sub">The first photo (lowest sort number) is the lead
   image. Every photo needs alt text — a short description for people using

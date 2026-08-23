@@ -42,6 +42,20 @@
     <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>
   </div>
 
+  {% if features.video %}
+  <div class="field">
+    <label for="video_url">Video link</label>
+    <input type="url" id="video_url" name="video_url" maxlength="300"
+           value="{{ camp.video_url if camp else '' }}"
+           placeholder="https://www.youtube.com/watch?v=…">
+    <small>A YouTube or Vimeo address, shown in place of the photo. The
+      page shows a still picture with a play button and contacts YouTube
+      or Vimeo only if a visitor presses play.
+      <b>Do not paste embed code</b> — the ordinary address is what this
+      box wants. Leave it empty for no video.</small>
+  </div>
+  {% endif %}
+
   <div class="field field-check">
     <label>
       <input type="checkbox" name="active" {{ 'checked' if not camp or camp.active }}>
