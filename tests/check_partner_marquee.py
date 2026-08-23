@@ -61,23 +61,27 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 from playwright.sync_api import TimeoutError as PWTimeout  # noqa: E402
 
 from browser_motion import MOVING, STILL, new_context  # noqa: E402
+from browser_view import (FALLBACK_PHONES, VIEWPORTS,  # noqa: E402
+                          height_for, unreachable)
 
 from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
                  FeatureFlag, PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
                  Partner)
 
-# The same widths as the header check, for the same reason: 900 and 768
-# straddle the 899px shed point, and 390 is below the 640px one where the
-# arrows move UNDER the row.
-WIDTHS = [1440, 1280, 1024, 900, 768, 390]
+# The same screens as the header check, from tests/browser_view.py, for
+# the same reason: 900 and 768 straddle the 899px shed point, and the
+# phone sizes are below the 640px one where the arrows move UNDER the
+# row. Heights come with them — the row itself does not grow downwards,
+# but the arrows below it and the cookie notice below THEM do, and a
+# check that measured only widths could not see either.
 # Five is the first count that tips into the scroller and, being the
 # narrowest set, the tightest case for the loop invariant.
 COUNTS = [5, 7, 9]
 STEP_SECONDS = 2          # long enough to watch a step land and stop
-# Section H's widths: the CSS pixel widths of the two phones the
-# duplicate-cards bug was reported across — a Galaxy S10 (360) showing
-# ten cards where a Note 10 (412) showed five.
-FALLBACK_WIDTHS = [360, 412]
+# Section H's screens: the two phones the duplicate-cards bug was
+# reported across — a Galaxy S10 showing ten cards where a Note 10
+# showed five — named in tests/browser_view.py with their real heights.
+FALLBACK_WIDTHS = [w for w, _h in FALLBACK_PHONES]
 
 shots_dir = None
 if "--shots" in sys.argv:
@@ -299,7 +303,14 @@ def drag(page, point, dx, steps=10):
 
 
 def open_home(browser, width, motion, **options):
-    ctx = new_context(browser, width, motion=motion, **options)
+    """The home page at `width`, on the screen that width really is.
+
+    The height is looked up rather than defaulted — see
+    tests/browser_view.py. Every check here used to run 900px tall,
+    which is taller than any phone this row is scrolled on.
+    """
+    ctx = new_context(browser, width, height_for(width), motion=motion,
+                      **options)
     page = ctx.new_page()
     page.goto(BASE + "/", wait_until="load")
     show_row(page)
@@ -316,7 +327,7 @@ with sync_playwright() as pw:
     set_motion("scroll")
     for count in COUNTS:
         seed(count)
-        for width in WIDTHS:
+        for width, _height in VIEWPORTS:
             ctx, page = open_home(browser, width, MOVING)
             tag = "scroll %d partners %dpx" % (count, width)
             m = page.evaluate(MEASURE)
@@ -731,7 +742,8 @@ with sync_playwright() as pw:
         # (b) The script runs and throws on the way in. Different cause,
         #     same requirement — and this one leaves the page's other
         #     scripts running, so it is not just "no JS" again.
-        ctx = new_context(browser, width, motion=MOVING)
+        ctx = new_context(browser, width, height_for(width),
+                          motion=MOVING)
         # matchMedia, because the partner block calls it on its fifth
         # line — and because MEASURE below does not, so the check can
         # still read the page it has just broken.
@@ -772,7 +784,8 @@ with sync_playwright() as pw:
         #     take it back off rather than show them for a motion that is
         #     not happening.
         set_motion("scroll")
-        ctx = new_context(browser, width, motion=MOVING)
+        ctx = new_context(browser, width, height_for(width),
+                          motion=MOVING)
         ctx.add_init_script("""
             Object.defineProperty(Element.prototype, 'scrollLeft', {
                 get: function () { return 0; },
@@ -799,7 +812,7 @@ with sync_playwright() as pw:
     #     stepping row wore .is-moving and never moved. It should step
     #     anyway now, on the offset every other part of this uses.
     set_motion("step")
-    ctx = new_context(browser, 360, motion=MOVING)
+    ctx = new_context(browser, 360, height_for(360), motion=MOVING)
     ctx.add_init_script("delete Element.prototype.scrollBy;")
     page = ctx.new_page()
     page.goto(BASE + "/", wait_until="load")
@@ -838,6 +851,12 @@ with sync_playwright() as pw:
     check("360px: and are a fair size to hit",
           arrow["width"] >= 40 and arrow["height"] >= 40,
           "%.0fx%.0f" % (arrow["width"], arrow["height"]))
+    # Not the same as "not hidden": on a phone the arrows sit under the
+    # row, which is where the cookie notice is too. Ask the browser what
+    # is actually at each button rather than trusting the rectangle.
+    blocked = unreachable(page, ".partner-arrow", scroll=False)
+    check("360px: and nothing is painted over them", not blocked,
+          str(blocked))
     page.click(".partner-arrow-next")
     landed = settle(page)
     check("360px: the next arrow moves the row one card",

@@ -32,22 +32,22 @@ from werkzeug.serving import make_server  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 from browser_motion import new_page  # noqa: E402
+from browser_view import PHONES, VIEWPORTS, unreachable  # noqa: E402
 
 from app import app, db, DEFAULT_BLOCKS, Block, FEATURES, FeatureFlag  # noqa: E402
 
-# 900 and 768 sit either side of the 899px shed point, where the whole
-# nav collapses to the menu button: 900 is the last width that must fit
-# every group on one line, so it is the case most likely to regress.
-WIDTHS = [1440, 1280, 1024, 900, 768, 390]
+# The screens come from tests/browser_view.py — real devices, heights
+# and all, never a width with a convenient height stuck on it. 900 and
+# 768 sit either side of the 899px shed point where the whole nav
+# collapses to the menu button, 900 being the last width that must fit
+# every group on one line and so the case most likely to regress; and
+# the two phone sizes are where anything that grows DOWN the page shows
+# up, which is the half this file used to be blind to.
 MOBILE_MENU_MAX = 899          # below this the hamburger takes over
 PAGES = ["/", "/about", "/events", "/contact", "/admin/login"]
-# SHORT screens, for the section at the end. Everything above runs at
-# 900px tall, which is why the open menu running off the bottom of a
-# phone went unnoticed: with all four groups expanded in place the panel
-# is ~720px, so it fits 900 comfortably and fits neither of these. 740
-# is a Galaxy S10's viewport; 640 is the same phone with the browser's
-# own chrome showing, which is how anybody actually holds it.
-SHORT_SCREENS = [(360, 740), (360, 640)]
+# The deep menu-reachability section at the end runs over every phone
+# size, including the S10 at both its heights.
+SHORT_SCREENS = PHONES
 
 shots_dir = None
 if "--shots" in sys.argv:
@@ -82,8 +82,8 @@ BASE = "http://127.0.0.1:5099"
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch()
-    for width in WIDTHS:
-        page = new_page(browser, width)
+    for width, height in VIEWPORTS:
+        page = new_page(browser, width, height)
         page.goto(BASE + "/", wait_until="networkidle")
 
         # ---- no horizontal overflow anywhere on the page
@@ -173,6 +173,13 @@ with sync_playwright() as pw:
                   open_state["vis"] == "visible", open_state["vis"])
             check("%dpx: open panel stays inside the viewport" % width,
                   open_state["inside"], str(open_state))
+            # Not the same question as the rectangle above: a panel can
+            # sit inside the window and still have something painted
+            # over it. This asks the browser what is at each item.
+            covered = unreachable(page, ".nav-group:hover .nav-drop a",
+                                  scroll=False)
+            check("%dpx: and every item in it can be tapped" % width,
+                  not covered, str(covered))
             over = page.evaluate(
                 "() => document.documentElement.scrollWidth - "
                 "document.documentElement.clientWidth")
@@ -245,6 +252,12 @@ with sync_playwright() as pw:
                   opened["expanded"] == "true", str(opened["expanded"]))
             check("%dpx: menu stays within the viewport" % width,
                   opened["right"] <= width + 1, str(opened["right"]))
+            # The menu is the thing that grows down the page, so this is
+            # where a short screen bites. scroll=True because reaching an
+            # item by scrolling the panel to it is a fair way to reach it.
+            covered = unreachable(page, "#navLinks a")
+            check("%dpx: every item in the open menu can be tapped" % width,
+                  not covered, str(covered))
             check("%dpx: phone number available in the menu" % width,
                   opened["phone"] not in ("none", "missing"),
                   str(opened["phone"]))
@@ -324,6 +337,21 @@ with sync_playwright() as pw:
             check("%dpx: footer clears the cookie notice" % width,
                   room["gap"] >= 0, "%dpx of overlap, %dpx short of the "
                   "bottom" % (-room["gap"], room["short"]))
+            # The gap above is about the footer being READABLE. Whether
+            # its links can be USED is a different question and only
+            # elementFromPoint answers it: the strip is fixed, so at the
+            # bottom of the page it is over whatever is there, and a link
+            # underneath it still measures as perfectly in view.
+            blocked = unreachable(page, ".foot-bar a, .foot-legal a",
+                                  scroll=False)
+            check("%dpx: and the footer's own links can still be tapped"
+                  % width, not blocked, str(blocked))
+            # Including the notice's own controls, which are the only way
+            # to make it go away.
+            blocked = unreachable(page, ".cookie-notice a, .cookie-ok",
+                                  scroll=False)
+            check("%dpx: the notice's own OK and link are tappable" % width,
+                  not blocked, str(blocked))
             check("%dpx: cookie notice causes no sideways scroll" % width,
                   room["over"] <= 0, "%dpx" % room["over"])
             with page.expect_navigation(wait_until="load"):
@@ -404,30 +432,9 @@ with sync_playwright() as pw:
         check("%s: the menu still lists everything" % tag,
               "/donate" in links and len(links) >= 12,
               "%d links: %s" % (len(links), links))
-        unreachable = page.evaluate("""() => {
-            const ul = document.getElementById('navLinks');
-            const bad = [];
-            for (const a of ul.querySelectorAll('a')) {
-                // The three group triggers are pointer-events:none in the
-                // menu on purpose — each group's own page is listed
-                // underneath it — so a tap is MEANT to fall through them.
-                if (getComputedStyle(a).pointerEvents === 'none') continue;
-                a.scrollIntoView({block: 'center', behavior: 'instant'});
-                const r = a.getBoundingClientRect();
-                const x = Math.round(r.left + r.width / 2);
-                const y = Math.round(r.top + r.height / 2);
-                const onScreen = r.top >= 0 && r.bottom <= innerHeight;
-                const hit = document.elementFromPoint(x, y);
-                if (!onScreen || !hit || !(hit === a || a.contains(hit)))
-                    bad.push((a.getAttribute('href') || '?')
-                             + (onScreen ? ' (covered by '
-                                 + (hit ? (hit.className || hit.tagName) : '?')
-                                 + ')' : ' (off screen)'));
-            }
-            return bad;
-        }""")
+        covered = unreachable(page, "#navLinks a")
         check("%s: every item can be scrolled to and tapped" % tag,
-              not unreachable, str(unreachable))
+              not covered, str(covered))
 
         # The one the bug was reported about, driven the way a thumb
         # would: scroll it into view inside the panel, then tap it.
@@ -440,9 +447,9 @@ with sync_playwright() as pw:
             return {top: r.top, bottom: r.bottom, height: r.height,
                     vh: window.innerHeight};
         }""")
-        check("%s: Donate is on screen once scrolled to" % tag,
-              donate["top"] >= 0 and donate["bottom"] <= donate["vh"] + 1,
-              str(donate))
+        blocked = unreachable(page, "#navLinks .nav-donate")
+        check("%s: Donate can be reached and tapped" % tag, not blocked,
+              str(blocked) + " " + str(donate))
         check("%s: and is a fair size to tap" % tag, donate["height"] >= 30,
               "%.0fpx tall" % donate["height"])
         page.click("#navLinks .nav-donate")
@@ -470,8 +477,9 @@ with sync_playwright() as pw:
     with app.app_context():
         FeatureFlag.query.filter_by(name="donations").first().enabled = False
         db.session.commit()
-    for width in (1440, 1024, 900):
-        page = new_page(browser, width)
+    for width, height in [(w, h) for w, h in VIEWPORTS
+                          if w in (1440, 1024, 900)]:
+        page = new_page(browser, width, height)
         page.goto(BASE + "/", wait_until="load")
         over = page.evaluate(
             "() => document.documentElement.scrollWidth - "

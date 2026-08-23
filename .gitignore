@@ -2,7 +2,11 @@ instance/
 static/uploads/*
 !static/uploads/.gitkeep
 __pycache__/
-tests/test_ebwa.db*
+# Every throwaway database a check makes, not just the smoke suite's
+# one: the browser checks name theirs per file (test_ebwa_header.db,
+# test_ebwa_marquee.db, ...) and the header one does not always get to
+# delete it, so `git add -A` could sweep a database into the repository.
+tests/test_*.db*
 *.pyc
 venv/
 .env

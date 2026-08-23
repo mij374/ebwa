@@ -33,14 +33,24 @@ STILL = "reduce"            # the default: nothing animates, nothing eases
 MOVING = "no-preference"    # explicit, for checks measuring motion itself
 
 
-def new_page(browser, width, height=900, motion=STILL, **options):
-    """A page at `width`, still unless a check asks for MOVING."""
+def new_page(browser, width, height, motion=STILL, **options):
+    """A page at `width` x `height`, still unless a check asks for MOVING.
+
+    `height` has NO DEFAULT, deliberately. It used to default to 900 and
+    every check simply took it, so everything was measured on a screen
+    taller than any phone — and the open mobile menu, ~720px with its
+    groups expanded, fitted that and no real device. See
+    tests/browser_view.py for the sizes to pass and why.
+    """
     return browser.new_page(viewport={"width": width, "height": height},
                             reduced_motion=motion, **options)
 
 
-def new_context(browser, width, height=900, motion=STILL, **options):
-    """A context at `width`, still unless a check asks for MOVING.
+def new_context(browser, width, height, motion=STILL, **options):
+    """A context at `width` x `height`, still unless a check asks for MOVING.
+
+    `height` is required for the reason given on `new_page` above: a
+    width with a default height is not a screen anybody owns.
 
     `options` goes straight to Playwright, for the checks that need
     something else of the context as well — `has_touch=True` for the

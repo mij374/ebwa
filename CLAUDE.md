@@ -672,10 +672,10 @@ Built and maintained by Netbus IT Support.
     and so no Donate pill after it, that was 76px of sideways scroll at
     1024 and 900 on every page with no panel open. Any future group
     added to the end of the row takes the class with it.
-  - `tests/check_header_layout.py` is the proof, at the widths in its
-    own `WIDTHS` list — 1440/1280/1024/900/768/390, which includes 900
-    and 768 either side of the 899px shed point, since that is where a
-    header regression would land: one line (measured by item CENTRES, since a trigger is taller
+  - `tests/check_header_layout.py` is the proof, at the shared
+    `VIEWPORTS` from `tests/browser_view.py` — real screens, heights and
+    all, including 900 and 768 either side of the 899px shed point,
+    since that is where a header regression would land: one line (measured by item CENTRES, since a trigger is taller
     than the pill), no sideways scroll, panels shut until hovered or
     focused, every destination reachable by Tab alone, and the mobile
     menu listing all of them. It also runs two sections the six widths
@@ -752,10 +752,13 @@ tests/; run them against a scratchpad DATABASE_URL, never
 instance/ebwa.db.
 
 Layout changes also have `tests/check_header_layout.py` — a Playwright
-run against real Chromium at 1440/1280/1024/900/768/390px asserting the
-nav stays on one line, nothing scrolls sideways, and the mobile menu
-opens. 900 and 768 straddle the 899px shed point deliberately; keep both
-if you change the list.
+run against real Chromium at the shared `VIEWPORTS` (1440x900, 1280x800,
+1024x768, 900x700, 768x1024, 390x740, 360x640) asserting the nav stays
+on one line, nothing scrolls sideways, and the mobile menu opens and can
+be used to its last item. 900 and 768 straddle the 899px shed point
+deliberately, and the two phone heights are what is left of those phones
+once the browser's own chrome is showing; keep all of them if you change
+the list, and add a height with any width.
 It needs a browser so it is NOT part of the smoke suite (`smoke_test_*`);
 run it by hand after touching the header, nav or breakpoints:
 `python tests/check_header_layout.py [--shots DIR]`.
@@ -763,7 +766,7 @@ run it by hand after touching the header, nav or breakpoints:
 `tests/check_partner_marquee.py` is the other behavioural one, for the
 partner scroller — the half of it that only a browser can answer, the
 markup half staying in `tests/smoke_test_partners.py`. It drives the row
-at all six widths and at 5/7/9 partners and asserts the loop closes with
+at every shared viewport and at 5/7/9 partners and asserts the loop closes with
 NO GAP (measured as a reader sees it — cards clipped to the visible
 strip, widest empty run found — at rest and after each of a drag, a
 wheel and a Tab, the three things that used to open one), that a step is
@@ -797,6 +800,58 @@ between two cards at some widths and a card is wider than the strip at
 390px. Touch is driven with raw `Input.dispatchTouchEvent` over CDP —
 `Input.synthesizeScrollGesture` moves nothing at all in this headless
 build, in either direction.
+
+Every browser check runs at a REAL SCREEN SIZE — a (width, height) pair
+from `tests/browser_view.py`, never a width with whatever height the
+harness felt like. **Height matters as much as width for anything that
+can grow vertically**, and that is not a small category: an open menu, a
+modal, the lightbox, a long form, a page of stacked cards, any fixed
+strip anchored to the bottom of the screen. Widths decide what wraps and
+what sheds; heights decide what falls off the bottom, and only one of
+those was ever being tested.
+
+  - The cost of not doing it, which is why this is a rule: every check
+    ran 900px tall, because that was the default in `browser_motion` and
+    no caller ever passed one. The open mobile menu is ~720px with its
+    groups expanded — comfortable at 900, and taller than any phone. It
+    ran off the bottom of a Galaxy S10 with Donate on the lost part, and
+    NO existing check could have caught it at any width. That is a
+    structural blind spot, not a missed assertion.
+  - `height` has NO DEFAULT in `new_page()` / `new_context()`, so a
+    check cannot inherit one by accident, and `height_for(width)` raises
+    on a width nobody has recorded a screen for rather than guessing.
+    Add the device to `VIEWPORTS` (or `EXTRA_HEIGHTS`) and name it.
+  - `VIEWPORTS` is the shared list — 1440x900, 1280x800, 1024x768,
+    900x700, 768x1024, 390x740, 360x640 — each a real laptop, tablet or
+    phone, the phone heights being what is left once the browser's own
+    chrome is showing. `PHONES` is the subset for things that grow
+    downwards, and includes the S10 at BOTH its heights (740 and 640),
+    where the menu overflowed by 58px and 158px respectively.
+
+**"Can a person reach this?" is asked with `elementFromPoint`, never by
+comparing a rectangle to the viewport** — `unreachable()` in
+`tests/browser_view.py`. A rectangle sitting inside the viewport says
+nothing about whether anything is painted over it, and the site has a
+FIXED strip at the bottom of every first visit: the cookie notice, 190px
+tall on a phone. It sat over the last items of the open menu, Donate
+among them, and every tap landed on the notice. Donate measured
+top 638, bottom 673 in a 740px viewport — a bounds assertion passes that
+happily, and the person cannot tap it.
+
+  - Three things the helper knows, each learned by getting it wrong:
+    `pointer-events:none` is SKIPPED rather than failed (the three nav
+    group triggers decline taps deliberately); it scrolls to the element
+    first, since reaching something by scrolling its panel to it counts;
+    and it tests the centre of a LINE BOX rather than of the union
+    rectangle, because a link wrapped onto two lines has a rect whose
+    centre is in the whitespace beside the text and reports itself
+    covered by its own paragraph.
+  - Keep plain rectangle assertions for what they are actually about —
+    no sideways scroll, a panel fitting the window, a column's width.
+    Reachability is the one that needs the browser's own answer.
+  - A reachability check that cannot fail is worth nothing, so prove it:
+    undo the fix, watch the check name what is covering what, put it
+    back. Both the menu and the cookie notice were confirmed that way.
 
 Every browser check runs STILL by default — `prefers-reduced-motion:
 reduce`, set per context through `tests/browser_motion.py`

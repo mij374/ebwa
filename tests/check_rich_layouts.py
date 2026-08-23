@@ -36,12 +36,17 @@ from werkzeug.serving import make_server  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 from browser_motion import new_context  # noqa: E402
+from browser_view import height_for  # noqa: E402
 
 from app import (app, db, Block, ContentImage, DEFAULT_BLOCKS,  # noqa: E402
                  Event, FEATURES, FeatureFlag, NewsPost, UPLOAD_DIR)
 
 # 900px is not one of the asked-for widths, but it is where the site's
 # other grids already step down, so it is where the masonry does too.
+# Heights come from tests/browser_view.py rather than a round number:
+# these pages are long, the alternating preset stacks a photo under
+# every paragraph on a phone, and a screen taller than any real one is
+# how the mobile menu's overflow stayed invisible for months.
 WIDTHS = [1440, 1024, 900, 390]
 EXPECTED_COLUMNS = {1440: 3, 1024: 3, 900: 2, 390: 1}    # gallery masonry
 LAYOUTS = ["classic", "gallery", "alternating"]
@@ -138,7 +143,7 @@ with sync_playwright() as pw:
         for layout in LAYOUTS:
             set_layout(layout)
             for label, path, paras in PAGES:
-                ctx = new_context(browser, width, height=1000)
+                ctx = new_context(browser, width, height_for(width))
                 page = ctx.new_page()
                 page.goto(BASE + path, wait_until="load")
                 page.wait_for_timeout(250)
