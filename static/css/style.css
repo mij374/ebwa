@@ -697,13 +697,19 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .activity-table{table-layout:fixed}
 .activity-table th:first-child,
 .activity-table td:first-child{width:172px}   /* "22 Aug 2026, 21:58" */
-/* 310px, measured rather than guessed: info@netbus.co.uk needs about
-   200px, but a personal address is the long case — anis.miah1987@
-   googlemail.com wants 270px and firstname.lastname@googlemail.com
-   306px, and sizing for the short one is what put a fold in every row.
+/* 240px, measured rather than guessed, in the 14px this table is set in
+   below and including the cell's own 32px of side padding:
+   info@netbus.co.uk wants 151px, anis2921956@gmail.com 195px, and
+   anis.miah1987@googlemail.com exactly 240 — the long personal address
+   still sits on one line, with nothing to spare, so treat 240 as a
+   floor rather than a round number. Beyond that
+   (firstname.lastname@googlemail.com, 273px) it is ellipsised instead,
+   which the title attribute makes harmless, and the 70px reclaimed goes
+   to the summary — the column doing the work, and the one that wraps
+   without harm.
    The admin column is capped at 900px, so the table is 812px wide at
-   every desktop width and this leaves the summary 330px. */
-.activity-table .activity-who{width:310px}
+   every desktop width and this leaves the summary 400px, up from 330. */
+.activity-table .activity-who{width:240px}
 /* One line per row, always. An address too long for the column is cut
    with an ellipsis and kept whole in the title attribute — wrapping it
    would make every row in the table two lines high, which is the thing
@@ -711,6 +717,18 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .activity-table td.activity-who{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+/* A log is scanned, not read, so it is set a step down from the 15px the
+   content tables use — 14px, the size already used for admin labels,
+   tabs and table links rather than a new one — with the row padding
+   brought in to match. Nothing here is a tap target: the cells hold
+   text, and the phone view below is a stacked card and keeps its own
+   sizes.
+   Both classes are named because .admin-table's own padding and font
+   size are set FURTHER DOWN the file: at equal specificity the later
+   rule would win, and these would do nothing. */
+.admin-table.activity-table th,
+.admin-table.activity-table td{padding:10px 16px}
+.admin-table.activity-table td{font-size:14px;line-height:1.45}
 .admin-more{margin:14px 0 30px;font-size:14.5px}
 .admin-more a{color:var(--green);font-weight:700;text-decoration:none}
 
@@ -1009,12 +1027,18 @@ body.has-notice footer{padding-bottom:110px}
     border-radius:12px;padding:12px 14px;margin-bottom:10px;
   }
   .activity-table tr:first-child{display:none}      /* the header row */
-  .activity-table td{display:block;border:none;padding:0}
+  /* Back to the body's own line height as well: the desktop table is
+     tightened to fit rows on a screen, and a card is not a table row. */
+  .admin-table.activity-table td{
+    display:block;border:none;padding:0;line-height:1.65;
+  }
   .activity-table td:first-child,.activity-table td:nth-child(2){
     display:inline;font-size:13px;color:var(--ink-soft);
   }
   .activity-table td:first-child::after{content:" · "}
-  .activity-table td:last-child{margin-top:4px}
+  /* The summary keeps the 15px it always had: the desktop step down is
+     about fitting three columns in 812px, and a card has one. */
+  .activity-table td:last-child{margin-top:4px;font-size:15px}
   /* The stacked card is not a table: the column width and the one-line
      ellipsis above would only stop a long address wrapping inside a
      342px card and push it out of the side. Here it wraps, as it did
