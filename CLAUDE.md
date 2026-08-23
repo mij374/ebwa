@@ -389,6 +389,25 @@ Built and maintained by Netbus IT Support.
   slots, so re-inserting a missing key is right; records are things an
   admin may legitimately delete, and a later `init-db` on deploy must
   never resurrect them. Follow that split for any future seeded list.
+- **An edit form's Published/Active checkbox renders `checked` from the
+  row's CURRENT state.** An unticked checkbox posts nothing at all, so a
+  form that showed the box unticked while editing a live item would take
+  that item off the site the moment somebody fixed a typo in it — still
+  listed in the admin, still apparently fine, simply gone from the
+  website. All eight forms that have such a box do this correctly
+  (events, news, milestones, testimonials, services, FAQ, albums,
+  campaigns); resources and partners have no visibility flag at all.
+  - Never put that checkbox inside a `{% if %}`. A box that is not
+    rendered submits nothing, which is indistinguishable from unticked,
+    so hiding it behind a feature flag would silently unpublish
+    everything edited while the flag was off.
+  - `tests/smoke_test_publish_state.py` proves it the only way that
+    means anything: it fetches each edit form, collects the fields A
+    BROWSER would submit (an unticked box contributing nothing), posts
+    them straight back unchanged, and asserts the item is still live.
+    It asserts the reverse too — unticking really does unpublish —
+    because a test that only checked one direction would pass against a
+    form that had lost its checkbox altogether.
 - Admin forms: plain POST + redirect + `flash(msg, "ok"|"error")`.
   Destructive actions are POST forms with a JS `confirm()`. No AJAX.
 - Auth: single `User` model via Flask-Login, `@login_required` on every
