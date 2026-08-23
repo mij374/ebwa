@@ -65,7 +65,9 @@ from browser_view import (FALLBACK_PHONES, VIEWPORTS,  # noqa: E402
                           height_for, unreachable)
 
 from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
-                 FeatureFlag, PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
+                 FeatureFlag, PARTNER_DRIFT_DEFAULT, PARTNER_DRIFT_KEY,
+                 PARTNER_GLIDE_DEFAULT, PARTNER_GLIDE_KEY,
+                 PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
                  Partner)
 
 # The same screens as the header check, from tests/browser_view.py, for
@@ -148,10 +150,18 @@ def seed(count):
         db.session.commit()
 
 
-def set_motion(mode, seconds=STEP_SECONDS):
+def set_motion(mode, seconds=STEP_SECONDS, glide=PARTNER_GLIDE_DEFAULT,
+               drift=PARTNER_DRIFT_DEFAULT):
+    """Set every movement setting, speeds included.
+
+    The speeds default to the shipped constants, so every check written
+    before they existed still runs against the row exactly as it was.
+    """
     with app.app_context():
         for key, value in ((PARTNER_MOTION_KEY, mode),
-                           (PARTNER_STEP_KEY, str(seconds))):
+                           (PARTNER_STEP_KEY, str(seconds)),
+                           (PARTNER_GLIDE_KEY, str(glide)),
+                           (PARTNER_DRIFT_KEY, str(drift))):
             row = Block.query.filter_by(key=key).first()
             row.value = value
         db.session.commit()
@@ -882,6 +892,151 @@ with sync_playwright() as pw:
     if shots_dir:
         page.screenshot(path=os.path.join(shots_dir, "fallback-360.png"))
     ctx.close()
+
+    # ================================================================
+    # I. The two SPEED settings. Both ship at the value the row already
+    #    used, so the first thing asserted is that a default-configured
+    #    row behaves as it did before they existed — a setting that
+    #    changes the site the day it is added is not a setting, it is a
+    #    redesign.
+    # ================================================================
+    seed(5)
+
+    def time_one_step(page):
+        """How long one step takes, from first movement to settled."""
+        return page.evaluate("""() => new Promise(resolve => {
+            const box = document.getElementById('partnerRow');
+            const from = box.scrollLeft;
+            let t0 = 0, last = from, still = 0;
+            const started = performance.now();
+            function tick(now) {
+                const at = box.scrollLeft;
+                if (!t0 && Math.abs(at - from) > 0.5) t0 = now;
+                if (t0) {
+                    if (Math.abs(at - last) < 0.05) {
+                        if (++still > 3) {
+                            resolve({ms: Math.round(now - t0 - 48),
+                                     moved: Math.round(at - from)});
+                            return;
+                        }
+                    } else { still = 0; }
+                }
+                last = at;
+                if (now - started > 12000) {
+                    resolve({ms: -1, moved: Math.round(at - from)});
+                    return;
+                }
+                requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        })""")
+
+    def drift_over(page, ms=1200):
+        """Pixels the row drifts in `ms` of wall clock."""
+        return page.evaluate("""(ms) => new Promise(resolve => {
+            const box = document.getElementById('partnerRow');
+            const from = box.scrollLeft;
+            const t0 = performance.now();
+            setTimeout(() => resolve({
+                moved: box.scrollLeft - from,
+                seconds: (performance.now() - t0) / 1000}), ms);
+        })""", ms)
+
+    # ---- the default step is the ~360ms the browser's own smooth
+    # scroll was taking, measured at 344-374ms before any of this.
+    set_motion("step", seconds=4)
+    ctx, page = open_home(browser, 1024, MOVING)
+    took = time_one_step(page)
+    check("default glide: a step still takes about %dms"
+          % PARTNER_GLIDE_DEFAULT,
+          abs(took["ms"] - PARTNER_GLIDE_DEFAULT) <= 160,
+          "%dms, moved %dpx" % (took["ms"], took["moved"]))
+    check("default glide: and it is a whole card",
+          abs(took["moved"] - page.evaluate(MEASURE)["cardStride"]) <= 3,
+          str(took))
+    ctx.close()
+
+    # ---- the default drift is the 45px a second it always was
+    set_motion("scroll")
+    ctx, page = open_home(browser, 1024, MOVING)
+    d = drift_over(page)
+    rate = d["moved"] / d["seconds"]
+    check("default drift: still about %d pixels a second"
+          % PARTNER_DRIFT_DEFAULT, abs(rate - PARTNER_DRIFT_DEFAULT) <= 12,
+          "%.0f px/s over %.2fs" % (rate, d["seconds"]))
+    ctx.close()
+
+    # ---- changed values take effect, and proportionally
+    set_motion("step", seconds=4, glide=1200)
+    ctx, page = open_home(browser, 1024, MOVING)
+    slow = time_one_step(page)
+    check("a longer glide really is longer",
+          abs(slow["ms"] - 1200) <= 220, "%dms" % slow["ms"])
+    check("and still lands on exactly one card",
+          abs(slow["moved"] - page.evaluate(MEASURE)["cardStride"]) <= 3,
+          str(slow))
+    ctx.close()
+
+    set_motion("scroll", drift=90)
+    ctx, page = open_home(browser, 1024, MOVING)
+    d = drift_over(page)
+    fast = d["moved"] / d["seconds"]
+    check("double the drift setting is double the speed",
+          abs(fast - 90) <= 20, "%.0f px/s" % fast)
+    ctx.close()
+
+    # ---- reduced motion still overrides both, whatever they are set to
+    set_motion("scroll", drift=200)
+    ctx, page = open_home(browser, 1024, STILL)
+    at = page.evaluate(SCROLL_LEFT)
+    page.wait_for_timeout(900)
+    check("reduced motion still stops the fastest drift there is",
+          abs(page.evaluate(SCROLL_LEFT) - at) <= 1,
+          "moved %.1f" % (page.evaluate(SCROLL_LEFT) - at))
+    check("and still gets the arrows instead",
+          not any(page.evaluate(MEASURE)["arrowsHidden"]))
+    ctx.close()
+    set_motion("step", seconds=1, glide=3000)
+    ctx, page = open_home(browser, 1024, STILL)
+    at = page.evaluate(SCROLL_LEFT)
+    page.wait_for_timeout(1200)
+    check("reduced motion stops a glide longer than its own interval too",
+          abs(page.evaluate(SCROLL_LEFT) - at) <= 1,
+          "moved %.1f" % (page.evaluate(SCROLL_LEFT) - at))
+    ctx.close()
+
+    # ---- an impossible pair cannot overlap two movements. The form
+    # refuses it; this is the row rendering one anyway, because a
+    # database can hold anything a hand edit puts in it.
+    set_motion("step", seconds=1, glide=3000)
+    ctx, page = open_home(browser, 1024, MOVING)
+    capped = page.evaluate(
+        "() => document.querySelector('.partner-row')"
+        ".getAttribute('data-glide-ms')")
+    check("a glide longer than the interval is capped to it",
+          capped == "1000", str(capped))
+    # Watch it for several intervals: with two movements overlapping the
+    # row would jump backwards, so assert it only ever goes forwards.
+    backwards = page.evaluate("""() => new Promise(resolve => {
+        const box = document.getElementById('partnerRow');
+        let last = box.scrollLeft, worst = 0, wrapped = 0;
+        const t0 = performance.now();
+        function tick(now) {
+            const at = box.scrollLeft;
+            const d = at - last;
+            // A wrap back by one set is the loop, not a stumble.
+            if (d < -50) { wrapped++; } else if (d < worst) { worst = d; }
+            last = at;
+            if (now - t0 > 4000) { resolve({worst: worst, wrapped: wrapped}); return; }
+            requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+    })""")
+    check("and the row never stumbles backwards while stepping",
+          backwards["worst"] > -2, str(backwards))
+    ctx.close()
+
+    set_motion("scroll")      # leave the row as the site ships it
 
     browser.close()
 

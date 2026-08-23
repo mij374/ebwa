@@ -24,7 +24,11 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 from app import (app, db, AuditLog, Block, DEFAULT_BLOCKS,  # noqa: E402
                  FEATURES,
-                 FeatureFlag, PARTNER_MODES, PARTNER_MOTIONS,
+                 FeatureFlag, PARTNER_DRIFT_DEFAULT, PARTNER_DRIFT_KEY,
+                 PARTNER_DRIFT_MAX, PARTNER_DRIFT_MIN,
+                 PARTNER_GLIDE_DEFAULT, PARTNER_GLIDE_KEY,
+                 PARTNER_GLIDE_MAX, PARTNER_GLIDE_MIN, PARTNER_MODES,
+                 PARTNER_MOTIONS,
                  PARTNER_MOTION_KEY, PARTNER_STEP_DEFAULT,
                  PARTNER_STEP_KEY, Partner, UPLOAD_DIR, User,
                  partner_motion)
@@ -53,6 +57,17 @@ def check(name, cond, detail=""):
 
 def home():
     return client.get("/").data.decode("utf-8")
+
+
+def what_it_does():
+    """Just the mode and the interval — what the row DOES.
+
+    partner_motion() also carries the two speeds and their defaults, and
+    an exact-dict assertion would have to be edited every time a setting
+    is added. The speed checks below assert the speeds by name.
+    """
+    m = partner_motion()
+    return {"mode": m["mode"], "step_seconds": m["step_seconds"]}
 
 
 def card_for(html, name):
@@ -310,8 +325,8 @@ check("dropping back to four returns the static row",
 partner_count(5)
 with app.app_context():
     check("the movement setting starts on continuous scrolling",
-          partner_motion() == {"mode": "scroll",
-                               "step_seconds": PARTNER_STEP_DEFAULT},
+          what_it_does() == {"mode": "scroll",
+                             "step_seconds": PARTNER_STEP_DEFAULT},
           str(partner_motion()))
 html = home()
 check("the row carries the mode for the CSS and the script",
@@ -349,11 +364,12 @@ r = client.post("/admin/partners/motion",
 check("saving the setting works", b"movement saved" in r.data)
 with app.app_context():
     check("STEPPING IS STORED AS A BLOCK",
-          partner_motion() == {"mode": "step", "step_seconds": 7},
+          what_it_does() == {"mode": "step", "step_seconds": 7},
           str(partner_motion()))
     keys = {b.key for b in Block.query.filter_by(group="partners").all()}
-    check("both settings live in the partners group",
-          keys == {PARTNER_MOTION_KEY, PARTNER_STEP_KEY}, str(keys))
+    check("every partner setting lives in the partners group",
+          keys == {PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
+                   PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY}, str(keys))
     entry = (AuditLog.query.filter_by(action="edit")
              .order_by(AuditLog.id.desc()).first())
     check("the change is audit-logged in plain words",
@@ -380,12 +396,165 @@ with app.app_context():
     check("and the stored setting survived every refusal",
           partner_motion()["mode"] == "none", str(partner_motion()))
 
+# ---- the two SPEED settings: defaults, validation, reset, audit
+def speeds():
+    m = partner_motion()
+    return m["glide_ms"], m["drift_speed"]
+
+
+def save(**over):
+    """Post the movement form, with the four fields it really carries."""
+    data = {"motion": "step", "step_seconds": "4",
+            "glide_ms": str(PARTNER_GLIDE_DEFAULT),
+            "drift_speed": str(PARTNER_DRIFT_DEFAULT)}
+    data.update(over)
+    return client.post("/admin/partners/motion", data=data,
+                       follow_redirects=True)
+
+
+with app.app_context():
+    check("THE SPEEDS SHIP AT THE VALUES THE ROW ALREADY USED",
+          speeds() == (PARTNER_GLIDE_DEFAULT, PARTNER_DRIFT_DEFAULT),
+          str(speeds()))
+html = home()
+check("and the row carries both for the script",
+      'data-glide-ms="%d"' % PARTNER_GLIDE_DEFAULT in html
+      and 'data-drift-speed="%d"' % PARTNER_DRIFT_DEFAULT in html,
+      html[html.find("partner-row"):][:220])
+
+page = client.get("/admin/partners").data.decode("utf-8")
+check("the speeds are behind an advanced section, shut by default",
+      "admin-advanced" in page and "<details" in page
+      and "<details open" not in page)
+# Whitespace collapsed: the warning wraps across several source lines
+# and a contiguous-string search would only be testing the indentation.
+flat_page = re.sub(r"\s+", " ", page)
+check("the advanced section warns plainly, without alarm",
+      "tested across screen sizes and devices" in flat_page
+      and "only change them if you are sure" in flat_page
+      and "Reset to defaults" in flat_page)
+check("each speed shows the default it is departing from",
+      "Default: %dms" % PARTNER_GLIDE_DEFAULT in flat_page
+      and "Default: %d pixels a second" % PARTNER_DRIFT_DEFAULT in flat_page,
+      flat_page[flat_page.find("admin-advanced"):][:400])
+check("the interval and the glide are distinguished in words",
+      "How OFTEN the row moves" in flat_page
+      and "the movement itself, not the wait in between" in flat_page)
+check("both speed fields are there", 'name="glide_ms"' in page
+      and 'name="drift_speed"' in page)
+
+# ---- changed values take effect
+r = save(glide_ms="1200", drift_speed="90")
+check("new speeds save", b"movement saved" in r.data)
+with app.app_context():
+    check("and are stored", speeds() == (1200, 90), str(speeds()))
+html = home()
+check("and reach the row", 'data-glide-ms="1200"' in html
+      and 'data-drift-speed="90"' in html)
+
+# ---- validation, each refusal leaving what is stored alone
+for bad, why in ((                       {"glide_ms": "299"}, "glide too short"),
+                 ({"glide_ms": "3001"}, "glide too long"),
+                 ({"glide_ms": "quick"}, "glide not a number"),
+                 ({"drift_speed": "9"}, "drift too slow"),
+                 ({"drift_speed": "201"}, "drift too fast"),
+                 ({"drift_speed": "brisk"}, "drift not a number")):
+    r = save(**bad)
+    check("refused: %s" % why, b"movement saved" not in r.data, str(bad))
+with app.app_context():
+    check("and every refusal left the stored speeds alone",
+          speeds() == (1200, 90), str(speeds()))
+
+# ---- the combination that would overlap two movements
+r = save(step_seconds="1", glide_ms="3000")
+check("a step longer than the wait between steps is refused",
+      b"movement saved" not in r.data)
+check("and says which two numbers disagree",
+      b"cannot take longer than the wait" in r.data)
+with app.app_context():
+    check("nothing was stored from the refused combination",
+          speeds() == (1200, 90) and partner_motion()["step_seconds"] != 1,
+          str(partner_motion()))
+r = save(step_seconds="3", glide_ms="3000")
+check("the same glide is fine with a longer wait",
+      b"movement saved" in r.data)
+# Belt and braces: a database holding an impossible pair is capped when
+# it is read, so a hand-edited row cannot overlap two movements either.
+with app.app_context():
+    Block.query.filter_by(key=PARTNER_STEP_KEY).first().value = "1"
+    db.session.commit()
+    check("a hand-edited impossible pair is capped on the way out",
+          partner_motion()["glide_ms"] == 1000,
+          str(partner_motion()))
+save(step_seconds="4", glide_ms="1200", drift_speed="90")
+
+# ---- an untouched advanced section must not reset the speeds
+r = client.post("/admin/partners/motion",
+                data={"motion": "scroll", "step_seconds": "5"},
+                follow_redirects=True)
+check("a form posted without the speed fields still saves",
+      b"movement saved" in r.data)
+with app.app_context():
+    check("and leaves the chosen speeds exactly as they were",
+          speeds() == (1200, 90), str(speeds()))
+
+# ---- reset
+r = client.post("/admin/partners/motion/reset", follow_redirects=True)
+check("reset works", b"put back to the defaults" in r.data)
+with app.app_context():
+    check("RESET RESTORES THE SHIPPED CONSTANTS",
+          speeds() == (PARTNER_GLIDE_DEFAULT, PARTNER_DRIFT_DEFAULT),
+          str(speeds()))
+    check("and leaves what the row DOES alone",
+          what_it_does() == {"mode": "scroll", "step_seconds": 5},
+          str(partner_motion()))
+    entry = (AuditLog.query.order_by(AuditLog.id.desc()).first())
+    check("the reset is audit-logged in plain words",
+          entry is not None and "Reset the partner row speeds" in
+          (entry.summary or ""), entry.summary if entry else "none")
+    check("and the entry names the values it went back to",
+          "%dms" % PARTNER_GLIDE_DEFAULT in (entry.summary or "")
+          and "%d pixels" % PARTNER_DRIFT_DEFAULT in (entry.summary or ""),
+          entry.summary if entry else "none")
+
+# Reset is not "undo": pressing it twice still lands on the constants,
+# and still says so in the log.
+r = client.post("/admin/partners/motion/reset", follow_redirects=True)
+with app.app_context():
+    check("resetting again is harmless and still logged",
+          speeds() == (PARTNER_GLIDE_DEFAULT, PARTNER_DRIFT_DEFAULT)
+          and "already both set" in
+          (AuditLog.query.order_by(AuditLog.id.desc())
+           .first().summary or ""),
+          str(speeds()))
+
+# ---- saving a speed change is audit-logged with the numbers
+save(motion="step", step_seconds="6", glide_ms="800", drift_speed="30")
+with app.app_context():
+    entry = AuditLog.query.order_by(AuditLog.id.desc()).first()
+    check("a speed change is audit-logged with both numbers",
+          "800ms" in (entry.summary or "")
+          and "30 pixels a second" in (entry.summary or ""),
+          entry.summary if entry else "none")
+
+# ---- access matches the movement setting it sits beside
+r = anon.post("/admin/partners/motion/reset")
+check("anon POST reset -> login redirect",
+      r.status_code == 302 and "/admin/login" in r.headers.get("Location", ""),
+      str(r.status_code))
+with app.app_context():
+    check("and the defaults were not touched by the attempt",
+          speeds() == (800, 30), str(speeds()))
+save(motion="scroll", step_seconds="4")
+
 # the settings are not loose in the page editor (HIDDEN_BLOCK_KEYS)
 r = client.get("/admin/content")
 check("the content editor opens", r.status_code == 200, str(r.status_code))
 check("the movement settings stay OUT of the content editor",
-      PARTNER_MOTION_KEY.encode() not in r.data
-      and PARTNER_STEP_KEY.encode() not in r.data, str(r.status_code))
+      all(k.encode() not in r.data
+          for k in (PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
+                    PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY)),
+      str(r.status_code))
 check("(and the editor really does list other blocks)",
       b"Hero headline" in r.data and b'name="block_' in r.data)
 
@@ -395,8 +564,8 @@ with app.app_context():
         db.session.delete(row)
     db.session.commit()
     check("with no rows at all it falls back to scrolling",
-          partner_motion() == {"mode": "scroll",
-                               "step_seconds": PARTNER_STEP_DEFAULT},
+          what_it_does() == {"mode": "scroll",
+                             "step_seconds": PARTNER_STEP_DEFAULT},
           str(partner_motion()))
 check("and the homepage still renders", 'data-motion="scroll"' in home())
 r = client.post("/admin/partners/motion",
@@ -405,7 +574,7 @@ r = client.post("/admin/partners/motion",
 check("saving recreates the missing rows", b"movement saved" in r.data)
 with app.app_context():
     check("and they hold the new values",
-          partner_motion() == {"mode": "step", "step_seconds": 3},
+          what_it_does() == {"mode": "step", "step_seconds": 3},
           str(partner_motion()))
 
 # anonymous visitors cannot change it

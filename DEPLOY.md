@@ -59,6 +59,44 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-23 — Partner row speed settings
+
+**No schema change**, but TWO NEW BLOCKS again, so `init-db` must run:
+
+```bash
+flask --app app init-db      # seeds the two speed settings below
+sudo systemctl restart ebwa
+```
+
+| Block | Default | Meaning |
+| --- | --- | --- |
+| `partners_step_glide_ms` | `360` | how long ONE step takes, 300–3000ms |
+| `partners_drift_speed` | `45` | continuous drift, 10–200 pixels a second |
+
+Both are at **Admin → Partners → Speed settings** (a collapsed advanced
+section), both hidden from the ordinary content editor, and both can be
+put back with the **Reset speeds to defaults** button beside them, which
+restores these constants rather than the last saved values.
+
+**Nothing changes on the site until somebody changes a setting**, with
+one caveat worth knowing before you look at it: the step used to hand
+the browser `behavior: 'smooth'` and accept whatever that engine chose,
+which cannot be a setting because it cannot be read or set. It is our
+own glide now. Measured with the same detector on the same page, the
+browser's own took 253ms of visible movement and ours at the 360ms
+default takes 303ms — about 50ms longer on a movement that happens every
+few seconds. Set the glide to 300ms if you want it as close to the old
+behaviour as it can be measured.
+
+Until `init-db` runs, the homepage falls back to the same two constants
+in code, so the row looks exactly as it does now either way.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-22 — Partner row movement setting
 
 **No schema change**, but TWO NEW BLOCKS, so `init-db` must run or the

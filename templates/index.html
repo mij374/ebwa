@@ -165,7 +165,9 @@
         renders as the real partners and nothing else in every browser
         that does not get as far as moving it. -#}
     <div class="partner-row" data-motion="{{ motion.mode }}"
-         data-step-seconds="{{ motion.step_seconds }}">
+         data-step-seconds="{{ motion.step_seconds }}"
+         data-glide-ms="{{ motion.glide_ms }}"
+         data-drift-speed="{{ motion.drift_speed }}">
       {#- The arrows are HERE BY DEFAULT and the script hides them once it
           takes the row over — while it is drifting or stepping, or if
           there turns out to be nowhere to scroll to. The other way round
@@ -274,7 +276,15 @@
     var moves = (partnerMode === 'scroll' || partnerMode === 'step')
       && !stillPlease.matches;
     var DRAG_MIN = 6;        /* below this it was a click, not a drag */
-    var DRIFT_PER_SECOND = 45;
+    /* Both speeds are settings now (admin -> Partners -> Speed
+       settings), and both arrive as data attributes with the values the
+       row has always used. The server validates and clamps them; these
+       fall back only when the attribute is missing or unparseable,
+       which means a page rendered before the settings existed. */
+    var DRIFT_PER_SECOND = parseInt(
+      partnerWrap.getAttribute('data-drift-speed'), 10) || 45;
+    var GLIDE_MS = parseInt(
+      partnerWrap.getAttribute('data-glide-ms'), 10) || 360;
     /* Attempted moves that changed nothing before we stop believing the
        row is moving. A drift attempts one a frame, so 30 is half a
        second; a step attempts one every few seconds, so it gets 2. */
@@ -282,6 +292,7 @@
     var held = false, dragging = false, dragCaught = false, onScreen = true;
     var dragFrom = 0, dragScroll = 0, dragMoved = 0;
     var driftAt = 0, driftFrame = 0, stepTimer = 0, stuck = 0;
+    var glideFrame = 0;      /* a step in progress, or 0 */
 
     function partnerGap() {
       var track = partnerBox.querySelector('.partner-track');
@@ -307,6 +318,7 @@
 
     /* ---- drag to pull the row along */
     partnerBox.addEventListener('pointerdown', function (e) {
+      partnerCancelGlide();
       if (e.pointerType === 'touch' || e.button !== 0) return;
       dragging = true;
       dragCaught = false;
@@ -396,6 +408,43 @@
       }
       partnerBox.scrollLeft = partnerBox.scrollLeft + delta;
     }
+    /* A step glides on OUR clock rather than the browser's.
+       `behavior: 'smooth'` takes however long that engine feels like —
+       measured at ~360ms in Chromium for one 278px stride, unknowable
+       elsewhere, and impossible to offer as a setting. This is the same
+       ~360ms by default, the same on every engine, and the number an
+       admin can change. Ease in and out, which is what the native one
+       does and what stops a step looking mechanical.
+       It moves scrollLeft like everything else here, so the drift, the
+       drag, the arrows and the wrap all still share one offset. */
+    function partnerGlide(delta) {
+      partnerCancelGlide();
+      var from = partnerBox.scrollLeft;
+      var startedAt = 0;
+      glideFrame = window.requestAnimationFrame(function frame(now) {
+        if (!startedAt) startedAt = now;
+        var t = Math.min((now - startedAt) / GLIDE_MS, 1);
+        /* ease-in-out cubic */
+        var eased = t < 0.5 ? 4 * t * t * t
+                            : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        partnerBox.scrollLeft = from + delta * eased;
+        driftAt = partnerBox.scrollLeft;
+        if (t < 1) {
+          glideFrame = window.requestAnimationFrame(frame);
+        } else {
+          glideFrame = 0;
+        }
+      });
+    }
+    /* Anything the VISITOR does to the row wins over a glide in
+       progress — a drag, a wheel, an arrow. Two things moving one
+       offset is the bug this whole row was rebuilt to avoid. */
+    function partnerCancelGlide() {
+      if (glideFrame) {
+        window.cancelAnimationFrame(glideFrame);
+        glideFrame = 0;
+      }
+    }
     /* .is-moving is what reveals the duplicate set, so it has to be true
        rather than merely intended. Every attempt to move reports whether
        the offset actually changed, and a run of attempts that changed
@@ -409,6 +458,7 @@
     }
     function partnerStill() {
       moves = false;
+      partnerCancelGlide();
       if (driftFrame) { window.cancelAnimationFrame(driftFrame); }
       if (stepTimer) { window.clearInterval(stepTimer); }
       driftFrame = 0; stepTimer = 0; stuck = 0;
@@ -419,6 +469,7 @@
 
     /* ---- the arrows, for a row that is standing still */
     function arrowScroll(direction) {
+      partnerCancelGlide();
       partnerScrollBy(direction * (cardStride() || 260),
                       !stillPlease.matches);
     }
@@ -476,19 +527,26 @@
       var every = parseInt(partnerWrap.getAttribute('data-step-seconds'), 10);
       if (!every || every < 1) every = 4;
       stepTimer = window.setInterval(function () {
-        if (held || dragging || !onScreen) return;
+        /* glideFrame: belt and braces against overlapping steps. The
+           form refuses a glide longer than the interval and the server
+           caps it besides, so this should never be true — but a timer
+           and an animation are two clocks, and the cost of them
+           disagreeing is the row moving in two directions at once. */
+        if (held || dragging || !onScreen || glideFrame) return;
         var stride = cardStride();
         if (!stride) return;
         if (partnerBox.scrollLeft + stride >= setStride()) {
           partnerBox.scrollLeft = wrapped(partnerBox.scrollLeft);
         }
         var before = partnerBox.scrollLeft;
-        partnerScrollBy(stride, true);
-        /* A smooth step is still gliding on the next line, so let it
-           land before deciding that nothing happened. */
+        partnerGlide(stride);
+        /* The glide is still running on the next line, so let it land
+           before deciding that nothing happened — its own duration plus
+           a frame or two, rather than a number that has to be kept in
+           step with it by hand. */
         window.setTimeout(function () {
           partnerMoved(partnerBox.scrollLeft !== before, STUCK_STEPS);
-        }, 600);
+        }, GLIDE_MS + 240);
       }, every * 1000);
     }
   }

@@ -68,15 +68,67 @@
       <input type="number" id="step_seconds" name="step_seconds"
              min="{{ step_min }}" max="{{ step_max }}"
              value="{{ motion.step_seconds }}">
-      <small>Only used by “Step every few seconds”.</small>
+      <small>How OFTEN the row moves. Only used by “Step every few
+        seconds”.</small>
     </div>
+
+    {#- The two speeds are shut away behind a details block: they are the
+        settings most likely to make the row worse, and least likely to
+        be what somebody came to this page for. Plain <details>, like the
+        FAQ accordions — the browser brings the keyboard handling and
+        the open/closed state, and it still works with no script. -#}
+    <details class="admin-advanced">
+      <summary>Speed settings</summary>
+      <p class="admin-sub">These change how the partner row looks and
+        feels on the website. The defaults have been tested across screen
+        sizes and devices; only change them if you are sure. You can put
+        them back at any time with <b>Reset to defaults</b> below.</p>
+      <div class="field">
+        <label for="glide_ms">How long one step takes</label>
+        <input type="number" id="glide_ms" name="glide_ms"
+               min="{{ glide_min }}" max="{{ glide_max }}"
+               value="{{ motion.glide_ms }}">
+        <small>Milliseconds the row spends sliding from one partner to
+          the next — the movement itself, not the wait in between.
+          Between {{ glide_min }} and {{ glide_max }}.
+          <b>Default: {{ motion.glide_default }}ms.</b>
+          It cannot be longer than the wait between steps, or the row
+          would start moving again before it had finished.</small>
+      </div>
+      <div class="field">
+        <label for="drift_speed">Continuous drift speed</label>
+        <input type="number" id="drift_speed" name="drift_speed"
+               min="{{ drift_min }}" max="{{ drift_max }}"
+               value="{{ motion.drift_speed }}">
+        <small>Pixels a second, for “Continuous smooth scroll”. The
+          default of {{ motion.drift_default }} moves about one partner
+          card every six seconds. Between {{ drift_min }} and
+          {{ drift_max }}.
+          <b>Default: {{ motion.drift_default }} pixels a second.</b>
+          A speed rather than a lap time on purpose: a lap gets longer
+          every time you add a partner, so the same lap time would mean
+          a different speed on every site.</small>
+      </div>
+    </details>
+
     <p class="admin-sub">Visitors whose device has reduced motion turned
       on will always see a still row with arrow buttons, whichever option
       is chosen here — that setting is theirs to make, and this page does
-      not override it.</p>
+      not override it. Neither speed above applies to them.</p>
     <div class="form-actions">
       <button class="btn btn-green" type="submit">Save movement</button>
     </div>
+  </form>
+  {#- Its own form, so it cannot be swept along by the Save above, and a
+      confirm() like every other destructive-ish action here. -#}
+  <form method="post" style="margin-top:14px"
+        action="{{ url_for('admin_partner_motion_reset') }}"
+        onsubmit="return confirm('Put both speed settings back to the values the site shipped with?');">
+    <button class="btn btn-ghost" type="submit">Reset speeds to defaults</button>
+    <small class="admin-sub" style="display:block;margin-top:8px">Puts
+      the two speeds back to {{ motion.glide_default }}ms and
+      {{ motion.drift_default }} pixels a second. It does not change
+      which movement is chosen or how often the row steps.</small>
   </form>
 </div>
 {% endblock %}

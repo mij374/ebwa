@@ -379,6 +379,41 @@ PARTNER_MOTION_KEY = "partners_motion"
 PARTNER_STEP_KEY = "partners_step_seconds"
 PARTNER_STEP_DEFAULT = 4
 PARTNER_STEP_MIN, PARTNER_STEP_MAX = 1, 60
+# ---- the two SPEED settings, which are a different question from the
+# two above: those say what the row does, these say how fast it does it.
+# Both ship with the value the row already had, so a deploy changes
+# nothing until somebody deliberately changes it, and both can be put
+# back with one button (admin_partner_motion_reset).
+#
+# How long ONE step takes, against how often a step happens. 360ms is
+# not a taste: it is what Chromium's own smooth scroll took for a
+# 278px stride, measured at 1440, 1024, 390 and 360 (344-374ms). The
+# step used to hand the browser `behavior: 'smooth'` and get whatever
+# that engine felt like — which is unknowable, differs between engines
+# and cannot be a setting — so it is our own glide now, at the duration
+# the browser was already using.
+PARTNER_GLIDE_KEY = "partners_step_glide_ms"
+PARTNER_GLIDE_DEFAULT = 360
+PARTNER_GLIDE_MIN, PARTNER_GLIDE_MAX = 300, 3000
+# The continuous drift, in PIXELS A SECOND — the unit the row is
+# actually driven in, and the only one that means the same thing on
+# every site. A duration would have to be a duration of something, and
+# the only candidate is one lap of the row, which changes with the
+# number of partners: the same "8 seconds" would be a gentle drift with
+# five partners and a blur with twenty. Pixels a second is the same
+# speed whatever is in the row, so the admin page translates it instead
+# ("about one partner card every six seconds").
+PARTNER_DRIFT_KEY = "partners_drift_speed"
+PARTNER_DRIFT_DEFAULT = 45
+PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX = 10, 200
+# One place naming both, for the settings page, the reset and the audit
+# entry: (key, default, min, max, label).
+PARTNER_SPEEDS = (
+    (PARTNER_GLIDE_KEY, PARTNER_GLIDE_DEFAULT,
+     PARTNER_GLIDE_MIN, PARTNER_GLIDE_MAX, "step glide"),
+    (PARTNER_DRIFT_KEY, PARTNER_DRIFT_DEFAULT,
+     PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX, "drift speed"),
+)
 
 
 class Partner(db.Model):
@@ -915,12 +950,34 @@ def partner_motion():
     mode = (rows.get(PARTNER_MOTION_KEY) or "").strip()
     if mode not in [m for m, _label, _help in PARTNER_MOTIONS]:
         mode = "scroll"
-    try:
-        seconds = int((rows.get(PARTNER_STEP_KEY) or "").strip())
-    except ValueError:
-        seconds = PARTNER_STEP_DEFAULT
-    seconds = max(PARTNER_STEP_MIN, min(PARTNER_STEP_MAX, seconds))
-    return {"mode": mode, "step_seconds": seconds}
+    def _number(key, default, low, high):
+        """A stored number, clamped, or the default if it is nonsense.
+
+        The homepage must never be broken by a settings row, so every
+        one of these falls back rather than raising — the same rule the
+        mode above follows.
+        """
+        try:
+            value = int((rows.get(key) or "").strip())
+        except ValueError:
+            return default
+        return max(low, min(high, value))
+
+    seconds = _number(PARTNER_STEP_KEY, PARTNER_STEP_DEFAULT,
+                      PARTNER_STEP_MIN, PARTNER_STEP_MAX)
+    glide = _number(PARTNER_GLIDE_KEY, PARTNER_GLIDE_DEFAULT,
+                    PARTNER_GLIDE_MIN, PARTNER_GLIDE_MAX)
+    drift = _number(PARTNER_DRIFT_KEY, PARTNER_DRIFT_DEFAULT,
+                    PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX)
+    # A glide longer than the gap between steps would have the row
+    # starting its next move before it finished the last one. The form
+    # refuses that combination, but a database can hold anything — an
+    # older row, a hand edit — so the page that renders it caps it too.
+    glide = min(glide, seconds * 1000)
+    return {"mode": mode, "step_seconds": seconds,
+            "glide_ms": glide, "drift_speed": drift,
+            "glide_default": PARTNER_GLIDE_DEFAULT,
+            "drift_default": PARTNER_DRIFT_DEFAULT}
 
 
 # ------------------------------------------------------- rich content
@@ -943,7 +1000,8 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
                      "sftp_enabled", "sftp_host", "sftp_port", "sftp_user",
                      "sftp_password_enc", "sftp_remote_path",
                      "sftp_schedule", "sftp_keep",
-                     PARTNER_MOTION_KEY, PARTNER_STEP_KEY)
+                     PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
+                     PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY)
 
 
 class LegacyLeadImage:
@@ -4602,7 +4660,11 @@ def admin_partners():
     return render_template("admin/partners.html", rows=rows,
                            motions=PARTNER_MOTIONS, motion=partner_motion(),
                            step_min=PARTNER_STEP_MIN,
-                           step_max=PARTNER_STEP_MAX)
+                           step_max=PARTNER_STEP_MAX,
+                           glide_min=PARTNER_GLIDE_MIN,
+                           glide_max=PARTNER_GLIDE_MAX,
+                           drift_min=PARTNER_DRIFT_MIN,
+                           drift_max=PARTNER_DRIFT_MAX)
 
 
 @app.route("/admin/partners/motion", methods=["POST"])
@@ -4624,10 +4686,52 @@ def admin_partner_motion():
         flash("The step interval must be between %d and %d seconds."
               % (PARTNER_STEP_MIN, PARTNER_STEP_MAX), "error")
         return redirect(url_for("admin_partners"))
+    # The two speeds live behind a collapsed section of the same form.
+    # A field that is absent or left empty KEEPS WHAT IS STORED, the way
+    # an empty password box on Settings does: posting the form without
+    # having opened the advanced section must not quietly reset a speed
+    # somebody chose. Anything actually typed is validated.
+    current = partner_motion()
+    speeds, problem = {}, None
+    for field, key, now, low, high, label in (
+            ("glide_ms", PARTNER_GLIDE_KEY, current["glide_ms"],
+             PARTNER_GLIDE_MIN, PARTNER_GLIDE_MAX,
+             "How long one step takes"),
+            ("drift_speed", PARTNER_DRIFT_KEY, current["drift_speed"],
+             PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX, "The drift speed")):
+        raw = (request.form.get(field) or "").strip()
+        if not raw:
+            speeds[key] = now
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            problem = "%s must be a whole number." % label
+            break
+        if not low <= value <= high:
+            problem = ("%s must be between %d and %d." % (label, low, high))
+            break
+        speeds[key] = value
+    if problem:
+        flash(problem, "error")
+        return redirect(url_for("admin_partners"))
+    glide, drift = speeds[PARTNER_GLIDE_KEY], speeds[PARTNER_DRIFT_KEY]
+    # A step that takes longer than the wait between steps would start
+    # its next move before finishing the last. Refused here rather than
+    # papered over in the script, so the admin is told which two numbers
+    # disagree instead of watching the row misbehave.
+    if glide > seconds * 1000:
+        flash("A step cannot take longer than the wait between steps: "
+              "%dms of movement every %d second%s. Either slow the "
+              "interval down or shorten the step."
+              % (glide, seconds, "" if seconds == 1 else "s"), "error")
+        return redirect(url_for("admin_partners"))
 
     changed = []
     for key, value in ((PARTNER_MOTION_KEY, mode),
-                       (PARTNER_STEP_KEY, str(seconds))):
+                       (PARTNER_STEP_KEY, str(seconds)),
+                       (PARTNER_GLIDE_KEY, str(glide)),
+                       (PARTNER_DRIFT_KEY, str(drift))):
         block = Block.query.filter_by(key=key).first()
         if block is None:      # a database predating these settings
             block = Block(group="partners", key=key, label=key, kind="text")
@@ -4638,10 +4742,50 @@ def admin_partner_motion():
     db.session.commit()
     if changed:
         log_action("edit", entity=("Block", None),
-                   summary="Changed how the partner row moves: %s."
-                           % dict((m, label) for m, label, _h
-                                  in PARTNER_MOTIONS)[mode].lower())
+                   summary="Changed how the partner row moves: %s, a step "
+                           "every %d second%s taking %dms, drifting at "
+                           "%d pixels a second."
+                           % (dict((m, label) for m, label, _h
+                                   in PARTNER_MOTIONS)[mode].lower(),
+                              seconds, "" if seconds == 1 else "s",
+                              glide, drift))
     flash("Partner row movement saved.", "ok")
+    return redirect(url_for("admin_partners"))
+
+
+@app.route("/admin/partners/motion/reset", methods=["POST"])
+@login_required
+def admin_partner_motion_reset():
+    """Put both speeds back to the values the app ships with.
+
+    To the CONSTANTS, never to whatever was saved last: the point of the
+    button is that it returns the row to a known-good state however far
+    somebody has wandered, and a "restore what was there before" button
+    would only take them back to their previous experiment. It leaves
+    the mode and the interval alone — those are what the row DOES, and
+    somebody resetting a speed has not asked to stop the row moving.
+    """
+    changed = []
+    for key, default, _low, _high, _label in PARTNER_SPEEDS:
+        block = Block.query.filter_by(key=key).first()
+        if block is None:          # a database predating these settings
+            block = Block(group="partners", key=key, label=key, kind="text")
+            db.session.add(block)
+        if (block.value or "") != str(default):
+            changed.append(key)
+        block.value = str(default)
+    db.session.commit()
+    # Logged either way. "Somebody pressed reset and nothing moved" is
+    # still somebody pressing reset, and the audit log is where you look
+    # to find out why the row changed at four o'clock.
+    log_action("edit", entity=("Block", None),
+               summary="Reset the partner row speeds to the defaults: a "
+                       "step takes %dms, the drift runs at %d pixels a "
+                       "second.%s"
+                       % (PARTNER_GLIDE_DEFAULT, PARTNER_DRIFT_DEFAULT,
+                          "" if changed else " They were already both set "
+                          "to those values."))
+    flash("Partner row speeds put back to the defaults.", "ok")
     return redirect(url_for("admin_partners"))
 
 
@@ -6011,6 +6155,10 @@ DEFAULT_BLOCKS = [
      "scroll"),
     ("partners", PARTNER_STEP_KEY, "Seconds between steps", "text",
      str(PARTNER_STEP_DEFAULT)),
+    ("partners", PARTNER_GLIDE_KEY, "How long one step takes (ms)", "text",
+     str(PARTNER_GLIDE_DEFAULT)),
+    ("partners", PARTNER_DRIFT_KEY, "Drift speed (pixels a second)", "text",
+     str(PARTNER_DRIFT_DEFAULT)),
     ("about", "about_title", "Page title", "text", "About EBWA"),
     ("about", "about_body", "Main text", "text",
      "Founded by Choudhury Mohammed Anwar MBE, former Mayor of Enfield, EBWA provides "

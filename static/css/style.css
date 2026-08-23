@@ -811,6 +811,32 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 }
 .field-check label{display:flex;align-items:center;gap:10px;font-weight:600}
 .form-actions{display:flex;gap:12px;margin-top:8px}
+/* An advanced corner of a settings form: shut by default, and visibly a
+   box rather than more of the form, so nobody wanders into it by
+   accident. Plain <details>, so the browser brings the keyboard
+   handling and it still opens with no script. */
+.admin-advanced{
+  border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px;margin-bottom:20px;background:var(--paper);
+}
+.admin-advanced > summary{
+  cursor:pointer;font-weight:700;font-size:14px;color:var(--ink);
+  list-style:none;
+}
+.admin-advanced > summary::-webkit-details-marker{display:none}
+/* "+" and an en dash, the same pair the FAQ accordions use, rather
+   than a triangle from the geometric-shapes block: the display font
+   has no glyph for one and it rendered as an empty box. */
+.admin-advanced > summary::before{
+  content:"+";color:var(--green);font-size:19px;line-height:1;
+  margin-right:9px;
+}
+.admin-advanced[open] > summary::before{content:"–"}
+.admin-advanced > summary:focus-visible{
+  outline:3px solid var(--green);outline-offset:3px;border-radius:4px;
+}
+.admin-advanced[open] > summary{margin-bottom:12px}
+.admin-advanced .field:last-of-type{margin-bottom:0}
 
 .tab-row{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
 .tab{

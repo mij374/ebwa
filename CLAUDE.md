@@ -1183,6 +1183,41 @@ Built (post-signing variation, Jul 2026):
       Partners and both in `HIDDEN_BLOCK_KEYS`. The mode reaches the
       page as `data-motion` on `.partner-row`, never as Jinja inside the
       script.
+    - HOW FAST it moves is two more Blocks, `PARTNER_SPEEDS`:
+      `partners_step_glide_ms` (how long ONE step takes) and
+      `partners_drift_speed` (the continuous drift, in PIXELS A SECOND).
+      Same rules — validated in the route, clamped again in
+      `partner_motion()`, hidden from the content editor, and reaching
+      the page as data attributes.
+      - They live behind a collapsed `<details class="admin-advanced">`
+        with a plain warning, because they are the settings most likely
+        to make the row worse and least likely to be what somebody came
+        for. Each field shows the default it is departing from, and the
+        **Reset speeds to defaults** button beside them restores the
+        CONSTANTS — never the last saved values, or it would only take
+        somebody back to their previous experiment. The reset is
+        audit-logged even when it changes nothing.
+      - Pixels a second, not a lap time: a lap gets longer with every
+        partner added, so the same lap time would be a different speed
+        on every site. The admin page translates it instead ("about one
+        partner card every six seconds").
+      - **A step glides on our own clock** (`partnerGlide`), not on
+        `behavior: 'smooth'`. The browser's own takes however long that
+        engine likes — 253ms of visible movement in Chromium, measured;
+        unknowable elsewhere — which cannot be offered as a setting. The
+        360ms default is that measurement rounded to what the same probe
+        read end to end; it measures 303ms by the same detector, so a
+        step is imperceptibly slower than it was and identical across
+        engines. 300ms is the closest to the old behaviour if that ever
+        matters more.
+      - A glide longer than the interval would start the next move
+        before finishing the last: refused by the form, capped again in
+        `partner_motion()` for a hand-edited row, and guarded a third
+        time in the script (`glideFrame`), because a timer and an
+        animation are two clocks and the cost of them disagreeing is the
+        row moving two ways at once.
+      - Anything the VISITOR does — a drag, an arrow — cancels a glide
+        in progress (`partnerCancelGlide`). One offset, one mover.
     - **The card width and the gap are load-bearing for the step
       wrap**, not just a look. Stepping wraps back by a set only once
       `scrollLeft` has gone PAST one, and it gets there one stride — a
