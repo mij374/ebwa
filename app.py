@@ -460,6 +460,17 @@ MOTION_ROWS = {
 # scroller. Quote cards are far wider than logo tiles, so three fill a
 # row where it takes five logos.
 ROW_SCROLLER_MIN = {"partners": 5, "testimonials": 4}
+# How many quotes the homepage shows. It was six, from when the section
+# was a grid of three by two and a seventh would have started a lonely
+# third row. The row scrolls now, so that constraint is gone and this is
+# simply how far a visitor can scroll before it repeats.
+#
+# IT IS ALSO THE ONLY PLACE TESTIMONIALS APPEAR: there is no public page
+# listing them all, so a quote past this number is published and
+# invisible. Twelve rather than "all of them" because the homepage is
+# still a homepage — but if EBWA ever collects more than a dozen, the
+# answer is a page of their own rather than a bigger number here.
+HOME_TESTIMONIALS = 12
 
 
 class Partner(db.Model):
@@ -2969,7 +2980,7 @@ def home():
                     .order_by(Testimonial.sort,
                               Testimonial.created_at.desc(),
                               Testimonial.id.desc())
-                    .limit(6).all())
+                    .limit(HOME_TESTIMONIALS).all())
     partners = (Partner.query
                 .order_by(Partner.sort, Partner.name, Partner.id).all())
     services = (Service.query.filter_by(published=True)

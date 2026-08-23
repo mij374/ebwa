@@ -632,10 +632,16 @@ Built and maintained by Netbus IT Support.
     there is nothing inside it to Tab to. A focusable scroll container
     is scrolled by the arrow keys natively, and focusing it pauses the
     motion like any other focus in the row.
-  - The homepage still shows at most SIX quotes, from when the section
-    was a grid of three by two. The cap is unchanged by the row becoming
-    a scroller — raising it is a decision about the page, not a
-    consequence of the change.
+  - The homepage shows at most `HOME_TESTIMONIALS` (12) quotes. It was
+    six, sized for a grid three across and two down; the row scrolls
+    now, so that constraint went with the grid.
+  - **THERE IS NO PUBLIC PAGE LISTING TESTIMONIALS.** The homepage is
+    the only place they appear, so that cap is the difference between
+    published and visible — a quote past it is neither on a page nor
+    404ing, just absent. If EBWA ever collects more than a dozen, the
+    answer is a page of their own (the resources pattern), not a bigger
+    number: `tests/smoke_test_navigation.py` would then require it to be
+    reachable from the nav or the footer like every other public page.
 - Every public page must be reachable from the nav or the footer.
   `tests/smoke_test_navigation.py` walks the URL map and fails otherwise;
   a page reached from inside a section (`/gallery/all`) is listed there

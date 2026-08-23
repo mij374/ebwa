@@ -28,7 +28,8 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 from app import (app, db, AuditLog, Block, DEFAULT_BLOCKS,  # noqa: E402
                  FEATURES, FeatureFlag, MOTION_ROWS,
                  PARTNER_DRIFT_DEFAULT, PARTNER_GLIDE_DEFAULT,
-                 ROW_SCROLLER_MIN, Testimonial, User, row_motion)
+                 HOME_TESTIMONIALS, ROW_SCROLLER_MIN, Testimonial,
+                 User, row_motion)
 
 app.config["TESTING"] = True
 PW = "testimonials-test-password"
@@ -181,21 +182,27 @@ check("it carries arrows, labelled for this row",
 check("and they are NOT hidden, so a browser that never runs the script "
       "has something to push", "hidden>" not in html)
 
-# EIGHT, which is more than the homepage shows: the section has always
-# been capped at six, from when it was a grid of three by two. The cap
-# is unchanged here — it is what the site does today and raising it is a
-# decision about the page, not a consequence of the row scrolling — so
-# eight quotes render as six plus their six copies.
-HOME_CAP = 6
+# The homepage cap, raised from six to twelve now the row scrolls: six
+# was the size of a grid three across and two down, and there is no
+# grid any more. It still matters, because the homepage is the ONLY
+# place testimonials appear — a quote past the cap is published and
+# invisible — so the number is asserted rather than assumed.
 count(8)
 html = home()
-check("eight testimonials: still one scroller, and the homepage cap "
-      "still holds at %d" % HOME_CAP,
+check("eight testimonials: all eight shown, plus their copies",
       html.count('class="marquee-set"') == 2
-      and html.count('class="quote-card"') == HOME_CAP * 2,
+      and html.count('class="quote-card"') == 16,
       str(html.count('class="quote-card"')))
-check("the admin list shows all eight, cap or no cap",
-      client.get("/admin/testimonials").data.count(b"/edit") == 8,
+count(HOME_TESTIMONIALS + 3)
+html = home()
+check("more than the cap: the homepage stops at %d" % HOME_TESTIMONIALS,
+      html.count('class="quote-card"') == HOME_TESTIMONIALS * 2,
+      str(html.count('class="quote-card"')))
+check("and the ones past it are absent, not hidden",
+      ">Person %d<" % (HOME_TESTIMONIALS + 2) not in html)
+check("the admin list shows every one of them, cap or no cap",
+      client.get("/admin/testimonials").data.count(b"/edit")
+      == HOME_TESTIMONIALS + 3,
       str(client.get("/admin/testimonials").data.count(b"/edit")))
 
 # =====================================================================
