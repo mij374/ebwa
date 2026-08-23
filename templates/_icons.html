@@ -5,8 +5,14 @@
 
    The icons are the simplified lily mark (ebwa-mark.png), not the full
    badge (ebwa-logo.png): the badge's lettering and Bengali script turn
-   to mush below about 64px. See CLAUDE.md if they ever need regenerating. #}
-<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32x32.png') }}">
-<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16x16.png') }}">
-<link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
+   to mush below about 64px. See CLAUDE.md if they ever need regenerating.
+
+   Every href here carries asset_version(), as the stylesheet does in
+   each of the four templates that include this one: nginx serves
+   /static/ with `expires 30d`, so a URL that does not change when the
+   file does is a month of the old file. A tab icon is the least of
+   those, but they are regenerated as a set and it costs one argument. #}
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32x32.png', v=asset_version('img/favicon-32x32.png')) }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16x16.png', v=asset_version('img/favicon-16x16.png')) }}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/apple-touch-icon.png', v=asset_version('img/apple-touch-icon.png')) }}">
 <meta name="theme-color" content="#00563F">

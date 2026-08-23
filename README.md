@@ -701,6 +701,11 @@ server {
 
     location /static/ {
         alias /opt/ebwa/static/;
+        # Safe to cache hard: the app appends a content hash to the
+        # stylesheet and icon URLs (asset_version() in app.py), so a
+        # deploy that changes a file changes its URL, and one that does
+        # not leaves the visitor's copy alone. Do not shorten this
+        # thinking it fixes a stale asset — check the ?v= instead.
         expires 30d;
     }
     location / {

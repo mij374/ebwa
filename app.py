@@ -12,6 +12,7 @@ After every deploy, before restarting (see DEPLOY.md):
     flask --app app check-schema
 """
 import base64
+import hashlib
 import hmac
 import io
 import json
@@ -802,6 +803,56 @@ def delete_upload(filename):
         path = os.path.join(UPLOAD_DIR, secure_filename(name))
         if os.path.isfile(path):
             os.remove(path)
+
+
+# ---- cache busting for the site's own static files
+# nginx serves /static/ with `expires 30d`, which is right for a file
+# whose URL changes when the file does and wrong for one that does not:
+# without a version in the URL, a returning visitor keeps last month's
+# stylesheet for up to a month after a deploy. That does not look like a
+# caching problem to anybody — it looks like the deploy broke the site,
+# on their phone only, while it is plainly fine on yours. Hence a token
+# in the query string, and hence `expires 30d` stays exactly as it is.
+_asset_cache = {}              # filename -> ((mtime, size), token)
+
+
+@app.template_global("asset_version")
+def asset_version(filename):
+    """A short token for a static file, or None if it is not there.
+
+    CONTENT, not the clock: the first eight hex of the file's sha256,
+    cached per worker on (mtime, size) exactly like `aspect_ratio_of`,
+    so it is one read per file per change and a stat thereafter.
+
+    Content rather than mtime because the token has to hold STILL
+    between deploys for the caching to be worth anything, and an mtime
+    does not: a fresh clone, a rebuilt server, an rsync without -t or a
+    stray `touch` all restamp a file whose bytes never moved, and every
+    visitor re-downloads the lot for nothing. Two identical files have
+    one token whatever the filesystem thinks.
+
+    None when the file is missing — Werkzeug drops a None query value,
+    so a typo costs the cache busting on that one URL and nothing else.
+    A template must never 500 over a version string.
+    """
+    if not filename:
+        return None
+    path = os.path.join(app.static_folder, *filename.split("/"))
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    key = (stat.st_mtime, stat.st_size)
+    cached = _asset_cache.get(filename)
+    if cached and cached[0] == key:
+        return cached[1]
+    try:
+        with open(path, "rb") as fh:
+            token = hashlib.sha256(fh.read()).hexdigest()[:8]
+    except OSError:
+        return None
+    _asset_cache[filename] = (key, token)
+    return token
 
 
 @app.template_global("upload_url")

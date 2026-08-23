@@ -563,6 +563,36 @@ Built and maintained by Netbus IT Support.
     iOS ignores transparency). Regenerate by trimming the mark to its
     alpha bounding box and scaling with LANCZOS; the 16px one gets its
     edge opacity lifted (alpha gamma ~0.7) or the thin strokes wash out.
+- **Every reference to one of the site's own static files carries a
+  version**: `url_for('static', filename='css/style.css',
+  v=asset_version('css/style.css'))`. nginx serves `/static/` with
+  `expires 30d`, which is correct ONLY because the URL changes when the
+  file does — so keep the 30 days, and never add a static reference
+  without the argument.
+  - The failure it prevents does not look like a caching problem to
+    anybody. A returning visitor's phone holds last month's stylesheet
+    for up to a month after a deploy, so the site is broken on their
+    device and plainly fine on yours, and the deploy gets blamed. The
+    same goes for a client ringing up about the admin looking wrong.
+  - `asset_version()` (a `@app.template_global`, beside `thumb_url` /
+    `upload_url`) is the first eight hex of the file's sha256, cached
+    per worker on `(mtime, size)` exactly like `aspect_ratio_of()`.
+    CONTENT and not the mtime, because the token must also HOLD STILL
+    between deploys or the 30 days buy nothing: a fresh clone, a rebuilt
+    server, an rsync without `-t` or a stray `touch` all restamp files
+    whose bytes never moved.
+  - A missing file returns None, and Werkzeug drops a None query value —
+    so a typo costs the cache busting on that one URL and never a 500.
+  - Applies to the stylesheet in all four templates that own a `<head>`
+    and to the three icons in `_icons.html`. Body images (the brand
+    mark, the footer logo) and the `og:image` are deliberately left
+    plain: they change about never, and a moving og:image URL churns the
+    social scrapers' caches for nothing.
+  - `tests/smoke_test_asset_version.py` holds both halves — the token
+    changes when the file changes, and comes back to exactly its old
+    value when the content does even with a fresh mtime — plus a source
+    scan asserting every `</head>` template versions its stylesheet, so
+    the next template to be added cannot quietly miss it.
 - Header: the nav must never wrap to a second line. It sheds things in
   order as the viewport narrows — brand strapline at 980px, whole nav to
   the menu button at 899px. Header height is `--header-h`; the open
@@ -1135,6 +1165,8 @@ Built (post-signing variation, Jul 2026):
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
+`smoke_test_asset_version.py` is the one that is not a module: it holds
+the static-asset cache busting described in the conventions above.
 Phase 1 is code-complete but NOT yet deployed: deploy needs init-db
 (new tables), pip install (stripe), Stripe env vars + webhook
 registration (see README).
