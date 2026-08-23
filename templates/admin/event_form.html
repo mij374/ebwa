@@ -20,6 +20,12 @@
       <label for="start_time">Start time</label>
       <input type="text" id="start_time" name="start_time"
              value="{{ ev.start_time if ev else '' }}" placeholder="e.g. 6:30 PM">
+      {#- Guidance, not a rule: the box stays free text, so "Evening" or
+          "After Jummah" are still perfectly good answers. It is here
+          because a bare "7" is read as seven in the MORNING when a day's
+          events are put in order, which would file an evening event at
+          the top of the day. -#}
+      <small>Please include am or pm — for example 6:30 PM.</small>
     </div>
   </div>
 
