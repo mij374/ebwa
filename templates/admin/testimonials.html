@@ -10,6 +10,26 @@
   <a class="btn btn-green" href="{{ url_for('admin_testimonial_form') }}">Add a testimonial</a>
 </div>
 
+{#- Only when it is actually true: a notice that is always on the page
+    is furniture, and this one is asking somebody to do something. The
+    same .admin-attention box the dashboard uses for the same job. -#}
+{% if published_count > home_cap %}
+<section class="admin-attention">
+  <h2 class="admin-stats-head">Needs attention</h2>
+  <p>You have {{ published_count }} published testimonials; the homepage
+    shows the first {{ home_cap }}. <b>The other
+    {{ published_count - home_cap }} {{ 'is' if published_count - home_cap == 1 else 'are' }}
+    published but not visible anywhere</b> — there is no page listing all
+    the testimonials, so the homepage row is the only place they appear.</p>
+  <p style="margin-top:10px">Which {{ home_cap }} appear is decided by the
+    <b>sort order</b> on each testimonial: lowest number first, and a
+    negative number pins one to the front of the row. To bring a quote
+    onto the homepage, edit it and give it a lower sort number than the
+    ones already showing. Quotes with the same number fall back to the
+    most recently added first.</p>
+</section>
+{% endif %}
+
 {% if rows %}
 <table class="admin-table">
   <thead><tr><th>Name</th><th>Quote</th><th>Status</th><th></th></tr></thead>

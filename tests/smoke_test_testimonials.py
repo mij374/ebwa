@@ -205,6 +205,73 @@ check("the admin list shows every one of them, cap or no cap",
       == HOME_TESTIMONIALS + 3,
       str(client.get("/admin/testimonials").data.count(b"/edit")))
 
+
+# =====================================================================
+# The notice about quotes past the cap. Silent invisibility is the whole
+# problem: an admin sees a testimonial saved, listed and marked
+# Published, and never sees it on the site. So the threshold is asserted
+# in BOTH directions — the notice must not be page furniture either.
+# =====================================================================
+def admin_list():
+    return client.get("/admin/testimonials").data.decode("utf-8")
+
+
+def flat(html):
+    """Whitespace collapsed: the notice wraps across several source
+    lines, and a contiguous-string search would be testing the
+    indentation rather than the words."""
+    return " ".join(html.split())
+
+
+NOTICE = "published but not visible anywhere"
+
+count(HOME_TESTIMONIALS - 1)
+check("under the cap: no notice", NOTICE not in admin_list())
+count(HOME_TESTIMONIALS)
+check("exactly at the cap: still no notice, nothing is being hidden",
+      NOTICE not in admin_list())
+
+count(HOME_TESTIMONIALS + 1)
+page = admin_list()
+check("ONE PAST THE CAP: the notice appears", NOTICE in page)
+check("and names both real numbers",
+      "You have %d published testimonials" % (HOME_TESTIMONIALS + 1)
+      in flat(page)
+      and "the homepage shows the first %d" % HOME_TESTIMONIALS
+      in flat(page),
+      flat(page)[flat(page).find("You have"):][:120])
+check("with the one hidden quote counted, and read as singular",
+      "The other 1 is" in flat(page),
+      page[page.find("The other"):][:80])
+
+count(HOME_TESTIMONIALS + 3)
+page = admin_list()
+check("three past the cap: the count follows, and reads as plural",
+      "You have %d published testimonials" % (HOME_TESTIMONIALS + 3)
+      in flat(page)
+      and "The other 3 are" in flat(page),
+      page[page.find("The other"):][:80])
+check("it says WHY they are invisible, not just that they are",
+      "no page listing all" in flat(page))
+check("and how to promote one, which is the sort field",
+      "sort order" in flat(page) and "lower sort number" in flat(page))
+check("it uses the same notice box as the dashboard",
+      'class="admin-attention"' in page)
+
+# HIDDEN testimonials do not count towards the cap, because they are not
+# on the homepage in the first place — a page full of hidden quotes must
+# not raise a notice about quotes that are not published.
+with app.app_context():
+    for t in Testimonial.query.order_by(Testimonial.id).limit(4).all():
+        t.published = False
+    db.session.commit()
+check("hiding enough of them takes the notice away again",
+      NOTICE not in admin_list())
+with app.app_context():
+    published = Testimonial.query.filter_by(published=True).count()
+    check("(and that really did leave fewer published than the cap)",
+          published <= HOME_TESTIMONIALS, str(published))
+
 # =====================================================================
 # Movement settings — the partners' again, but separate
 # =====================================================================

@@ -4776,7 +4776,14 @@ def admin_testimonials():
     rows = Testimonial.query.order_by(Testimonial.sort,
                                       Testimonial.created_at.desc(),
                                       Testimonial.id.desc()).all()
+    # The homepage is the only place testimonials appear, so anything
+    # past its cap is published and visible nowhere. Counted from the
+    # rows already loaded rather than with a second query — this page
+    # has them all in hand.
+    published = sum(1 for t in rows if t.published)
     return render_template("admin/testimonials.html", rows=rows,
+                           published_count=published,
+                           home_cap=HOME_TESTIMONIALS,
                            motions=ROW_MOTIONS,
                            motion=row_motion("testimonials"),
                            scroller_min=ROW_SCROLLER_MIN["testimonials"],

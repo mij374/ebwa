@@ -704,6 +704,10 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   background:var(--white);border:1px solid var(--line);border-left:4px solid var(--red);
   border-radius:var(--radius);padding:22px 24px;margin-bottom:30px;
 }
+/* The box is also used for a sentence or two rather than a list — the
+   testimonials page uses it that way — so its prose needs the same size
+   as an .attention-item. */
+.admin-attention p{font-size:15px}
 .attention-list{list-style:none;display:grid;gap:12px}
 .attention-item{
   display:flex;justify-content:space-between;align-items:baseline;gap:14px;
