@@ -59,6 +59,45 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-23 — Testimonials: editing, scroller, settings
+
+**No schema change**, but FOUR NEW BLOCKS, so `init-db` must run:
+
+```bash
+flask --app app init-db      # seeds the testimonial row's four settings
+sudo systemctl restart ebwa
+```
+
+| Block | Default | Meaning |
+| --- | --- | --- |
+| `testimonials_motion` | `none` | `scroll`, `step` or `none` |
+| `testimonials_step_seconds` | `4` | seconds between steps, 1–60 |
+| `testimonials_step_glide_ms` | `360` | how long one step takes, 300–3000ms |
+| `testimonials_drift_speed` | `45` | drift, 10–200 pixels a second |
+
+All four are at **Admin → Testimonials → How the row moves**, and are
+SEPARATE from the partner row's — see the commit message for why.
+
+**What changes on the site without anybody touching a setting:** with
+four or more published testimonials the homepage section becomes a
+horizontal scroller instead of a wrapping grid. It ships STILL, with
+arrow buttons, so nothing animates on its own. Three or fewer are
+unchanged. The homepage still shows at most six quotes, as it always
+has.
+
+Admin URLs moved: adding a testimonial is now `/admin/testimonials/new`
+rather than a form on the list page, and `/admin/testimonials/<id>/edit`
+is new. Nothing links to the old form.
+
+Until `init-db` runs, `row_motion()` falls back to the same constants in
+code, so the row renders correctly either way.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-23 — Partner row speed settings
 
 **No schema change**, but TWO NEW BLOCKS again, so `init-db` must run:

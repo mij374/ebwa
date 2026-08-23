@@ -363,18 +363,21 @@ PARTNER_MODES = ("text", "image", "both")
 # of any one organisation. Every mode falls back to no movement under
 # prefers-reduced-motion; that is not a fourth setting and must not
 # become one.
-PARTNER_MOTIONS = (
+# How a scrolling row moves. Shared by the partner row and the
+# testimonial row, which use one marquee between them.
+ROW_MOTIONS = (
     ("scroll", "Continuous smooth scroll",
      "The row glides from right to left and loops. Pauses when the "
      "pointer is over it, when something in it has keyboard focus, and "
      "while it is being dragged."),
     ("step", "Step every few seconds",
-     "The row advances one partner at a time, right to left, and waits "
+     "The row advances one card at a time, right to left, and waits "
      "in between."),
     ("none", "No movement",
      "A still row that can be scrolled or dragged. The scrollbar stays "
      "visible in this mode, because nothing else says there is more."),
 )
+PARTNER_MOTIONS = ROW_MOTIONS          # the name the partner page uses
 PARTNER_MOTION_KEY = "partners_motion"
 PARTNER_STEP_KEY = "partners_step_seconds"
 PARTNER_STEP_DEFAULT = 4
@@ -414,6 +417,49 @@ PARTNER_SPEEDS = (
     (PARTNER_DRIFT_KEY, PARTNER_DRIFT_DEFAULT,
      PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX, "drift speed"),
 )
+
+# ---- the two rows that use the marquee, and their settings
+# SEPARATE settings rather than one shared set, on the grounds that the
+# two rows are read differently: partner logos are glanced at, and
+# testimonials are somebody's WORDS, which a visitor has to read. Moving
+# text is harder to read than a moving logo, so one setting would force
+# a compromise on whichever row lost. The bounds and the speed defaults
+# are the same for both, so nothing has to be decided twice — only the
+# DEFAULT MODE differs, and only because of the same reasoning:
+# testimonials start still.
+#
+# Everything below is keyed by row name. Adding a third row means adding
+# an entry here, a settings form, and the two thin routes at the bottom
+# of the admin section — not another copy of any of this.
+MOTION_ROWS = {
+    "partners": {
+        "label": "partner",            # for flashes and audit entries
+        "mode_key": PARTNER_MOTION_KEY,
+        "step_key": PARTNER_STEP_KEY,
+        "glide_key": PARTNER_GLIDE_KEY,
+        "drift_key": PARTNER_DRIFT_KEY,
+        "default_mode": "scroll",
+        "back_to": "admin_partners",
+    },
+    "testimonials": {
+        "label": "testimonial",
+        "mode_key": "testimonials_motion",
+        "step_key": "testimonials_step_seconds",
+        "glide_key": "testimonials_step_glide_ms",
+        "drift_key": "testimonials_drift_speed",
+        # STILL by default. A quote is read, not glanced at, and a row
+        # of moving text is a row nobody finishes a sentence in — so the
+        # testimonial row ships as a still row with arrows, and an admin
+        # who wants it drifting turns that on deliberately. It is one
+        # value here if that judgement is ever reversed.
+        "default_mode": "none",
+        "back_to": "admin_testimonials",
+    },
+}
+# The threshold at which a row stops being a grid and becomes a
+# scroller. Quote cards are far wider than logo tiles, so three fill a
+# row where it takes five logos.
+ROW_SCROLLER_MIN = {"partners": 5, "testimonials": 4}
 
 
 class Partner(db.Model):
@@ -940,17 +986,19 @@ def blocks_for(group):
     return {b.key: b.value for b in rows}
 
 
-def partner_motion():
-    """How the partner row should move, ready for the template.
+def row_motion(row):
+    """How a marquee row should move, ready for the template.
 
-    Falls back to the defaults when the Blocks are missing (a database
-    that has not had init-db run yet) or hold something unexpected, so
-    the homepage can never be broken by a bad value in a settings row.
+    One helper for both rows — see MOTION_ROWS. Falls back to the
+    defaults when the Blocks are missing (a database that has not had
+    init-db run yet) or hold something unexpected, so the homepage can
+    never be broken by a bad value in a settings row.
     """
-    rows = blocks_for("partners")
-    mode = (rows.get(PARTNER_MOTION_KEY) or "").strip()
-    if mode not in [m for m, _label, _help in PARTNER_MOTIONS]:
-        mode = "scroll"
+    conf = MOTION_ROWS[row]
+    rows = blocks_for(row)
+    mode = (rows.get(conf["mode_key"]) or "").strip()
+    if mode not in [m for m, _label, _help in ROW_MOTIONS]:
+        mode = conf["default_mode"]
     def _number(key, default, low, high):
         """A stored number, clamped, or the default if it is nonsense.
 
@@ -964,11 +1012,11 @@ def partner_motion():
             return default
         return max(low, min(high, value))
 
-    seconds = _number(PARTNER_STEP_KEY, PARTNER_STEP_DEFAULT,
+    seconds = _number(conf["step_key"], PARTNER_STEP_DEFAULT,
                       PARTNER_STEP_MIN, PARTNER_STEP_MAX)
-    glide = _number(PARTNER_GLIDE_KEY, PARTNER_GLIDE_DEFAULT,
+    glide = _number(conf["glide_key"], PARTNER_GLIDE_DEFAULT,
                     PARTNER_GLIDE_MIN, PARTNER_GLIDE_MAX)
-    drift = _number(PARTNER_DRIFT_KEY, PARTNER_DRIFT_DEFAULT,
+    drift = _number(conf["drift_key"], PARTNER_DRIFT_DEFAULT,
                     PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX)
     # A glide longer than the gap between steps would have the row
     # starting its next move before it finished the last one. The form
@@ -978,7 +1026,14 @@ def partner_motion():
     return {"mode": mode, "step_seconds": seconds,
             "glide_ms": glide, "drift_speed": drift,
             "glide_default": PARTNER_GLIDE_DEFAULT,
-            "drift_default": PARTNER_DRIFT_DEFAULT}
+            "drift_default": PARTNER_DRIFT_DEFAULT,
+            "row": row}
+
+
+def partner_motion():
+    """The partner row's settings — the name the rest of this file and
+    the partner tests already use."""
+    return row_motion("partners")
 
 
 # ------------------------------------------------------- rich content
@@ -1002,7 +1057,10 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "site_mail_to", "smtp_host",
                      "sftp_password_enc", "sftp_remote_path",
                      "sftp_schedule", "sftp_keep",
                      PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
-                     PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY)
+                     PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY,
+                     ) + tuple(
+    MOTION_ROWS["testimonials"][k]
+    for k in ("mode_key", "step_key", "glide_key", "drift_key"))
 
 
 class LegacyLeadImage:
@@ -2919,7 +2977,11 @@ def home():
     return render_template("index.html", c=content, upcoming=upcoming,
                            latest_news=latest_news, campaigns=campaigns,
                            testimonials=testimonials, partners=partners,
-                           motion=partner_motion(), services=services)
+                           motion=partner_motion(),
+                           quote_motion=row_motion("testimonials"),
+                           partner_min=ROW_SCROLLER_MIN["partners"],
+                           quote_min=ROW_SCROLLER_MIN["testimonials"],
+                           services=services)
 
 
 @app.route("/subscribe", methods=["POST"])
@@ -4697,29 +4759,72 @@ def admin_album_delete(album_id):
 
 
 # ---------------------------------------------------------------- admin: testimonials
-@app.route("/admin/testimonials", methods=["GET", "POST"])
+@app.route("/admin/testimonials")
 @login_required
 def admin_testimonials():
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        quote = request.form.get("quote", "").strip()
-        if name and quote:
-            t = Testimonial(
-                name=name, quote=quote,
-                role=request.form.get("role", "").strip(),
-                published=request.form.get("published") == "on")
-            db.session.add(t)
-            db.session.commit()
-            log_action("create", entity=t,
-                       summary="Added testimonial from %s." % name)
-            flash("Testimonial added.", "ok")
-        else:
-            flash("Name and quote are required.", "error")
-        return redirect(url_for("admin_testimonials"))
     rows = Testimonial.query.order_by(Testimonial.sort,
                                       Testimonial.created_at.desc(),
                                       Testimonial.id.desc()).all()
-    return render_template("admin/testimonials.html", rows=rows)
+    return render_template("admin/testimonials.html", rows=rows,
+                           motions=ROW_MOTIONS,
+                           motion=row_motion("testimonials"),
+                           scroller_min=ROW_SCROLLER_MIN["testimonials"],
+                           step_min=PARTNER_STEP_MIN,
+                           step_max=PARTNER_STEP_MAX,
+                           glide_min=PARTNER_GLIDE_MIN,
+                           glide_max=PARTNER_GLIDE_MAX,
+                           drift_min=PARTNER_DRIFT_MIN,
+                           drift_max=PARTNER_DRIFT_MAX)
+
+
+@app.route("/admin/testimonials/new", methods=["GET", "POST"])
+@app.route("/admin/testimonials/<int:t_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_testimonial_form(t_id=None):
+    """Add or EDIT a testimonial.
+
+    Editing matters more here than on most of these forms: a
+    testimonial is somebody else's words, and without this the only way
+    to fix a typo in a quote was to delete it and type it again from
+    memory. Same list-plus-form-page shape as partners, resources and
+    services.
+    """
+    t = db.session.get(Testimonial, t_id) if t_id else None
+    if t_id and not t:
+        abort(404)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        quote = request.form.get("quote", "").strip()
+        if not (name and quote):
+            flash("Name and quote are required.", "error")
+        else:
+            is_new = t is None
+            if is_new:
+                t = Testimonial()
+            try:
+                sort = int(request.form.get("sort", "0"))
+            except ValueError:
+                sort = 0
+            values = {
+                "name": name,
+                "quote": quote,
+                "role": request.form.get("role", "").strip(),
+                "sort": sort,
+                "published": request.form.get("published") == "on",
+            }
+            changed = [] if is_new else changed_fields(t, values)
+            apply_values(t, values)
+            if is_new:
+                db.session.add(t)
+            db.session.commit()
+            log_action("create" if is_new else "edit", entity=t,
+                       summary=save_summary("testimonial", t.name, is_new,
+                                            changed))
+            flash("Testimonial saved.", "ok")
+            return redirect(url_for("admin_testimonials"))
+
+    return render_template("admin/testimonial_form.html", t=t)
 
 
 @app.route("/admin/testimonials/<int:t_id>/delete", methods=["POST"])
@@ -4764,37 +4869,43 @@ def admin_partners():
                            drift_max=PARTNER_DRIFT_MAX)
 
 
-@app.route("/admin/partners/motion", methods=["POST"])
-@login_required
-def admin_partner_motion():
-    """Save how the partner row moves. One setting for the row, not a
-    field on every partner — see PARTNER_MOTIONS."""
+def save_row_motion(row):
+    """Save how ONE marquee row moves. Shared by both rows.
+
+    Everything here was written for the partner row and is now used by
+    the testimonial row unchanged — the validation, the refusals, the
+    audit entry and the "an empty speed box keeps what is stored" rule.
+    A second copy of it would be a second place to fix the next thing
+    found in it.
+    """
+    conf = MOTION_ROWS[row]
+    back = redirect(url_for(conf["back_to"]))
     mode = (request.form.get("motion") or "").strip()
-    if mode not in [m for m, _label, _help in PARTNER_MOTIONS]:
+    if mode not in [m for m, _label, _help in ROW_MOTIONS]:
         flash("Unknown movement option.", "error")
-        return redirect(url_for("admin_partners"))
+        return back
     try:
         seconds = int((request.form.get("step_seconds") or "").strip())
     except ValueError:
         flash("The step interval must be a whole number of seconds.",
               "error")
-        return redirect(url_for("admin_partners"))
+        return back
     if not PARTNER_STEP_MIN <= seconds <= PARTNER_STEP_MAX:
         flash("The step interval must be between %d and %d seconds."
               % (PARTNER_STEP_MIN, PARTNER_STEP_MAX), "error")
-        return redirect(url_for("admin_partners"))
+        return back
     # The two speeds live behind a collapsed section of the same form.
     # A field that is absent or left empty KEEPS WHAT IS STORED, the way
     # an empty password box on Settings does: posting the form without
     # having opened the advanced section must not quietly reset a speed
     # somebody chose. Anything actually typed is validated.
-    current = partner_motion()
+    current = row_motion(row)
     speeds, problem = {}, None
     for field, key, now, low, high, label in (
-            ("glide_ms", PARTNER_GLIDE_KEY, current["glide_ms"],
+            ("glide_ms", conf["glide_key"], current["glide_ms"],
              PARTNER_GLIDE_MIN, PARTNER_GLIDE_MAX,
              "How long one step takes"),
-            ("drift_speed", PARTNER_DRIFT_KEY, current["drift_speed"],
+            ("drift_speed", conf["drift_key"], current["drift_speed"],
              PARTNER_DRIFT_MIN, PARTNER_DRIFT_MAX, "The drift speed")):
         raw = (request.form.get(field) or "").strip()
         if not raw:
@@ -4811,8 +4922,8 @@ def admin_partner_motion():
         speeds[key] = value
     if problem:
         flash(problem, "error")
-        return redirect(url_for("admin_partners"))
-    glide, drift = speeds[PARTNER_GLIDE_KEY], speeds[PARTNER_DRIFT_KEY]
+        return back
+    glide, drift = speeds[conf["glide_key"]], speeds[conf["drift_key"]]
     # A step that takes longer than the wait between steps would start
     # its next move before finishing the last. Refused here rather than
     # papered over in the script, so the admin is told which two numbers
@@ -4822,16 +4933,16 @@ def admin_partner_motion():
               "%dms of movement every %d second%s. Either slow the "
               "interval down or shorten the step."
               % (glide, seconds, "" if seconds == 1 else "s"), "error")
-        return redirect(url_for("admin_partners"))
+        return back
 
     changed = []
-    for key, value in ((PARTNER_MOTION_KEY, mode),
-                       (PARTNER_STEP_KEY, str(seconds)),
-                       (PARTNER_GLIDE_KEY, str(glide)),
-                       (PARTNER_DRIFT_KEY, str(drift))):
+    for key, value in ((conf["mode_key"], mode),
+                       (conf["step_key"], str(seconds)),
+                       (conf["glide_key"], str(glide)),
+                       (conf["drift_key"], str(drift))):
         block = Block.query.filter_by(key=key).first()
         if block is None:      # a database predating these settings
-            block = Block(group="partners", key=key, label=key, kind="text")
+            block = Block(group=row, key=key, label=key, kind="text")
             db.session.add(block)
         if (block.value or "") != value:
             changed.append(key)
@@ -4839,21 +4950,20 @@ def admin_partner_motion():
     db.session.commit()
     if changed:
         log_action("edit", entity=("Block", None),
-                   summary="Changed how the partner row moves: %s, a step "
+                   summary="Changed how the %s row moves: %s, a step "
                            "every %d second%s taking %dms, drifting at "
                            "%d pixels a second."
-                           % (dict((m, label) for m, label, _h
-                                   in PARTNER_MOTIONS)[mode].lower(),
+                           % (conf["label"],
+                              dict((m, label) for m, label, _h
+                                   in ROW_MOTIONS)[mode].lower(),
                               seconds, "" if seconds == 1 else "s",
                               glide, drift))
-    flash("Partner row movement saved.", "ok")
-    return redirect(url_for("admin_partners"))
+    flash("%s row movement saved." % conf["label"].capitalize(), "ok")
+    return back
 
 
-@app.route("/admin/partners/motion/reset", methods=["POST"])
-@login_required
-def admin_partner_motion_reset():
-    """Put both speeds back to the values the app ships with.
+def reset_row_speeds(row):
+    """Put one row's two speeds back to the values the app ships with.
 
     To the CONSTANTS, never to whatever was saved last: the point of the
     button is that it returns the row to a known-good state however far
@@ -4862,11 +4972,13 @@ def admin_partner_motion_reset():
     the mode and the interval alone — those are what the row DOES, and
     somebody resetting a speed has not asked to stop the row moving.
     """
+    conf = MOTION_ROWS[row]
     changed = []
-    for key, default, _low, _high, _label in PARTNER_SPEEDS:
+    for key, default in ((conf["glide_key"], PARTNER_GLIDE_DEFAULT),
+                         (conf["drift_key"], PARTNER_DRIFT_DEFAULT)):
         block = Block.query.filter_by(key=key).first()
         if block is None:          # a database predating these settings
-            block = Block(group="partners", key=key, label=key, kind="text")
+            block = Block(group=row, key=key, label=key, kind="text")
             db.session.add(block)
         if (block.value or "") != str(default):
             changed.append(key)
@@ -4876,14 +4988,43 @@ def admin_partner_motion_reset():
     # still somebody pressing reset, and the audit log is where you look
     # to find out why the row changed at four o'clock.
     log_action("edit", entity=("Block", None),
-               summary="Reset the partner row speeds to the defaults: a "
+               summary="Reset the %s row speeds to the defaults: a "
                        "step takes %dms, the drift runs at %d pixels a "
                        "second.%s"
-                       % (PARTNER_GLIDE_DEFAULT, PARTNER_DRIFT_DEFAULT,
+                       % (conf["label"], PARTNER_GLIDE_DEFAULT,
+                          PARTNER_DRIFT_DEFAULT,
                           "" if changed else " They were already both set "
                           "to those values."))
-    flash("Partner row speeds put back to the defaults.", "ok")
-    return redirect(url_for("admin_partners"))
+    flash("%s row speeds put back to the defaults."
+          % conf["label"].capitalize(), "ok")
+    return redirect(url_for(conf["back_to"]))
+
+
+@app.route("/admin/partners/motion", methods=["POST"])
+@login_required
+def admin_partner_motion():
+    """Save how the partner row moves. One setting for the row, not a
+    field on every partner — see ROW_MOTIONS."""
+    return save_row_motion("partners")
+
+
+@app.route("/admin/partners/motion/reset", methods=["POST"])
+@login_required
+def admin_partner_motion_reset():
+    return reset_row_speeds("partners")
+
+
+@app.route("/admin/testimonials/motion", methods=["POST"])
+@login_required
+def admin_testimonial_motion():
+    """The same, for the row of quotes."""
+    return save_row_motion("testimonials")
+
+
+@app.route("/admin/testimonials/motion/reset", methods=["POST"])
+@login_required
+def admin_testimonial_motion_reset():
+    return reset_row_speeds("testimonials")
 
 
 @app.route("/admin/partners/new", methods=["GET", "POST"])
@@ -6265,6 +6406,18 @@ DEFAULT_BLOCKS = [
      str(PARTNER_GLIDE_DEFAULT)),
     ("partners", PARTNER_DRIFT_KEY, "Drift speed (pixels a second)", "text",
      str(PARTNER_DRIFT_DEFAULT)),
+    # The same four for the row of quotes, which uses the same marquee.
+    # It starts STILL — see MOTION_ROWS for why a row of words is not a
+    # row of logos.
+    ("testimonials", MOTION_ROWS["testimonials"]["mode_key"],
+     "Testimonial row movement", "text",
+     MOTION_ROWS["testimonials"]["default_mode"]),
+    ("testimonials", MOTION_ROWS["testimonials"]["step_key"],
+     "Seconds between steps", "text", str(PARTNER_STEP_DEFAULT)),
+    ("testimonials", MOTION_ROWS["testimonials"]["glide_key"],
+     "How long one step takes (ms)", "text", str(PARTNER_GLIDE_DEFAULT)),
+    ("testimonials", MOTION_ROWS["testimonials"]["drift_key"],
+     "Drift speed (pixels a second)", "text", str(PARTNER_DRIFT_DEFAULT)),
     ("about", "about_title", "Page title", "text", "About EBWA"),
     ("about", "about_body", "Main text", "text",
      "Founded by Choudhury Mohammed Anwar MBE, former Mayor of Enfield, EBWA provides "

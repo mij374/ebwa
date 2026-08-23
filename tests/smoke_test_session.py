@@ -134,7 +134,7 @@ check("the expired session really is logged out",
 idle2 = app.test_client()
 login(idle2)
 time.sleep(3)
-r = idle2.post("/admin/testimonials", data={"name": "X", "quote": "Y"},
+r = idle2.post("/admin/testimonials/new", data={"name": "X", "quote": "Y"},
                follow_redirects=True)
 check("an expired POST also lands on the login page with the message",
       b"Your session has expired" in r.data)

@@ -277,8 +277,10 @@ def partner_count(n):
 for n in (1, 4):
     partner_count(n)
     html = home()
+    # The word "marquee" is in the shared script on every page now, so
+    # the absence of a SCROLLER is the row's own id, not that string.
     check("%d partners: still the static row" % n,
-          'class="partner-grid"' in html and "partner-marquee" not in html)
+          'class="partner-grid"' in html and 'id="partnerRow"' not in html)
     check("%d partners: one card each" % n,
           html.count('class="partner-card"') == n,
           str(html.count('class="partner-card"')))
@@ -286,14 +288,14 @@ for n in (1, 4):
 partner_count(5)
 html = home()
 check("FIVE PARTNERS TIP INTO THE SCROLLER",
-      "partner-marquee" in html and 'class="partner-grid"' not in html)
-check("the scroller holds two sets", html.count('class="partner-set"') == 2,
-      str(html.count('class="partner-set"')))
+      "marquee" in html and 'class="partner-grid"' not in html)
+check("the scroller holds two sets", html.count('class="marquee-set"') == 2,
+      str(html.count('class="marquee-set"')))
 check("one real card and one copy per partner",
       html.count('class="partner-card"') == 10,
       str(html.count('class="partner-card"')))
 check("the copy is hidden from screen readers",
-      'class="partner-set" aria-hidden="true"' in html)
+      'class="marquee-set" aria-hidden="true"' in html)
 check("the copy is out of the tab order",
       html.count('tabindex="-1"') == 5, str(html.count('tabindex="-1"')))
 check("the real set is not aria-hidden and not tabindexed",
@@ -310,16 +312,16 @@ check("every partner is named once for a screen reader",
 partner_count(9)
 html = home()
 check("nine partners: still one scroller, eighteen cards",
-      html.count('class="partner-set"') == 2
+      html.count('class="marquee-set"') == 2
       and html.count('class="partner-card"') == 18,
       str(html.count('class="partner-card"')))
 check("nine partners: still one copy set behind the real one",
-      html.count('class="partner-set"') == 2)
+      html.count('class="marquee-set"') == 2)
 
 # back to four: the scroller goes away again
 partner_count(4)
 check("dropping back to four returns the static row",
-      "partner-marquee" not in home())
+      'id="partnerRow"' not in home())
 
 # ---- how the row moves: one site setting, not a field per partner
 partner_count(5)
@@ -343,7 +345,7 @@ check("the arrows are in the markup, labelled",
 # visible and the script hides them when it takes the row over.
 check("and are NOT hidden, so a browser that never runs the script has "
       "something to push",
-      html.count("partner-arrow") >= 2 and "hidden>" not in html,
+      html.count("marquee-arrow") >= 2 and "hidden>" not in html,
       str(html.count("hidden>")))
 
 r = client.get("/admin/partners")

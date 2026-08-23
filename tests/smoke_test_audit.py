@@ -139,7 +139,7 @@ client.post("/admin/resources/new", data={"name": "Enfield Foodbank",
                                           "category": "Food support"})
 client.post("/admin/journey/new", data={"title": "Opened the centre",
                                         "year": "2021", "published": "on"})
-client.post("/admin/testimonials", data={"name": "Fatima", "quote": "Lovely.",
+client.post("/admin/testimonials/new", data={"name": "Fatima", "quote": "Lovely.",
                                          "published": "on"})
 client.post("/admin/partners/new", data={"name": "Enfield Council"})
 client.post("/admin/content?group=home", data={})

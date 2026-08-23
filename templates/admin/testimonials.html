@@ -1,28 +1,14 @@
 {% extends "admin/base_admin.html" %}
 {% block content %}
-<h1 class="admin-h1">Testimonials</h1>
-<p class="admin-sub">Quotes from community members shown on the homepage.</p>
-
-<form method="post" class="admin-form" style="margin-bottom:36px">
-  <div class="field-row">
-    <div class="field">
-      <label for="name">Name *</label>
-      <input type="text" id="name" name="name" required placeholder="e.g. Fatima Rahman">
-    </div>
-    <div class="field">
-      <label for="role">Role / context</label>
-      <input type="text" id="role" name="role" placeholder="e.g. Parent, Bengali school">
-    </div>
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Testimonials</h1>
+    <p class="admin-sub">Quotes from community members shown on the homepage.
+      These are somebody else's words — use Edit to correct a typo rather
+      than deleting and retyping from memory.</p>
   </div>
-  <div class="field">
-    <label for="quote">Quote *</label>
-    <textarea id="quote" name="quote" rows="3" required placeholder="What they said about EBWA"></textarea>
-  </div>
-  <div class="field field-check">
-    <label><input type="checkbox" name="published" checked> Published</label>
-  </div>
-  <button class="btn btn-green" type="submit">Add testimonial</button>
-</form>
+  <a class="btn btn-green" href="{{ url_for('admin_testimonial_form') }}">Add a testimonial</a>
+</div>
 
 {% if rows %}
 <table class="admin-table">
@@ -34,6 +20,7 @@
       <td>{{ t.quote[:120] }}{% if t.quote|length > 120 %}…{% endif %}</td>
       <td>{% if t.published %}<span class="pill pill-green">Published</span>{% else %}<span class="pill pill-grey">Hidden</span>{% endif %}</td>
       <td class="nowrap">
+        <a class="table-link" href="{{ url_for('admin_testimonial_form', t_id=t.id) }}">Edit</a>
         <form method="post" action="{{ url_for('admin_testimonial_toggle', t_id=t.id) }}" style="display:inline">
           <button class="table-link" type="submit">{{ 'Hide' if t.published else 'Publish' }}</button>
         </form>
@@ -46,5 +33,101 @@
     {% endfor %}
   </tbody>
 </table>
+{% else %}
+<p class="admin-sub">No testimonials yet — the section is hidden from the
+  homepage until you add one.</p>
 {% endif %}
+
+<h2 class="admin-stats-head">How the row moves</h2>
+<div class="admin-form">
+  <p class="admin-sub" style="margin-bottom:16px">This applies to the
+    whole row, not to one quote. With {{ scroller_min }} or more
+    testimonials the row becomes a scroller; with fewer it is a plain
+    grid and sits still whatever is chosen here.</p>
+  <p class="admin-sub" style="margin-bottom:16px">These are separate from
+    the partner row's settings, so the quotes can stand still while the
+    logos drift. A quote is something a visitor has to READ, and moving
+    text is harder to read than a moving logo — which is why this row
+    starts still.</p>
+  <form method="post" action="{{ url_for('admin_testimonial_motion') }}">
+    <div class="field">
+      <label for="motion">Movement</label>
+      <select id="motion" name="motion">
+        {% for value, label, _help in motions %}
+        <option value="{{ value }}" {{ 'selected' if motion.mode == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <small>
+        {% for value, _label, help in motions %}
+        <b>{{ _label }}:</b> {{ help }}{% if not loop.last %}<br>{% endif %}
+        {% endfor %}
+      </small>
+    </div>
+    <div class="field">
+      <label for="step_seconds">Seconds between steps</label>
+      <input type="number" id="step_seconds" name="step_seconds"
+             min="{{ step_min }}" max="{{ step_max }}"
+             value="{{ motion.step_seconds }}">
+      <small>How OFTEN the row moves. Only used by “Step every few
+        seconds”. A quote takes longer to read than a logo takes to
+        recognise, so give it more seconds than you would the partners.</small>
+    </div>
+
+    {#- Same collapsed advanced section as the partners page, and the
+        same warning: these are the settings most likely to make the row
+        worse and least likely to be what somebody came here for. -#}
+    <details class="admin-advanced">
+      <summary>Speed settings</summary>
+      <p class="admin-sub">These change how the testimonial row looks and
+        feels on the website. The defaults have been tested across screen
+        sizes and devices; only change them if you are sure. You can put
+        them back at any time with <b>Reset to defaults</b> below.</p>
+      <div class="field">
+        <label for="glide_ms">How long one step takes</label>
+        <input type="number" id="glide_ms" name="glide_ms"
+               min="{{ glide_min }}" max="{{ glide_max }}" step="20"
+               value="{{ motion.glide_ms }}">
+        <small>Milliseconds the row spends sliding from one quote to the
+          next — the movement itself, not the wait in between.
+          Between {{ glide_min }} and {{ glide_max }}.
+          <b>Default: {{ motion.glide_default }}ms.</b>
+          It cannot be longer than the wait between steps, or the row
+          would start moving again before it had finished.</small>
+      </div>
+      <div class="field">
+        <label for="drift_speed">Continuous drift speed</label>
+        <input type="number" id="drift_speed" name="drift_speed"
+               min="{{ drift_min }}" max="{{ drift_max }}" step="5"
+               value="{{ motion.drift_speed }}">
+        <small>Pixels a second, for “Continuous smooth scroll”. The
+          default of {{ motion.drift_default }} moves about one quote
+          card every eight seconds. Between {{ drift_min }} and
+          {{ drift_max }}.
+          <b>Default: {{ motion.drift_default }} pixels a second.</b>
+          A speed rather than a lap time on purpose: a lap gets longer
+          every time you add a quote, so the same lap time would mean
+          a different speed on every site.</small>
+      </div>
+    </details>
+
+    <p class="admin-sub">Visitors whose device has reduced motion turned
+      on will always see a still row with arrow buttons, whichever option
+      is chosen here — that setting is theirs to make, and this page does
+      not override it. Neither speed above applies to them.</p>
+    <div class="form-actions">
+      <button class="btn btn-green" type="submit">Save movement</button>
+    </div>
+  </form>
+  {#- Its own form, so it cannot be swept along by the Save above, and a
+      confirm() like every other destructive-ish action here. -#}
+  <form method="post" style="margin-top:14px"
+        action="{{ url_for('admin_testimonial_motion_reset') }}"
+        onsubmit="return confirm('Put both speed settings back to the values the site shipped with?');">
+    <button class="btn btn-ghost" type="submit">Reset speeds to defaults</button>
+    <small class="admin-sub" style="display:block;margin-top:8px">Puts
+      the two speeds back to {{ motion.glide_default }}ms and
+      {{ motion.drift_default }} pixels a second. It does not change
+      which movement is chosen or how often the row steps.</small>
+  </form>
+</div>
 {% endblock %}

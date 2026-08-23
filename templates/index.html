@@ -120,14 +120,63 @@
   <div class="wrap">
     <p class="eyebrow">Testimonials <span class="bn">· প্রশংসাপত্র</span></p>
     <h2>What our community says</h2>
-    <div class="quote-grid">
-      {% for t in testimonials %}
-      <figure class="quote-card">
+    {#- One card, used by the static grid and by the scroller. The copy
+        set passes duplicate=true: it exists only to make the loop
+        endless, so it is hidden from screen readers and taken out of the
+        tab order, or the quotes are read twice. -#}
+    {% macro quote_card(t, duplicate=false) %}
+      <figure class="quote-card"{% if duplicate %} aria-hidden="true"{% endif %}>
         <blockquote>{{ t.quote }}</blockquote>
         <figcaption><b>{{ t.name }}</b>{% if t.role %}<span>{{ t.role }}</span>{% endif %}</figcaption>
       </figure>
-      {% endfor %}
+    {% endmacro %}
+    {% if testimonials|length >= quote_min %}
+    {#- Four or more quotes will not sit in a row, so the row scrolls.
+        A quote card is far wider than a logo tile, which is why this
+        threshold is lower than the partners' one — see ROW_SCROLLER_MIN.
+        The same marquee drives both rows; only the card is different. -#}
+    <div class="marquee-row" data-row="testimonials" data-motion="{{ quote_motion.mode }}"
+         data-step-seconds="{{ quote_motion.step_seconds }}"
+         data-glide-ms="{{ quote_motion.glide_ms }}"
+         data-drift-speed="{{ quote_motion.drift_speed }}">
+      <button type="button" class="marquee-arrow marquee-arrow-prev"
+              aria-label="Previous testimonials" aria-controls="quoteRow">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+      {#- tabindex so a keyboard can reach the row at all: a quote card
+          holds no link, so unlike the partner row there is nothing
+          inside it to Tab to. A focusable scroll container is scrolled
+          by the arrow keys natively, and focusing it also pauses the
+          motion like any other focus in the row. -#}
+      <div class="marquee" id="quoteRow" tabindex="0" role="region"
+           aria-label="Testimonials, scrollable">
+        <div class="marquee-track">
+          <div class="marquee-set">
+            {% for t in testimonials %}{{ quote_card(t) }}{% endfor %}
+          </div>
+          <div class="marquee-set" aria-hidden="true">
+            {% for t in testimonials %}{{ quote_card(t, duplicate=true) }}{% endfor %}
+          </div>
+        </div>
+      </div>
+      <button type="button" class="marquee-arrow marquee-arrow-next"
+              aria-label="Next testimonials" aria-controls="quoteRow">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 5 L16 12 L9 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
+    {% else %}
+    <div class="quote-grid">
+      {% for t in testimonials %}{{ quote_card(t) }}{% endfor %}
+    </div>
+    {% endif %}
   </div>
 </section>
 {% endif %}
@@ -153,7 +202,7 @@
       {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener"{% if duplicate %} tabindex="-1"{% endif %}>{{ body }}</a>
       {% else %}<div class="partner-card">{{ body }}</div>{% endif %}
     {% endmacro %}
-    {% if partners|length > 4 %}
+    {% if partners|length >= partner_min %}
     {#- More than four: a scroller rather than a wrapping grid. Which
         movement it makes is a site setting (admin → Partners); every
         mode is off under prefers-reduced-motion, the continuous one by
@@ -164,7 +213,7 @@
         by the stylesheet unless the row is genuinely animating, so this
         renders as the real partners and nothing else in every browser
         that does not get as far as moving it. -#}
-    <div class="partner-row" data-motion="{{ motion.mode }}"
+    <div class="marquee-row" data-row="partners" data-motion="{{ motion.mode }}"
          data-step-seconds="{{ motion.step_seconds }}"
          data-glide-ms="{{ motion.glide_ms }}"
          data-drift-speed="{{ motion.drift_speed }}">
@@ -176,7 +225,7 @@
           at all — was the state with no arrows and no way to move the
           row but the scrollbar. The scrollbar is still there in exactly
           that case, since hiding it is on a class only the script adds. -#}
-      <button type="button" class="partner-arrow partner-arrow-prev"
+      <button type="button" class="marquee-arrow marquee-arrow-prev"
               aria-label="Previous partners" aria-controls="partnerRow">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
@@ -184,17 +233,17 @@
                 stroke-linejoin="round"/>
         </svg>
       </button>
-      <div class="partner-marquee" id="partnerRow">
-        <div class="partner-track">
-          <div class="partner-set">
+      <div class="marquee" id="partnerRow">
+        <div class="marquee-track">
+          <div class="marquee-set">
             {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
           </div>
-          <div class="partner-set" aria-hidden="true">
+          <div class="marquee-set" aria-hidden="true">
             {% for pt in partners %}{{ partner_card(pt, duplicate=true) }}{% endfor %}
           </div>
         </div>
       </div>
-      <button type="button" class="partner-arrow partner-arrow-next"
+      <button type="button" class="marquee-arrow marquee-arrow-next"
               aria-label="Next partners" aria-controls="partnerRow">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M9 5 L16 12 L9 19" fill="none" stroke="currentColor"
@@ -254,7 +303,13 @@
     io.observe(document.querySelector('.stats'));
   }
 
-  /* ---- The partner row.
+  /* ---- The scrolling rows: partners, and the quotes above them.
+     ONE implementation, run over every .marquee-row on the page. It was
+     written for the partner row and every hard-won line in it applies
+     just as much to a row of quotes — the single offset, the wrap, the
+     drag threshold, the glide, the fall back to still. A second copy
+     would be a second place to fix the next thing found in it.
+
      Everything — the continuous drift, the stepping, dragging, swiping,
      the arrow buttons — moves ONE quantity: the row's own scrollLeft.
      That is the fix for the gap that used to open up in the loop. It had
@@ -266,11 +321,11 @@
      offset there is nothing to diverge, and wrapping it back by exactly
      one set keeps the row endless whatever the visitor does to it.
      Values come from data attributes, never from Jinja in here. */
-  var partnerBox = document.getElementById('partnerRow');
-  if (partnerBox) {
-    var partnerWrap = partnerBox.closest('.partner-row');
-    var partnerSet = partnerBox.querySelector('.partner-set');
-    var partnerArrows = partnerWrap.querySelectorAll('.partner-arrow');
+  function setupMarquee(partnerWrap) {
+    var partnerBox = partnerWrap.querySelector('.marquee');
+    if (!partnerBox) return;
+    var partnerSet = partnerBox.querySelector('.marquee-set');
+    var partnerArrows = partnerWrap.querySelectorAll('.marquee-arrow');
     var stillPlease = window.matchMedia('(prefers-reduced-motion: reduce)');
     var partnerMode = partnerWrap.getAttribute('data-motion');
     var moves = (partnerMode === 'scroll' || partnerMode === 'step')
@@ -295,11 +350,13 @@
     var glideFrame = 0;      /* a step in progress, or 0 */
 
     function partnerGap() {
-      var track = partnerBox.querySelector('.partner-track');
+      var track = partnerBox.querySelector('.marquee-track');
       return parseFloat(getComputedStyle(track).columnGap) || 0;
     }
     function cardStride() {          /* one card plus the gap after it */
-      var card = partnerBox.querySelector('.partner-card');
+      /* Whatever this row's cards are — a partner tile or a quote.
+         The set's first child, so the script never needs to know. */
+      var card = partnerSet.firstElementChild;
       return card ? card.getBoundingClientRect().width + partnerGap() : 0;
     }
     function setStride() {           /* one whole set plus its gap */
@@ -483,13 +540,13 @@
       if (!wanted) return;
       var left = partnerBox.scrollLeft;
       var max = partnerBox.scrollWidth - partnerBox.clientWidth;
-      partnerWrap.querySelector('.partner-arrow-prev').disabled = left <= 1;
-      partnerWrap.querySelector('.partner-arrow-next').disabled =
+      partnerWrap.querySelector('.marquee-arrow-prev').disabled = left <= 1;
+      partnerWrap.querySelector('.marquee-arrow-next').disabled =
         left >= max - 1;
     }
     for (var a = 0; a < partnerArrows.length; a++) {
       partnerArrows[a].addEventListener('click', function (e) {
-        arrowScroll(this.classList.contains('partner-arrow-next') ? 1 : -1);
+        arrowScroll(this.classList.contains('marquee-arrow-next') ? 1 : -1);
         e.preventDefault();
       });
     }
@@ -549,6 +606,12 @@
         }, GLIDE_MS + 240);
       }, every * 1000);
     }
+  }
+
+  /* Every row on the page, each with its own settings. */
+  var marqueeRows = document.querySelectorAll('.marquee-row');
+  for (var r = 0; r < marqueeRows.length; r++) {
+    setupMarquee(marqueeRows[r]);
   }
 </script>
 {% endblock %}

@@ -1,4 +1,10 @@
-"""Drive the partner scroller in real Chromium (Playwright).
+"""Drive the scrolling rows in real Chromium (Playwright).
+
+TWO rows share one marquee — the partners, and the testimonials above
+them — so this file drives whichever row ROW names, and the run does
+both in turn. A parallel file for the second row would have drifted from
+this one inside a month, and the point of the shared implementation is
+that a fix to the loop or the arrows lands on both.
 
 The markup side of the partner row is covered by
 tests/smoke_test_partners.py — two sets, the copy hidden from screen
@@ -42,7 +48,7 @@ Three things learned the hard way here, so they are not rediscovered:
     the row. A fixed offset from the row's left edge lands in the gap
     between two cards at some widths, and the click hits nothing.
 
-Run:  python tests/check_partner_marquee.py [--shots DIR]
+Run:  python tests/check_marquees.py [--row NAME] [--shots DIR]
 """
 import gc
 import os
@@ -51,7 +57,9 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TEST_DB = os.path.join(HERE, "test_ebwa_marquee.db")
+TEST_DB = os.path.join(HERE, "test_ebwa_marquee_%s.db"
+                       % (sys.argv[sys.argv.index("--row") + 1]
+                          if "--row" in sys.argv else "all"))
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
@@ -65,10 +73,9 @@ from browser_view import (FALLBACK_PHONES, VIEWPORTS,  # noqa: E402
                           height_for, unreachable)
 
 from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
-                 FeatureFlag, PARTNER_DRIFT_DEFAULT, PARTNER_DRIFT_KEY,
-                 PARTNER_GLIDE_DEFAULT, PARTNER_GLIDE_KEY,
-                 PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
-                 Partner)
+                 FeatureFlag, MOTION_ROWS, PARTNER_DRIFT_DEFAULT,
+                 PARTNER_GLIDE_DEFAULT,
+                 Partner, Testimonial)
 
 # The same screens as the header check, from tests/browser_view.py, for
 # the same reason: 900 and 768 straddle the 899px shed point, and the
@@ -76,14 +83,47 @@ from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
 # row. Heights come with them — the row itself does not grow downwards,
 # but the arrows below it and the cookie notice below THEM do, and a
 # check that measured only widths could not see either.
-# Five is the first count that tips into the scroller and, being the
-# narrowest set, the tightest case for the loop invariant.
+# The first count that tips a row into the scroller is the tightest
+# case for the loop invariant, because it is the narrowest set. Five
+# partners; four quotes, a quote card being far wider than a logo tile.
 COUNTS = [5, 7, 9]
+QUOTE_COUNTS = [4, 6, 8]
 STEP_SECONDS = 2          # long enough to watch a step land and stop
 # Section H's screens: the two phones the duplicate-cards bug was
 # reported across — a Galaxy S10 showing ten cards where a Note 10
 # showed five — named in tests/browser_view.py with their real heights.
 FALLBACK_WIDTHS = [w for w, _h in FALLBACK_PHONES]
+
+# ---- the row under test.
+# One row per run, chosen with --row, and with no --row the file runs
+# itself once for each: the checks below are a linear script against one
+# database and one server, and re-entering them for a second row would
+# mean threading the whole file through a function for no gain. A
+# subprocess each gives every row a clean database, a clean server and
+# its own exit code.
+ROWS = {
+    "partners": {"counts": COUNTS, "min": 5, "seed": "partners"},
+    "testimonials": {"counts": QUOTE_COUNTS, "min": 4,
+                     "seed": "testimonials"},
+}
+if "--row" in sys.argv:
+    ROW_NAME = sys.argv[sys.argv.index("--row") + 1]
+else:
+    import subprocess
+    print("Two rows share this marquee; running both.\n")
+    worst = 0
+    for _name in ROWS:
+        print("=" * 70)
+        print("ROW: %s" % _name)
+        print("=" * 70)
+        worst = max(worst, subprocess.call(
+            [sys.executable, os.path.abspath(__file__), "--row", _name]
+            + [a for a in sys.argv[1:]]))
+    sys.exit(worst)
+ROW = ROWS[ROW_NAME]
+ROW_SEL = '[data-row="%s"]' % ROW_NAME    # scopes every selector below
+ROW_BOX = ROW_SEL + " .marquee"
+COUNTS = ROW["counts"]
 
 shots_dir = None
 if "--shots" in sys.argv:
@@ -127,26 +167,36 @@ with app.app_context():
             db.session.add(FeatureFlag(name=n, enabled=default))
     db.session.commit()
 
-server = make_server("127.0.0.1", 5088, app, threaded=True)
+PORT = 5088 if ROW_NAME == "partners" else 5089
+server = make_server("127.0.0.1", PORT, app, threaded=True)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 time.sleep(0.6)
-BASE = "http://127.0.0.1:5088"
+BASE = "http://127.0.0.1:%d" % PORT
 
 
 def seed(count):
-    """A row of `count` partners, each a real link back at this server.
+    """`count` cards in the row under test.
 
-    Real links matter: the drag checks assert on whether a click opens
-    the partner, and a link to the outside world would put a network
-    fetch inside the assertion.
+    Partner cards carry a real link back at this server, because the
+    drag checks assert on whether a click opens the partner and a link
+    to the outside world would put a network fetch inside an assertion.
+    A quote card has no link — the drag checks skip that half for the
+    testimonial row, which is noted where they do.
     """
     with app.app_context():
         Partner.query.delete()
+        Testimonial.query.delete()
         for i in range(count):
-            db.session.add(Partner(
-                name="Partner %d" % i, blurb="Working with EBWA",
-                url="%s/?partner=%d" % (BASE, i),
-                display_mode="text", sort=i))
+            if ROW["seed"] == "partners":
+                db.session.add(Partner(
+                    name="Partner %d" % i, blurb="Working with EBWA",
+                    url="%s/?partner=%d" % (BASE, i),
+                    display_mode="text", sort=i))
+            else:
+                db.session.add(Testimonial(
+                    name="Person %d" % i, role="Member",
+                    quote="Quote number %d about what EBWA does." % i,
+                    published=True, sort=i))
         db.session.commit()
 
 
@@ -158,10 +208,11 @@ def set_motion(mode, seconds=STEP_SECONDS, glide=PARTNER_GLIDE_DEFAULT,
     before they existed still runs against the row exactly as it was.
     """
     with app.app_context():
-        for key, value in ((PARTNER_MOTION_KEY, mode),
-                           (PARTNER_STEP_KEY, str(seconds)),
-                           (PARTNER_GLIDE_KEY, str(glide)),
-                           (PARTNER_DRIFT_KEY, str(drift))):
+        conf = MOTION_ROWS[ROW_NAME]
+        for key, value in ((conf["mode_key"], mode),
+                           (conf["step_key"], str(seconds)),
+                           (conf["glide_key"], str(glide)),
+                           (conf["drift_key"], str(drift))):
             row = Block.query.filter_by(key=key).first()
             row.value = value
         db.session.commit()
@@ -171,14 +222,14 @@ def set_motion(mode, seconds=STEP_SECONDS, glide=PARTNER_GLIDE_DEFAULT,
 
 # Everything the checks need about the row in one round trip.
 MEASURE = """() => {
-    const box = document.getElementById('partnerRow');
+    const box = document.querySelector(window.__row);
     if (!box) return null;
-    const row = box.closest('.partner-row');
-    const track = box.querySelector('.partner-track');
-    const set = box.querySelector('.partner-set');
+    const row = box.closest('.marquee-row');
+    const track = box.querySelector('.marquee-track');
+    const set = box.querySelector('.marquee-set');
     const gap = parseFloat(getComputedStyle(track).columnGap) || 0;
-    const card = box.querySelector('.partner-card');
-    const sets = [...box.querySelectorAll('.partner-set')];
+    const card = box.querySelector('.marquee-set > *');
+    const sets = [...box.querySelectorAll('.marquee-set')];
     return {
         scrollLeft: box.scrollLeft,
         clientWidth: box.clientWidth,
@@ -195,13 +246,13 @@ MEASURE = """() => {
         // Cards actually laid out on the page — a card inside a
         // display:none set has no client rects at all. This is the
         // number a visitor counts, which is the whole point of H.
-        cardsRendered: [...box.querySelectorAll('.partner-card')]
+        cardsRendered: [...box.querySelectorAll('.marquee-set > *')]
             .filter(c => c.getClientRects().length > 0).length,
         scrollbarWidth: getComputedStyle(box).scrollbarWidth,
         snap: getComputedStyle(box).scrollSnapType,
-        arrowsHidden: [...row.querySelectorAll('.partner-arrow')]
+        arrowsHidden: [...row.querySelectorAll('.marquee-arrow')]
             .map(b => b.hidden),
-        arrowsDisabled: [...row.querySelectorAll('.partner-arrow')]
+        arrowsDisabled: [...row.querySelectorAll('.marquee-arrow')]
             .map(b => b.disabled)
     };
 }"""
@@ -212,9 +263,9 @@ MEASURE = """() => {
 # the visible box, sort, and walk the edges. A design gap between two
 # cards is normal; anything wider is a hole.
 WORST_HOLE = """() => {
-    const box = document.getElementById('partnerRow');
+    const box = document.querySelector(window.__row);
     const b = box.getBoundingClientRect();
-    const spans = [...box.querySelectorAll('.partner-card')]
+    const spans = [...box.querySelectorAll('.marquee-set > *')]
         .map(c => c.getBoundingClientRect())
         .filter(r => r.right > b.left + 0.5 && r.left < b.right - 0.5)
         .map(r => [Math.max(r.left, b.left), Math.min(r.right, b.right)])
@@ -229,13 +280,18 @@ WORST_HOLE = """() => {
     return Math.round(worst);
 }"""
 
-SCROLL_LEFT = "() => document.getElementById('partnerRow').scrollLeft"
+SCROLL_LEFT = "() => document.querySelector(window.__row).scrollLeft"
 
 
 def show_row(page):
-    """Bring the row on screen — the drift stops while it is not."""
-    page.evaluate("""() => document.querySelector('.partner-row')
-        .scrollIntoView({behavior: 'instant', block: 'center'})""")
+    """Bring the row under test on screen — the drift stops while it is
+    not. Tolerates there being no row at all: below the threshold the
+    section is a plain grid, and one check opens the page in that state
+    deliberately."""
+    page.evaluate("""(sel) => {
+        const row = document.querySelector(sel);
+        if (row) row.scrollIntoView({behavior: 'instant', block: 'center'});
+    }""", ROW_SEL)
     page.wait_for_timeout(120)
 
 
@@ -283,9 +339,9 @@ def card_point(page, nth=0):
     of THAT — which is on the card wherever the row happens to be.
     """
     return page.evaluate("""(nth) => {
-        const box = document.getElementById('partnerRow');
+        const box = document.querySelector(window.__row);
         const b = box.getBoundingClientRect();
-        const seen = [...box.querySelectorAll('.partner-card')]
+        const seen = [...box.querySelectorAll('.marquee-set > *')]
             .map(c => {
                 const r = c.getBoundingClientRect();
                 const left = Math.max(r.left, b.left + 2);
@@ -321,6 +377,10 @@ def open_home(browser, width, motion, **options):
     """
     ctx = new_context(browser, width, height_for(width), motion=motion,
                       **options)
+    # Every JS snippet in this file says document.querySelector(
+    # window.__row); this is where that is answered, once per context.
+    ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
+    ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
     page = ctx.new_page()
     page.goto(BASE + "/", wait_until="load")
     show_row(page)
@@ -339,7 +399,7 @@ with sync_playwright() as pw:
         seed(count)
         for width, _height in VIEWPORTS:
             ctx, page = open_home(browser, width, MOVING)
-            tag = "scroll %d partners %dpx" % (count, width)
+            tag = "scroll %d %s %dpx" % (count, ROW_NAME, width)
             m = page.evaluate(MEASURE)
             check("%s: the scroller is the one on the page" % tag,
                   m is not None and m["setsInMarkup"] == 2, str(m))
@@ -409,11 +469,16 @@ with sync_playwright() as pw:
             # the focused card into view — the same second offset by
             # another route.
             page.mouse.move(0, 0)
-            page.evaluate("""() => {
+            # The last REAL card, or — for a row whose cards are not
+            # focusable, like quotes — the scroller itself, which
+            # carries tabindex for exactly this reason.
+            page.evaluate("""(sel) => {
                 const real = document.querySelector(
-                    '.partner-set:not([aria-hidden]) .partner-card:last-child');
-                if (real) real.focus();
-            }""")
+                    sel + ' .marquee-set:not([aria-hidden]) > *:last-child');
+                const target = (real && real.tabIndex >= 0) ? real
+                    : document.querySelector(window.__row);
+                target.focus();
+            }""", ROW_SEL)
             page.wait_for_timeout(200)
             hole = worst_hole_over(page, 600)
             check("%s: no gap after a Tab into the row" % tag,
@@ -447,7 +512,7 @@ with sync_playwright() as pw:
         before = settle(page)
         # Wait for the interval to fire rather than assuming when.
         page.wait_for_function(
-            "(was) => Math.abs(document.getElementById('partnerRow')"
+            "(was) => Math.abs(document.querySelector(window.__row)"
             ".scrollLeft - was) > 1", arg=before,
             timeout=(STEP_SECONDS + 3) * 1000)
         landed = settle(page)
@@ -488,8 +553,12 @@ with sync_playwright() as pw:
           abs(page.evaluate(SCROLL_LEFT) - held) > 2,
           "moved %.1f" % (page.evaluate(SCROLL_LEFT) - held))
 
-    page.evaluate("""() => document.querySelector(
-        '.partner-set:not([aria-hidden]) .partner-card').focus()""")
+    page.evaluate("""(sel) => {
+        const real = document.querySelector(
+            sel + ' .marquee-set:not([aria-hidden]) > *');
+        ((real && real.tabIndex >= 0) ? real
+            : document.querySelector(window.__row)).focus();
+    }""", ROW_SEL)
     page.wait_for_timeout(200)
     focused = page.evaluate(SCROLL_LEFT)
     page.wait_for_timeout(700)
@@ -519,35 +588,56 @@ with sync_playwright() as pw:
             ctx.close()
             continue
 
+        # Far enough to survive the SNAP. The row rests on a card
+        # start, so a drag shorter than half a stride is pulled back
+        # where it came from — which is snapping working, not the drag
+        # failing. 180px was fine for a 278px partner stride and lands
+        # short of half a 378px quote stride, so take it from the row.
         before = page.evaluate(SCROLL_LEFT)
+        pull = -int(page.evaluate(MEASURE)["cardStride"] * 0.8) or -180
         try:
             with page.expect_popup(timeout=900) as popped:
-                drag(page, point, -180)
+                drag(page, point, pull)
             opened = popped.value is not None
         except PWTimeout:
             opened = False
         after = settle(page)
         check("%s: a drag scrolls the row" % tag, after - before > 40,
-              "moved %.0f" % (after - before))
-        check("%s: a drag does NOT open the partner" % tag, not opened)
+              "moved %.0f after a %dpx pull" % (after - before, pull))
+        check("%s: a drag does NOT open the card" % tag, not opened)
 
         # A hand is never perfectly still: under the threshold it is a
         # click, and the link must open. This is the case that broke
         # when the pointer was captured on pointerdown — the click
         # retargeted to the row and the partner never opened.
-        point = card_point(page)
-        try:
-            with page.expect_popup(timeout=3000) as popped:
-                drag(page, point, -3, steps=2)
-            popup = popped.value
-            opened = True
-        except PWTimeout:
-            popup, opened = None, False
-        check("%s: a small wobble still counts as a click" % tag, opened)
-        if popup:
-            check("%s: and opens that partner, not the row" % tag,
-                  "partner=" in popup.url, popup.url)
-            popup.close()
+        # Only a row whose cards are LINKS can be asked this: the
+        # thing being tested is that the click reaches the card rather
+        # than being swallowed by the row, and a quote card has nothing
+        # to click through to. The rest of the drag behaviour above
+        # applies to both rows and is checked for both.
+        if ROW_NAME == "partners":
+            point = card_point(page)
+            try:
+                with page.expect_popup(timeout=3000) as popped:
+                    drag(page, point, -3, steps=2)
+                popup = popped.value
+                opened = True
+            except PWTimeout:
+                popup, opened = None, False
+            check("%s: a small wobble still counts as a click" % tag, opened)
+            if popup:
+                check("%s: and opens that partner, not the row" % tag,
+                      "partner=" in popup.url, popup.url)
+                popup.close()
+        else:
+            # ...but a wobble must still not RUN AWAY with the row.
+            point = card_point(page)
+            steady = page.evaluate(SCROLL_LEFT)
+            drag(page, point, -3, steps=2)
+            page.wait_for_timeout(200)
+            check("%s: a small wobble does not shift the row" % tag,
+                  abs(page.evaluate(SCROLL_LEFT) - steady) <= 2,
+                  "moved %.1f" % (page.evaluate(SCROLL_LEFT) - steady))
         ctx.close()
 
     # ================================================================
@@ -589,7 +679,7 @@ with sync_playwright() as pw:
         const s = document.createElement('style');
         s.id = 'shrink';
         s.textContent =
-            '.partner-marquee .partner-card{flex:0 0 20px;width:20px}';
+            '.marquee .marquee-set > *{flex:0 0 20px;width:20px}';
         document.head.appendChild(s);
         window.dispatchEvent(new Event('resize'));
     }""")
@@ -607,14 +697,14 @@ with sync_playwright() as pw:
           not any(page.evaluate(MEASURE)["arrowsHidden"]))
 
     # ---- disabled at each end
-    page.evaluate("() => { document.getElementById('partnerRow')"
+    page.evaluate("() => { document.querySelector(window.__row)"
                   ".scrollLeft = 0; }")
     page.wait_for_timeout(120)
     m = page.evaluate(MEASURE)
     check("arrows: previous is disabled at the left end",
           m["arrowsDisabled"][0] and not m["arrowsDisabled"][1],
           str(m["arrowsDisabled"]))
-    page.evaluate("""() => { const b = document.getElementById('partnerRow');
+    page.evaluate("""() => { const b = document.querySelector(window.__row);
         b.scrollLeft = b.scrollWidth; }""")
     page.wait_for_timeout(120)
     m = page.evaluate(MEASURE)
@@ -623,20 +713,20 @@ with sync_playwright() as pw:
           str(m["arrowsDisabled"]))
 
     # ---- one card per press, from the keyboard alone
-    page.evaluate("() => { document.getElementById('partnerRow')"
+    page.evaluate("() => { document.querySelector(window.__row)"
                   ".scrollLeft = 0; }")
     page.wait_for_timeout(120)
     m = page.evaluate(MEASURE)
-    page.focus(".partner-arrow-next")
+    page.focus(ROW_SEL + ' .marquee-arrow-next')
     check("arrows: the next button takes keyboard focus",
           page.evaluate("() => document.activeElement.className")
-          .find("partner-arrow-next") >= 0)
+          .find("marquee-arrow-next") >= 0)
     page.keyboard.press("Enter")
     landed = settle(page)
     check("arrows: Enter moves the row one card",
           abs(landed - m["cardStride"]) <= 2,
           "moved %.0f, stride %.0f" % (landed, m["cardStride"]))
-    page.focus(".partner-arrow-prev")
+    page.focus(ROW_SEL + ' .marquee-arrow-prev')
     page.keyboard.press("Enter")
     back = settle(page)
     check("arrows: and back again", abs(back) <= 2, "left at %.0f" % back)
@@ -650,7 +740,7 @@ with sync_playwright() as pw:
     set_motion("none")
     ctx, page = open_home(browser, 390, STILL, has_touch=True)
     page.evaluate("""() => {
-        const row = document.querySelector('.partner-row');
+        const row = document.querySelector('.marquee-row');
         window.__sawDragging = false;
         new MutationObserver(() => {
             if (row.classList.contains('is-dragging'))
@@ -721,6 +811,18 @@ with sync_playwright() as pw:
     # So each case below breaks the script in a different way and asserts
     # the same three things: one set, five cards, arrows showing.
     # ================================================================
+    # ---- below the threshold there is no scroller at all
+    seed(ROW["min"] - 1)
+    ctx, page = open_home(browser, 1024, STILL)
+    check("%d %s: a plain grid, no scroller" % (ROW["min"] - 1, ROW_NAME),
+          page.evaluate("() => !document.querySelector(window.__row)"))
+    ctx.close()
+    seed(ROW["min"])
+    ctx, page = open_home(browser, 1024, STILL)
+    check("%d %s: and at the threshold it becomes one" % (ROW["min"], ROW_NAME),
+          page.evaluate("() => !!document.querySelector(window.__row)"))
+    ctx.close()
+
     seed(5)
     for width in FALLBACK_WIDTHS:
 
@@ -761,6 +863,7 @@ with sync_playwright() as pw:
             window.matchMedia = function () {
                 throw new TypeError('no matchMedia here');
             };""")
+        ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
         page = ctx.new_page()
         page.goto(BASE + "/", wait_until="load")
         show_row(page)
@@ -801,6 +904,7 @@ with sync_playwright() as pw:
                 get: function () { return 0; },
                 set: function () {},
                 configurable: true});""")
+        ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
         page = ctx.new_page()
         page.goto(BASE + "/", wait_until="load")
         show_row(page)
@@ -824,13 +928,14 @@ with sync_playwright() as pw:
     set_motion("step")
     ctx = new_context(browser, 360, height_for(360), motion=MOVING)
     ctx.add_init_script("delete Element.prototype.scrollBy;")
+    ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
     page = ctx.new_page()
     page.goto(BASE + "/", wait_until="load")
     show_row(page)
     m = page.evaluate(MEASURE)
     check("no Element.scrollBy: the row has no scrollBy to call",
           page.evaluate(
-              "() => !document.getElementById('partnerRow').scrollBy"))
+              "() => !document.querySelector(window.__row).scrollBy"))
     page.wait_for_timeout(STEP_SECONDS * 1000 + 400)
     landed = settle(page)
     check("no Element.scrollBy: it steps one card anyway",
@@ -852,8 +957,8 @@ with sync_playwright() as pw:
           str(m["arrowsHidden"]))
     check("360px: only the real cards are in that overflow",
           m["cardsRendered"] == 5, str(m["cardsRendered"]))
-    arrow = page.locator(".partner-arrow-next").bounding_box()
-    row = page.locator(".partner-marquee").bounding_box()
+    arrow = page.locator(ROW_SEL + ' .marquee-arrow-next').bounding_box()
+    row = page.locator(ROW_SEL + ' .marquee').bounding_box()
     check("360px: the arrows sit under the row, not beside it",
           arrow["y"] >= row["y"] + row["height"] - 2,
           "arrow at %.0f, row ends %.0f" % (arrow["y"],
@@ -864,10 +969,10 @@ with sync_playwright() as pw:
     # Not the same as "not hidden": on a phone the arrows sit under the
     # row, which is where the cookie notice is too. Ask the browser what
     # is actually at each button rather than trusting the rectangle.
-    blocked = unreachable(page, ".partner-arrow", scroll=False)
+    blocked = unreachable(page, ".marquee-arrow", scroll=False)
     check("360px: and nothing is painted over them", not blocked,
           str(blocked))
-    page.click(".partner-arrow-next")
+    page.click(ROW_SEL + ' .marquee-arrow-next')
     landed = settle(page)
     check("360px: the next arrow moves the row one card",
           abs(landed - m["cardStride"]) <= 3,
@@ -905,7 +1010,7 @@ with sync_playwright() as pw:
     def time_one_step(page):
         """How long one step takes, from first movement to settled."""
         return page.evaluate("""() => new Promise(resolve => {
-            const box = document.getElementById('partnerRow');
+            const box = document.querySelector(window.__row);
             const from = box.scrollLeft;
             let t0 = 0, last = from, still = 0;
             const started = performance.now();
@@ -934,7 +1039,7 @@ with sync_playwright() as pw:
     def drift_over(page, ms=1200):
         """Pixels the row drifts in `ms` of wall clock."""
         return page.evaluate("""(ms) => new Promise(resolve => {
-            const box = document.getElementById('partnerRow');
+            const box = document.querySelector(window.__row);
             const from = box.scrollLeft;
             const t0 = performance.now();
             setTimeout(() => resolve({
@@ -1011,14 +1116,14 @@ with sync_playwright() as pw:
     set_motion("step", seconds=1, glide=3000)
     ctx, page = open_home(browser, 1024, MOVING)
     capped = page.evaluate(
-        "() => document.querySelector('.partner-row')"
+        "() => document.querySelector('.marquee-row')"
         ".getAttribute('data-glide-ms')")
     check("a glide longer than the interval is capped to it",
           capped == "1000", str(capped))
     # Watch it for several intervals: with two movements overlapping the
     # row would jump backwards, so assert it only ever goes forwards.
     backwards = page.evaluate("""() => new Promise(resolve => {
-        const box = document.getElementById('partnerRow');
+        const box = document.querySelector(window.__row);
         let last = box.scrollLeft, worst = 0, wrapped = 0;
         const t0 = performance.now();
         function tick(now) {

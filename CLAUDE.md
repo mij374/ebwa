@@ -622,6 +622,20 @@ Built and maintained by Netbus IT Support.
     expected, so a missing tie-break fails rather than passing by luck
     on SQLite's rowid. Eleven checks in it fail without the keys added
     in the same commit.
+- Testimonials follow the list-plus-form-page pattern (`Add`, `Edit`,
+  publish toggle, delete) like partners, resources and services.
+  **Editing matters more here than elsewhere: a testimonial is somebody
+  else's words**, and before the edit route existed a typo in a quote
+  could only be fixed by deleting it and typing it again from memory.
+  - The quote row is keyboard-reachable through `tabindex="0"` on the
+    scroller, because unlike a partner card a quote holds no link and
+    there is nothing inside it to Tab to. A focusable scroll container
+    is scrolled by the arrow keys natively, and focusing it pauses the
+    motion like any other focus in the row.
+  - The homepage still shows at most SIX quotes, from when the section
+    was a grid of three by two. The cap is unchanged by the row becoming
+    a scroller — raising it is a decision about the page, not a
+    consequence of the change.
 - Every public page must be reachable from the nav or the footer.
   `tests/smoke_test_navigation.py` walks the URL map and fails otherwise;
   a page reached from inside a section (`/gallery/all`) is listed there
@@ -854,10 +868,10 @@ and asserts each `min`/`max` against the range its route enforces. Run
 it after adding or changing any number input:
 `python tests/check_number_inputs.py`.
 
-`tests/check_partner_marquee.py` is the other behavioural one, for the
-partner scroller — the half of it that only a browser can answer, the
+`tests/check_marquees.py` is the other behavioural one, for the two
+scrolling rows — the half of it that only a browser can answer, the
 markup half staying in `tests/smoke_test_partners.py`. It drives the row
-at every shared viewport and at 5/7/9 partners and asserts the loop closes with
+at every shared viewport and at 5/7/9 partners (4/6/8 quotes) and asserts the loop closes with
 NO GAP (measured as a reader sees it — cards clipped to the visible
 strip, widest empty run found — at rest and after each of a drag, a
 wheel and a Tab, the three things that used to open one), that a step is
@@ -874,8 +888,19 @@ move) and asserts the same three things every time: one set rendered,
 five cards not ten, arrows showing. It also drives a phone-width row
 with no `Element.scrollBy` at all, and checks the two ways of moving a
 row that has no scrollbar — arrows and a swipe — at 360.
-Run it after touching the row, its script or `PARTNER_MOTIONS`:
-`python tests/check_partner_marquee.py [--shots DIR]`. It also reports
+It runs the WHOLE file once per row: `--row partners` or `--row
+testimonials`, and with neither it runs itself for both in turn, each
+with its own database, server and exit code. Every selector in it is
+scoped by `ROW_SEL` and every JS snippet reads `window.__row`, so the
+same checks drive whichever row is named. Two things it knows about the
+difference between them: a quote card holds no link, so the "a wobble
+still opens the card" check is partner-only and the quote row asserts
+the row does not shift instead; and a drag has to travel MORE THAN HALF
+A STRIDE or scroll-snapping pulls it back, so the drag distance is taken
+from the row's own card rather than being the 180px that suited a 260px
+partner card.
+Run it after touching either row, the shared script or `MOTION_ROWS`:
+`python tests/check_marquees.py [--row NAME] [--shots DIR]`. It also reports
 the step wrap's headroom (see the partner rules above) as a WARNING
 rather than a failure, and prints the tightest margin it saw — headroom
 running out makes the row untidy, not broken, and a check that failed
@@ -962,7 +987,7 @@ reduce`, set per context through `tests/browser_motion.py`
   Chromium's own default, so what the check assumes is written where the
   page is opened.
 - **A check testing motion itself asks for `MOVING` at the check** —
-  `tests/check_partner_marquee.py`, whose drift, stepping and
+  `tests/check_marquees.py`, whose drift, stepping and
   arrow-swapping are the behaviour under test. Inheriting the still
   default there would pass while measuring a row that never moved, and
   under reduced motion the script never adds `.is-moving`, so the
@@ -1215,9 +1240,15 @@ Built (post-signing variation, Jul 2026):
     looks like a mistake. Never crop or stretch a partner's mark to fill
     a box — it is somebody's identity, and the admin field says what
     size to supply (400x200 PNG, transparent).
-  - More than four partners becomes a scroller (`.partner-marquee`
-    inside `.partner-row`), four or fewer stay the static
-    `.partner-grid`. Rules for it:
+  - Enough partners becomes a scroller, fewer stay the static
+    `.partner-grid`. **The scroller is SHARED with the testimonial
+    row** — one `.marquee` implementation, one `setupMarquee()` run over
+    every `.marquee-row` on the page, one stylesheet block. A second
+    copy for the second row would be a second place to fix the next
+    thing found in it. What differs per row is the CARD
+    (`.partner-card`, `.quote-card`) and the threshold
+    (`ROW_SCROLLER_MIN`: five logos, four quotes, a quote card being far
+    wider). Rules for it:
     - **ONE offset moves the row: its own `scrollLeft`.** The drift, the
       stepping, dragging, swiping and the arrows all push that same
       number, and the script wraps it back by exactly one set so the row
@@ -1268,12 +1299,22 @@ Built (post-signing variation, Jul 2026):
     - The logos are deliberately NOT `loading="lazy"`. They are 200x100
       thumbnails that the row brings into view constantly, so lazy
       loading buys nothing and risks a blank tile arriving mid-scroll.
-    - How it moves is a SITE setting, not a per-partner one:
-      `PARTNER_MOTIONS` (scroll / step / none) plus
-      `partners_step_seconds`, both Blocks, both set at Admin →
-      Partners and both in `HIDDEN_BLOCK_KEYS`. The mode reaches the
-      page as `data-motion` on `.partner-row`, never as Jinja inside the
+    - How it moves is a SITE setting, not a per-card one:
+      `ROW_MOTIONS` (scroll / step / none) plus an interval, all Blocks,
+      all in `HIDDEN_BLOCK_KEYS`. The mode reaches the page as
+      `data-motion` on the `.marquee-row`, never as Jinja inside the
       script.
+    - **Each row has its OWN settings** (`MOTION_ROWS`), saved and reset
+      by one shared pair of helpers (`save_row_motion()`,
+      `reset_row_speeds()`) behind two thin routes each. Separate and
+      not shared because the rows are READ differently: a logo is
+      glanced at, a testimonial is somebody's words that a visitor has
+      to read, and moving text is harder to read than a moving logo. One
+      setting would force a compromise on whichever row lost. Only the
+      DEFAULT MODE differs — testimonials ship `none`, a still row with
+      arrows — and the bounds and speed defaults are shared constants so
+      nothing is decided twice. Adding a third row means an entry in
+      `MOTION_ROWS`, a settings form and two thin routes; nothing else.
     - HOW FAST it moves is two more Blocks, `PARTNER_SPEEDS`:
       `partners_step_glide_ms` (how long ONE step takes) and
       `partners_drift_speed` (the continuous drift, in PIXELS A SECOND).
@@ -1320,7 +1361,7 @@ Built (post-signing variation, Jul 2026):
       `--partner-gap` (18px) and that margin goes first — past it the
       browser clamps the last step before the wrap into a stub, and the
       row still loops and still shows no gap, it just arrives untidily.
-      `tests/check_partner_marquee.py` measures it at every width and
+      `tests/check_marquees.py` measures it at every width and
       count and WARNS with the numbers rather than failing, since a
       stub step is untidy and not broken; it prints the tightest margin
       it saw at the end of every run. Watch that number if either value
