@@ -1227,6 +1227,68 @@ def interleave_content(paragraphs, images):
     return rows
 
 
+
+# ------------------------------------------------- events: day order
+# Enough rows for the day ordering below to be sure of its answer. The
+# SQL has already put the right DAYS first, and the sort only ever moves
+# events around WITHIN a day, so the handful a page actually shows come
+# from the first day or two — nowhere near this. It is a guard against
+# loading years of events to print twelve, not a correctness knob.
+EVENT_FETCH = 200
+
+
+def start_minutes(text):
+    """Minutes past midnight from an event's free-text start time.
+
+    `start_time` is a text box — "6:30 PM", "18:30", "7pm", "Doors 6.45"
+    — because that is what somebody typing an event actually writes, and
+    it prints on the page exactly as typed. Sorting it as text is
+    nonsense, though: "10:00 AM" comes before "6:30 AM" alphabetically.
+
+    So read the first time-like thing in it. Returns None when there is
+    no number to read at all ("", "Evening", "TBC"), which is what puts
+    those entries AFTER the timed ones rather than before.
+    """
+    match = re.search(r"(\d{1,2})\s*[:.]?\s*(\d{2})?\s*(a\.?m|p\.?m)?",
+                      (text or "").lower())
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    half = (match.group(3) or "").replace(".", "")
+    if half == "pm" and hour < 12:
+        hour += 12
+    elif half == "am" and hour == 12:      # 12:20am is twenty past midnight
+        hour = 0
+    if hour > 23 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def events_in_day_order(rows, newest_day_first=False):
+    """Events by day, and WITHIN a day by when they start.
+
+    Somebody reading one day's programme expects it in the order they
+    could attend it, so the time sort is always ascending — even in the
+    past list, where the DAYS run backwards. Inside a day: timed entries
+    first, in time order; then the ones with no readable time, by title;
+    and `id` last so that two identical entries still have an order.
+
+    Done in Python rather than SQL because no database can sort
+    "6:30 PM" against "18:30", and normalising it into a column would be
+    a schema change for something only ever read a page at a time.
+    """
+    def key(ev):
+        minutes = start_minutes(ev.start_time)
+        day = ev.event_date.toordinal()
+        return (-day if newest_day_first else day,
+                minutes is None,                       # timed entries first
+                minutes if minutes is not None else 0,
+                (ev.title or "").lower(),
+                ev.id)
+    return sorted(rows, key=key)
+
+
 # ------------------------------------------------------- feature flags
 # The optional/phased modules Netbus can switch on or off per site. Core
 # pages (home, about, events, gallery, contact) are deliberately NOT
@@ -2222,16 +2284,19 @@ def backup_in_progress():
     return (BackupRun.query
             .filter(BackupRun.status == "running",
                     BackupRun.started_at >= cutoff)
-            .order_by(BackupRun.started_at.desc()).first())
+            .order_by(BackupRun.started_at.desc(),
+                              BackupRun.id.desc()).first())
 
 
 def backup_status():
     """Everything the Settings panel shows. Read-only, no side effects."""
     paths = backup_paths()
     last = (BackupRun.query.filter_by(status="ok")
-            .order_by(BackupRun.started_at.desc()).first())
+            .order_by(BackupRun.started_at.desc(),
+                              BackupRun.id.desc()).first())
     last_failed = (BackupRun.query.filter_by(status="failed")
-                   .order_by(BackupRun.started_at.desc()).first())
+                   .order_by(BackupRun.started_at.desc(),
+                              BackupRun.id.desc()).first())
     try:
         archives = [f for f in os.listdir(paths["dir"])
                     if f.startswith(BACKUP_PREFIX) and f.endswith(".zip")]
@@ -2828,7 +2893,8 @@ def home():
                 .filter_by(published=True)
                 .filter(Event.event_date >= date.today())
                 .order_by(Event.event_date.asc(), Event.id.asc())
-                .limit(3).all())
+                .limit(EVENT_FETCH).all())
+    upcoming = events_in_day_order(upcoming)[:3]
     latest_news = []
     if feature_enabled("news"):
         latest_news = (NewsPost.query.filter_by(published=True)
@@ -2839,7 +2905,8 @@ def home():
     campaigns = []
     if feature_enabled("donations"):
         campaigns = (Campaign.query.filter_by(active=True)
-                     .order_by(Campaign.created_at.desc()).all())
+                     .order_by(Campaign.created_at.desc(),
+                               Campaign.id.desc()).all())
     testimonials = (Testimonial.query.filter_by(published=True)
                     .order_by(Testimonial.sort,
                               Testimonial.created_at.desc(),
@@ -2928,13 +2995,15 @@ def about():
 @app.route("/events")
 def events():
     today = date.today()
-    upcoming = (Event.query.filter_by(published=True)
-                .filter(Event.event_date >= today)
-                .order_by(Event.event_date.asc(), Event.id.asc()).all())
-    past = (Event.query.filter_by(published=True)
-            .filter(Event.event_date < today)
-            .order_by(Event.event_date.desc(), Event.id.desc())
-            .limit(12).all())
+    upcoming = events_in_day_order(
+        Event.query.filter_by(published=True)
+        .filter(Event.event_date >= today)
+        .order_by(Event.event_date.asc(), Event.id.asc()).all())
+    past = events_in_day_order(
+        Event.query.filter_by(published=True)
+        .filter(Event.event_date < today)
+        .order_by(Event.event_date.desc(), Event.id.desc())
+        .limit(EVENT_FETCH).all(), newest_day_first=True)[:12]
     return render_template("events.html", upcoming=upcoming, past=past)
 
 
@@ -3228,9 +3297,11 @@ def collections():
     out of that row.
     """
     open_now = (Campaign.query.filter_by(active=True)
-                .order_by(Campaign.created_at.desc()).all())
+                .order_by(Campaign.created_at.desc(),
+                          Campaign.id.desc()).all())
     closed = (Campaign.query.filter_by(active=False)
-              .order_by(Campaign.created_at.desc()).all())
+              .order_by(Campaign.created_at.desc(),
+                        Campaign.id.desc()).all())
     return render_template("collections.html", open_now=open_now,
                            closed=closed)
 
@@ -4208,8 +4279,9 @@ def admin_layout_save(owner_type, owner_id):
 @app.route("/admin/events")
 @login_required
 def admin_events():
-    rows = Event.query.order_by(Event.event_date.desc(),
-                                Event.id.desc()).all()
+    rows = events_in_day_order(
+        Event.query.order_by(Event.event_date.desc(), Event.id.desc()).all(),
+        newest_day_first=True)
     return render_template("admin/events_list.html", rows=rows)
 
 
@@ -4428,9 +4500,18 @@ def admin_service_delete(service_id):
 
 # ---------------------------------------------------------------- admin: gallery
 def album_choices():
-    """Every album, for the upload and move pickers."""
+    """Every album, for the upload and move pickers.
+
+    Alphabetical within a sort group, which is DIFFERENT from the album
+    list and the public gallery — both of those end newest-first. The
+    divergence is deliberate: a picker is for FINDING one album by name
+    in a dropdown, where alphabetical is the only order anybody can
+    predict, while a list is for PRESENTING them, where the arrangement
+    an admin has chosen is the point. Keep them apart.
+    """
     return GalleryAlbum.query.order_by(GalleryAlbum.sort,
-                                       GalleryAlbum.title).all()
+                                       GalleryAlbum.title,
+                                       GalleryAlbum.id).all()
 
 
 def album_arg(name="album_id"):
@@ -5111,7 +5192,8 @@ def admin_messages():
         q = q.filter(ContactMessage.status == status)
     else:
         status = ""
-    rows = q.order_by(ContactMessage.created_at.desc()).all()
+    rows = q.order_by(ContactMessage.created_at.desc(),
+                      ContactMessage.id.desc()).all()
     counts = dict(db.session.query(ContactMessage.status,
                                    db.func.count(ContactMessage.id))
                   .group_by(ContactMessage.status).all())
@@ -5164,7 +5246,8 @@ def admin_message_delete(message_id):
 @app.route("/admin/subscribers")
 @login_required
 def admin_subscribers():
-    rows = Subscriber.query.order_by(Subscriber.created_at.desc()).all()
+    rows = Subscriber.query.order_by(Subscriber.created_at.desc(),
+                                     Subscriber.id.desc()).all()
     return render_template("admin/subscribers.html", rows=rows)
 
 
@@ -5172,7 +5255,8 @@ def admin_subscribers():
 @login_required
 def admin_subscribers_csv():
     lines = ["email,subscribed_on"]
-    for s in Subscriber.query.order_by(Subscriber.created_at).all():
+    for s in Subscriber.query.order_by(Subscriber.created_at,
+                                       Subscriber.id).all():
         lines.append("%s,%s" % (s.email,
                                 utc_as_uk(s.created_at).strftime("%Y-%m-%d")))
     log_action("export", entity=("Subscriber", None),
@@ -5200,7 +5284,8 @@ def admin_subscriber_delete(s_id):
 @app.route("/admin/campaigns")
 @login_required
 def admin_campaigns():
-    rows = Campaign.query.order_by(Campaign.created_at.desc()).all()
+    rows = Campaign.query.order_by(Campaign.created_at.desc(),
+                                   Campaign.id.desc()).all()
     return render_template("admin/campaigns_list.html", rows=rows)
 
 
@@ -5282,7 +5367,8 @@ def admin_campaign_delete(campaign_id):
 def admin_campaign_contributors(campaign_id):
     camp = db.session.get(Campaign, campaign_id) or abort(404)
     rows = (Payment.query.filter_by(campaign_id=camp.id)
-            .order_by(Payment.created_at.desc()).all())
+            .order_by(Payment.created_at.desc(),
+                      Payment.id.desc()).all())
     log_action("export", entity=camp,
                summary="Viewed the printable contributor list for “%s” "
                        "(%d payments)." % (camp.title, len(rows)))
@@ -5296,7 +5382,7 @@ def admin_campaign_contributors_csv(campaign_id):
     import io
     camp = db.session.get(Campaign, campaign_id) or abort(404)
     rows = (Payment.query.filter_by(campaign_id=camp.id)
-            .order_by(Payment.created_at).all())
+            .order_by(Payment.created_at, Payment.id).all())
     log_action("export", entity=camp,
                summary="Exported the contributor list for “%s” as CSV "
                        "(%d payments)." % (camp.title, len(rows)))
@@ -5364,7 +5450,7 @@ def gift_aid_claimable_query(date_from=None, date_to=None):
     if date_to:
         q = q.filter(Payment.created_at
                      < uk_midnight_as_utc(date_to + timedelta(days=1)))
-    return q.order_by(Payment.created_at)
+    return q.order_by(Payment.created_at, Payment.id)
 
 
 def describe_range(date_from, date_to):
@@ -5444,7 +5530,8 @@ def admin_gift_aid_csv():
 @login_required
 def admin_gift_aid_declarations():
     rows = (Payment.query.filter(Payment.gift_aid == True)  # noqa: E712
-            .order_by(Payment.created_at.desc()).all())
+            .order_by(Payment.created_at.desc(),
+                      Payment.id.desc()).all())
     log_action("export", entity=("Payment", None),
                summary="Viewed the Gift Aid declaration records "
                        "(%d declarations)." % len(rows))
@@ -5456,7 +5543,8 @@ def admin_gift_aid_declarations():
 @login_required
 def admin_membership():
     rows = (MembershipApplication.query
-            .order_by(MembershipApplication.created_at.desc()).all())
+            .order_by(MembershipApplication.created_at.desc(),
+                      MembershipApplication.id.desc()).all())
     return render_template("admin/membership.html", rows=rows,
                            statuses=MEMBERSHIP_STATUSES)
 
@@ -5472,7 +5560,8 @@ def admin_membership_csv():
                 "applied_on"])
     count = 0
     for m in (MembershipApplication.query
-              .order_by(MembershipApplication.created_at).all()):
+              .order_by(MembershipApplication.created_at,
+                        MembershipApplication.id).all()):
         count += 1
         w.writerow([m.name, m.email, m.phone, m.address, m.reason,
                     m.status,
@@ -5714,7 +5803,8 @@ def admin_features():
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
         last_transfer=(BackupRun.query
                        .filter(BackupRun.transfer_status.in_(("ok", "failed")))
-                       .order_by(BackupRun.started_at.desc()).first()),
+                       .order_by(BackupRun.started_at.desc(),
+                              BackupRun.id.desc()).first()),
         alert_to=security_alert_setting(),
         failed_logins=failed_logins_since(),
         failed_window=FAILED_LOGIN_WINDOW_HOURS,
@@ -6571,7 +6661,8 @@ def scheduled_run_due(now=None):
     done = (BackupRun.query
             .filter(BackupRun.reason == "scheduled",
                     BackupRun.started_at >= due_at)
-            .order_by(BackupRun.started_at.desc()).first())
+            .order_by(BackupRun.started_at.desc(),
+                              BackupRun.id.desc()).first())
     if done is None:
         return True, "today's run has not happened yet"
     if done.status != "ok":
@@ -6618,7 +6709,8 @@ def run_scheduled_backup():
     existing = (BackupRun.query
                 .filter(BackupRun.reason == "scheduled",
                         BackupRun.status == "ok")
-                .order_by(BackupRun.started_at.desc()).first())
+                .order_by(BackupRun.started_at.desc(),
+                              BackupRun.id.desc()).first())
     today = datetime.utcnow().date()
     if (existing and existing.started_at.date() == today
             and existing.transfer_status != "ok"):

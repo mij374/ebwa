@@ -42,7 +42,10 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 from app import (app, db, AuditLog, Block, ContentImage,  # noqa: E402
                  DEFAULT_BLOCKS, Event, FEATURES, Faq, FeatureFlag,
                  GalleryAlbum, GalleryImage, Milestone, NewsPost,
-                 Partner, Resource, Service, Testimonial, User)
+                 Partner, Resource, Service, Testimonial, User,
+                 BackupRun, Campaign, ContactMessage,
+                 MembershipApplication, Subscriber,
+                 album_choices, events_in_day_order, start_minutes)
 
 app.config["TESTING"] = True
 failures = []
@@ -325,41 +328,96 @@ check("blocks: the editor lists a group in a fixed order (id), not the "
       and in_order(admin, want_fields), show(admin, want_fields))
 
 # =====================================================================
-# Events — upcoming ASCENDING, past DESCENDING, ties by id
+# Events — day order, then the DAY'S PROGRAMME: earliest start first,
+# entries with no readable time after those with one, then title, then
+# id. A visitor reading one day expects to read it in the order they
+# could attend it, which is why the time sort runs forwards even in the
+# past list where the days run backwards.
 # =====================================================================
+check("start times: read as times, not as text",
+      [start_minutes(t) for t in ("6:30 PM", "18:30", "7pm", "10:00 AM",
+                                  "6:30 AM", "12 pm", "12:20am")]
+      == [1110, 1110, 1140, 600, 390, 720, 20],
+      str([start_minutes(t) for t in ("6:30 PM", "18:30", "7pm", "10:00 AM",
+                                      "6:30 AM", "12 pm", "12:20am")]))
+check("start times: 10am really does sort before 6:30am now",
+      start_minutes("10:00 AM") > start_minutes("6:30 AM"))
+check("start times: nothing readable means no time at all",
+      [start_minutes(t) for t in ("", "Evening", "TBC", None)]
+      == [None, None, None, None])
+
 with app.app_context():
-    soon, later = date.today() + timedelta(days=3), date.today() + timedelta(days=40)
-    gone, older = date.today() - timedelta(days=3), date.today() - timedelta(days=40)
-    for title, when in (("EvSoonB", soon), ("EvSoonA", soon),
-                        ("EvLater", later), ("EvGoneB", gone),
-                        ("EvGoneA", gone), ("EvOlder", older)):
+    soon = date.today() + timedelta(days=3)
+    later = date.today() + timedelta(days=40)
+    gone = date.today() - timedelta(days=3)
+    older = date.today() - timedelta(days=40)
+    # Every one of these is inserted in the OPPOSITE order to the one
+    # expected, so insertion order cannot be what makes this pass.
+    for title, when, start in (
+            ("EvSoonEvening", soon, "6:30 PM"),      # third
+            ("EvSoonNoTime", soon, ""),              # last: no time
+            ("EvSoonZulu", soon, "10:00 AM"),        # second
+            ("EvSoonAlpha", soon, "9.15am"),         # first
+            ("EvSoonTbcZ", soon, "TBC"),             # after NoTime, by title
+            ("EvLater", later, "7pm"),
+            ("EvGoneLate", gone, "8pm"),
+            ("EvGoneEarly", gone, "11am"),
+            ("EvOlder", older, "")):
         db.session.add(Event(title=title, slug=title.lower(),
-                             event_date=when, published=True,
-                             description="x"))
+                             event_date=when, start_time=start,
+                             published=True, description="x"))
     db.session.commit()
 
+WANT_SOON = ["EvSoonAlpha", "EvSoonZulu", "EvSoonEvening",
+             "EvSoonNoTime", "EvSoonTbcZ"]
 pub = page("/events")
-check("events: what is coming up runs soonest first",
-      in_order(pub, ["EvSoonB", "EvLater"]),
-      show(pub, ["EvSoonB", "EvLater"]))
-check("events: two on the same upcoming day keep the order they were "
-      "added", in_order(pub, ["EvSoonB", "EvSoonA"]),
-      show(pub, ["EvSoonB", "EvSoonA"]))
-check("events: what has been runs most recent first",
-      in_order(pub, ["EvGoneA", "EvOlder"]),
-      show(pub, ["EvGoneA", "EvOlder"]))
-check("events: two on the same past day put the newest entry first",
-      in_order(pub, ["EvGoneA", "EvGoneB"]),
-      show(pub, ["EvGoneA", "EvGoneB"]))
+check("events: one day reads as a programme, earliest start first",
+      in_order(pub, ["EvSoonAlpha", "EvSoonZulu", "EvSoonEvening"]),
+      show(pub, WANT_SOON))
+check("events: 9.15am before 10:00 AM before 6:30 PM — read as times",
+      in_order(pub, WANT_SOON[:3]), show(pub, WANT_SOON))
+check("events: entries with no time come AFTER the timed ones",
+      in_order(pub, ["EvSoonEvening", "EvSoonNoTime"]), show(pub, WANT_SOON))
+check("events: and among themselves fall to the title",
+      in_order(pub, ["EvSoonNoTime", "EvSoonTbcZ"]), show(pub, WANT_SOON))
+check("events: days still run soonest first",
+      in_order(pub, ["EvSoonAlpha", "EvLater"]),
+      show(pub, ["EvSoonAlpha", "EvLater"]))
+check("events: what has been runs most recent day first",
+      in_order(pub, ["EvGoneEarly", "EvOlder"]),
+      show(pub, ["EvGoneEarly", "EvOlder"]))
+check("events: but WITHIN a past day the programme still reads forwards",
+      in_order(pub, ["EvGoneEarly", "EvGoneLate"]),
+      show(pub, ["EvGoneEarly", "EvGoneLate"]))
 check("events: upcoming comes before past on the page",
-      in_order(pub, ["EvSoonB", "EvGoneA"]),
-      show(pub, ["EvSoonB", "EvGoneA"]))
+      in_order(pub, ["EvSoonAlpha", "EvGoneEarly"]),
+      show(pub, ["EvSoonAlpha", "EvGoneEarly"]))
+
 admin = page("/admin/events")
-check("events: the admin list is newest-dated first, ties by newest entry",
-      in_order(admin, ["EvLater", "EvSoonA", "EvSoonB", "EvGoneA",
-                       "EvGoneB", "EvOlder"]),
-      show(admin, ["EvLater", "EvSoonA", "EvSoonB", "EvGoneA", "EvGoneB",
-                   "EvOlder"]))
+WANT_ADMIN = ["EvLater"] + WANT_SOON + ["EvGoneEarly", "EvGoneLate",
+                                        "EvOlder"]
+check("events: the admin list reads the same way, newest day first",
+      in_order(admin, WANT_ADMIN), show(admin, WANT_ADMIN))
+
+home = page("/")
+check("home: the three soonest are the three earliest of the day, in "
+      "order", in_order(home, ["EvSoonAlpha", "EvSoonZulu",
+                               "EvSoonEvening"])
+      and "EvSoonNoTime" not in home, show(home, WANT_SOON))
+
+# Two alike in day, time AND title still have an order.
+with app.app_context():
+    for _ in range(2):
+        db.session.add(Event(title="EvTwin", slug="evtwin-%d" % _,
+                             event_date=soon, start_time="9.15am",
+                             published=True, description="x"))
+    db.session.commit()
+    twins = [e.id for e in Event.query.filter_by(title="EvTwin")
+             .order_by(Event.id).all()]
+    ordered = [e.id for e in events_in_day_order(
+        Event.query.filter_by(title="EvTwin").all())]
+check("events: identical day, time and title still fall to id",
+      ordered == sorted(twins), "%s vs %s" % (ordered, twins))
 
 # =====================================================================
 # News — published date descending, then created_at, then id
@@ -400,6 +458,73 @@ admin = page("/admin/audit")
 check("audit: entries with one timestamp still come newest first",
       in_order(admin, ["AudThird", "AudSecond", "AudFirst"]),
       show(admin, ["AudThird", "AudSecond", "AudFirst"]))
+
+# =====================================================================
+# The timestamp-ordered admin lists. A tie needs two rows created in the
+# same microsecond, which a person filling in a form cannot do — so each
+# one is built here by hand, which is the only way it ever happens.
+# =====================================================================
+with app.app_context():
+    stamp = datetime(2026, 5, 1, 12, 0, 0)
+    # A subscriber has no name: the list shows the address, so that is
+    # what the assertion below has to look for.
+    for email in ("sub-a@example.com", "sub-b@example.com"):
+        db.session.add(Subscriber(email=email, created_at=stamp))
+    for subject in ("MsgA", "MsgB"):
+        db.session.add(ContactMessage(name=subject, email="m@example.com",
+                                      subject=subject, message="x",
+                                      created_at=stamp))
+    for title in ("CampA", "CampB"):
+        db.session.add(Campaign(title=title, slug=title.lower(),
+                                description="x", active=True,
+                                created_at=stamp))
+    for name in ("AppA", "AppB"):
+        db.session.add(MembershipApplication(
+            name=name, email="%s@example.com" % name.lower(),
+            phone="0", address="x", over_18=True,
+            bangladeshi_origin=True, lives_works_enfield=True,
+            fee_confirmed=True, created_at=stamp))
+    db.session.commit()
+
+for path, later_first, label in (
+        ("/admin/subscribers",
+         ["sub-b@example.com", "sub-a@example.com"], "subscribers"),
+        ("/admin/messages", ["MsgB", "MsgA"], "enquiries"),
+        ("/admin/campaigns", ["CampB", "CampA"], "campaigns"),
+        ("/admin/membership", ["AppB", "AppA"], "membership applications")):
+    html = page(path)
+    check("%s: one timestamp, newest entry still first" % label,
+          in_order(html, later_first), show(html, later_first))
+
+with app.app_context():
+    for started in (datetime(2026, 5, 1, 2, 0, 0),) * 2:
+        db.session.add(BackupRun(started_at=started, status="ok",
+                                 filename="backup.zip"))
+    db.session.commit()
+    runs = [r.id for r in BackupRun.query.order_by(BackupRun.id).all()]
+    latest = (BackupRun.query
+              .order_by(BackupRun.started_at.desc(), BackupRun.id.desc())
+              .first())
+check("backup runs: two starting at once, the later row is the latest",
+      latest.id == max(runs), "%s of %s" % (latest.id, runs))
+
+# =====================================================================
+# The album PICKER is alphabetical and the album LIST is not, on
+# purpose: one is for finding a name, the other for presenting an
+# arrangement. Pinned here so the divergence cannot be "fixed" by
+# accident.
+# =====================================================================
+with app.app_context():
+    picker = [a.title for a in album_choices()]
+    listed = [a.title for a in GalleryAlbum.query
+              .order_by(GalleryAlbum.sort, GalleryAlbum.created_at.desc(),
+                        GalleryAlbum.id.desc()).all()]
+check("albums: the picker is alphabetical within a sort group",
+      picker.index("AlbTieA") < picker.index("AlbTieB"), str(picker))
+check("albums: the list is not, and that is the point",
+      listed.index("AlbTieB") < listed.index("AlbTieA"), str(listed))
+check("albums: so the two orders genuinely differ", picker != listed,
+      "%s vs %s" % (picker, listed))
 
 # =====================================================================
 # The invariant behind all of it: ask twice, get the same answer.

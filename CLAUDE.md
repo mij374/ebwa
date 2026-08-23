@@ -602,6 +602,21 @@ Built and maintained by Netbus IT Support.
     ends `id` ascending (insertion order), a newest-first list ends `id`
     DESCENDING, or the last two rows of a tie read backwards against the
     rest of the page.
+  - Events are the exception that proves it: a day's events are ordered
+    by `start_time`, which is FREE TEXT ("6:30 PM", "18:30", "Doors
+    6.45") because that is what somebody typing an event writes and it
+    prints as typed. No database can sort that — "10:00 AM" precedes
+    "6:30 AM" as text — so `events_in_day_order()` sorts in Python,
+    reading the first time-like thing in the box (`start_minutes()`).
+    Entries with no readable time come AFTER the timed ones, then title,
+    then id. The time sort runs FORWARDS even in the past list where the
+    days run backwards: a day's programme reads in the order you could
+    have attended it, whichever way the days go.
+  - The album PICKER (`album_choices()`) is alphabetical while the album
+    LIST is sort-then-newest, and that divergence is deliberate: a
+    picker is for finding one album by name, a list is for presenting an
+    arrangement. Both the comment and a test say so, so it does not get
+    "fixed".
   - `tests/smoke_test_ordering.py` pins every one of them, and builds
     each tie on purpose — rows inserted in the opposite order to the one
     expected, so a missing tie-break fails rather than passing by luck
