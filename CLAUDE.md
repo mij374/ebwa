@@ -554,6 +554,27 @@ Built and maintained by Netbus IT Support.
       preset sets a value the page reacts to, call the handler by hand:
       assigning `.value` fires no `input` event, which would have left
       the Gift Aid box disabled on a £25 donation.
+    - Every money input therefore carries `class="money"`, which HIDES
+      ITS SPINNER (`appearance:textfield` plus the older
+      `::-webkit-*-spin-button` spelling). A penny-a-press arrow is a
+      control that looks useful and is not, on the one field where a
+      wrong number costs somebody money. Nothing else about the field
+      changes: still `type="number"`, so the browser still validates the
+      range and a phone still opens a numeric keypad, and
+      `inputmode="decimal"` asks for the one with a decimal point.
+      - The WHEEL is suppressed on those fields, because a focused
+        number input changes its value on a scroll and with no spinner
+        there is nothing to suggest it might — somebody scrolling the
+        page with the amount focused would silently give £24.99 instead
+        of £25. The KEYBOARD arrows are deliberately LEFT: they are
+        native, they are the only way a keyboard user can nudge a value,
+        and there is no misleading control attached to them.
+      - Settings fields keep their spinners — the glide's 20ms, the
+        drift's 5, ports, retention, sort, year are all increments worth
+        a press. `tests/check_number_inputs.py` asserts which fields
+        have them and which do not, by computed `appearance`: headless
+        Chromium paints no spin button on ANY number input, so clicking
+        where the arrows would be proves nothing either way.
     - Sort fields keep `step="1"` and NO `min`: sorting is ascending and
       the route parses a bare `int()`, so a negative is a legitimate way
       to pin something to the top. The 10s in the content-image sort box

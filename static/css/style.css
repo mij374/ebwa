@@ -1311,6 +1311,31 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 
 /* ---------- Donate & collections ---------- */
 .amount-presets{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+/* The picked amount, so the row of buttons is visibly a CONTROL with a
+   current value rather than four things that fill a box. Without it the
+   only feedback was the number appearing below, which on a phone is
+   under the thumb that just tapped. */
+.amount-presets .is-picked{
+  background:var(--green);color:#fff;border-color:var(--green);
+}
+.amount-presets .is-picked:hover{background:var(--green);color:#fff}
+
+/* ---------- Money fields ----------
+   A money input has to accept £12.50, so step="0.01", so its spinner
+   arrows move a PENNY a press: a control that looks like it does
+   something useful and does not, on the one field where a wrong number
+   costs somebody money. The arrows go; everything else about the field
+   stays exactly as it was — still type="number", so the range is still
+   validated by the browser, the value is still a number, and a phone
+   still opens the numeric keypad rather than the full alphabet.
+   The quick-pick buttons above the field are what replaces them.
+   Both vendor forms are needed: WebKit and Blink paint the spinner as
+   two pseudo-elements, Firefox as part of the widget itself. */
+input.money::-webkit-outer-spin-button,
+input.money::-webkit-inner-spin-button{
+  -webkit-appearance:none;appearance:none;margin:0;
+}
+input.money{-moz-appearance:textfield;appearance:textfield}
 .gift-aid-note{display:block;margin-top:6px;font-weight:600;color:var(--green)}
 .collection-progress{margin-top:28px}
 .progress{height:10px;border-radius:999px;background:var(--green-tint);overflow:hidden;margin-top:10px}

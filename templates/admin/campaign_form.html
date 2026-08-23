@@ -19,13 +19,15 @@
   <div class="field-row">
     <div class="field">
       <label for="fee">Place fee (£)</label>
-      <input type="number" id="fee" name="fee" min="1" step="0.01"
+      <input class="money" type="number" inputmode="decimal"
+             id="fee" name="fee" min="1" step="0.01"
              value="{{ '%.2f'|format(camp.fee_pence / 100) if camp and camp.fee_pence else '' }}">
       <small>Leave empty if this collection has no fixed price per place.</small>
     </div>
     <div class="field">
       <label for="target">Target amount (£)</label>
-      <input type="number" id="target" name="target" min="1" step="0.01"
+      <input class="money" type="number" inputmode="decimal"
+             id="target" name="target" min="1" step="0.01"
              value="{{ '%.2f'|format(camp.target_pence / 100) if camp and camp.target_pence else '' }}">
       <small>Leave empty for no public target/progress bar.</small>
     </div>
@@ -52,4 +54,22 @@
     <a class="btn btn-ghost" href="{{ url_for('admin_campaigns') }}">Cancel</a>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* A focused number input changes its VALUE on a wheel scroll, and
+     with the spinner hidden there is nothing to suggest it might. On a
+     donation form that means somebody scrolling the page with the
+     amount focused silently gives £24.99 instead of £25. The field
+     keeps the focus; only the wheel's effect on the number goes.
+     Every money field on the page, so this is the same three lines
+     wherever one lives. */
+  var moneyFields = document.querySelectorAll('input.money');
+  for (var m = 0; m < moneyFields.length; m++) {
+    moneyFields[m].addEventListener('wheel', function (e) {
+      if (document.activeElement === this) e.preventDefault();
+    }, { passive: false });
+  }
+</script>
 {% endblock %}

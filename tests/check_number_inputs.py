@@ -13,6 +13,13 @@ and checks that min/max match the range the ROUTE enforces — an arrow
 that runs past a server bound produces a rejection the visitor could
 have been stopped from reaching.
 
+Money fields are the exception to all of it: they must accept £12.50, so
+they step by a penny, so their spinner arrows are a control that looks
+useful and is not. The arrows are hidden there and the quick-pick
+buttons take their place — so this also asserts that hiding them cost
+nothing, which is the whole question: the range is still validated, the
+value is still a number, and a phone still gets the numeric keypad.
+
 Run:  python tests/check_number_inputs.py
 """
 import os
@@ -33,7 +40,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 from browser_motion import STILL, new_context  # noqa: E402
-from browser_view import height_for  # noqa: E402
+from browser_view import VIEWPORTS, height_for  # noqa: E402
 
 from app import (app, db, Block, Campaign, DEFAULT_BLOCKS,  # noqa: E402
                  FEATURES, FeatureFlag, PARTNER_DRIFT_DEFAULT,
@@ -102,6 +109,35 @@ def arrow_moves(page, sel, presses=1):
     return round(after - before, 2)
 
 
+SPINNER = """(sel) => {
+    const el = document.querySelector(sel);
+    return {appearance: getComputedStyle(el).appearance,
+            type: el.type, step: el.getAttribute('step')};
+}"""
+
+
+def spinner(page, sel):
+    """Whether this field would be painted with spin buttons.
+
+    Measured as the input's computed `appearance`, and it has to be:
+    HEADLESS CHROMIUM DRAWS NO SPIN BUTTON ON ANY NUMBER INPUT, so
+    clicking where the arrows would be changes nothing whether they are
+    suppressed or not — a behavioural check here would pass for both and
+    prove neither (measured: a plain number input and a suppressed one
+    both ignored a click at their top-right corner).
+
+    What does differ, and is exactly what the stylesheet sets, is
+    `appearance`: `auto` on a field that gets spin buttons, `textfield`
+    on one that does not. That is the standard property for this — the
+    ::-webkit-*-spin-button rules beside it are the older spelling, kept
+    for WebKit versions that only understand that one.
+    """
+    return page.evaluate(SPINNER, sel)
+
+
+SPUN, UNSPUN = "auto", "textfield"
+
+
 def would_accept(page, sel, typed):
     """Type a value and ask the browser whether it would submit it."""
     page.fill(sel, "")
@@ -139,11 +175,79 @@ with sync_playwright() as pw:
     over = would_accept(page, "#amount", "10001")
     check("donate: over £10,000 is refused, as the route would",
           not over["valid"], str(over))
+    # ---- the spinner is gone, and nothing went with it
+    sp = spinner(page, "#amount")
+    check("donate: the penny-at-a-time spinner is not drawn",
+          sp["appearance"] == UNSPUN, str(sp))
+    check("donate: but it is still a number field, so the range still "
+          "validates", sp["type"] == "number", str(sp))
+    check("donate: and a phone still gets the numeric keypad",
+          # type=number is what asks for it; inputMode is left alone so
+          # the browser can offer the decimal key it knows this needs.
+          sp["type"] == "number", str(sp))
+    check("donate: hiding it did not disturb validation",
+          would_accept(page, "#amount", "12.50")["valid"]
+          and not would_accept(page, "#amount", "0")["valid"]
+          and not would_accept(page, "#amount", "-5")["valid"]
+          and not would_accept(page, "#amount", "10001")["valid"])
+    # The keyboard still steps, deliberately: it is a native affordance
+    # with no misleading control attached to it, and taking it away
+    # would remove the only way a keyboard user has to nudge a value.
+    page.fill("#amount", "25")
+    check("donate: arrow keys still nudge the value for keyboard users",
+          arrow_moves(page, "#amount") == 0.01,
+          str(arrow_moves(page, "#amount")))
+    # The wheel does NOT, because that one is silent and unasked for.
+    page.fill("#amount", "25")
+    page.focus("#amount")
+    page.mouse.move(*page.evaluate("""() => {
+        const r = document.getElementById('amount').getBoundingClientRect();
+        return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)];
+    }"""))
+    page.mouse.wheel(0, -240)
+    page.wait_for_timeout(120)
+    check("donate: a wheel scroll over the focused field changes nothing",
+          page.evaluate("() => document.getElementById('amount').value")
+          == "25",
+          page.evaluate("() => document.getElementById('amount').value"))
+
     # The quick picks are what this field has instead of useful arrows.
     page.click(".amount-presets [data-amount='25']")
     check("donate: a quick pick fills the amount",
           page.evaluate("() => document.getElementById('amount').value")
           == "25")
+    picked = page.evaluate("""() => {
+        const on = [...document.querySelectorAll('.amount-presets [data-amount]')]
+            .filter(b => b.classList.contains('is-picked'));
+        return {count: on.length,
+                which: on.map(b => b.getAttribute('data-amount')),
+                pressed: on.map(b => b.getAttribute('aria-pressed'))};
+    }""")
+    check("donate: and the picked button says so, visibly and to a "
+          "screen reader",
+          picked["count"] == 1 and picked["which"] == ["25"]
+          and picked["pressed"] == ["true"], str(picked))
+    page.fill("#amount", "40")
+    check("donate: typing an amount clears the picked button",
+          page.evaluate("""() => document.querySelectorAll(
+              '.amount-presets .is-picked').length""") == 0)
+    # It has to LOOK like the main control, next to a field that reads
+    # as the way round it rather than the way in.
+    look = page.evaluate("""() => {
+        const b = document.querySelector('.amount-presets [data-amount]');
+        const i = document.getElementById('amount');
+        const br = b.getBoundingClientRect();
+        return {h: br.height, w: br.width,
+                above: br.bottom <= i.getBoundingClientRect().top + 1,
+                placeholder: i.getAttribute('placeholder')};
+    }""")
+    check("donate: the quick picks are a fair size to tap",
+          look["h"] >= 40 and look["w"] >= 60, str(look))
+    check("donate: they come before the box, not after it", look["above"],
+          str(look))
+    check("donate: and the box reads as the alternative",
+          "other" in (look["placeholder"] or "").lower(),
+          str(look["placeholder"]))
 
     page.goto(BASE + "/collections/seaside-trip", wait_until="load")
     s = state(page, "#donation")
@@ -161,6 +265,23 @@ with sync_playwright() as pw:
     check("collection: and unlocks the Gift Aid tick-box with it",
           page.evaluate("() => !document.getElementById('giftAidToggle')"
                         ".disabled"))
+    sp = spinner(page, "#donation")
+    check("collection: the spinner is not drawn here either",
+          sp["appearance"] == UNSPUN, str(sp))
+    check("collection: still a number field, still validating",
+          sp["type"] == "number"
+          and would_accept(page, "#donation", "7.25")["valid"]
+          and not would_accept(page, "#donation", "-1")["valid"]
+          and not would_accept(page, "#donation", "10001")["valid"])
+    page.fill("#donation", "")
+    page.click(".amount-presets [data-amount='10']")
+    check("collection: the picked button shows there too",
+          page.evaluate("""() => {
+              const on = document.querySelectorAll(
+                  '.amount-presets .is-picked');
+              return on.length === 1
+                  && on[0].getAttribute('data-amount') === '10';
+          }"""))
 
     # ---------------------------------------------------------- admin
     page.goto(BASE + "/admin/login", wait_until="load")
@@ -206,6 +327,10 @@ with sync_playwright() as pw:
     check("glide: past the ceiling is refused here, not by the server",
           not over["valid"], str(over))
 
+    check("glide: and it KEEPS its spinner, which is worth 20ms a press",
+          spinner(page, "#glide_ms")["appearance"] == SPUN,
+          str(spinner(page, "#glide_ms")))
+
     s = state(page, "#drift_speed")
     check("drift: steps by 5 pixels a second", s["step"] == "5",
           str(s["step"]))
@@ -218,6 +343,10 @@ with sync_playwright() as pw:
                        str(PARTNER_DRIFT_DEFAULT))["valid"])
     check("drift: and so does the ceiling",
           would_accept(page, "#drift_speed", "200")["valid"])
+    check("drift: it keeps its spinner too",
+          spinner(page, "#drift_speed")["appearance"] == SPUN)
+    check("interval: and so does the interval",
+          spinner(page, "#step_seconds")["appearance"] == SPUN)
 
     # ---- sort orders: 1 is right, and NOTHING may block a negative
     for path, label in (("/admin/services/new", "service"),
@@ -234,6 +363,9 @@ with sync_playwright() as pw:
         # so -1 is a legitimate way to pin something to the top.
         check("%s sort: a negative is still allowed through" % label,
               would_accept(page, "#sort", "-1")["valid"], str(s))
+        check("%s sort: keeps its spinner — one place a press is useful"
+              % label,
+              spinner(page, "#sort")["appearance"] == SPUN)
 
     page.goto(BASE + "/admin/journey/new", wait_until="load")
     s = state(page, "#year")
@@ -246,6 +378,9 @@ with sync_playwright() as pw:
     page.goto(BASE + "/admin/campaigns/new", wait_until="load")
     for field in ("#fee", "#target"):
         s = state(page, field)
+        check("campaign %s: no penny-at-a-time spinner" % field,
+              spinner(page, field)["appearance"] == UNSPUN,
+              str(spinner(page, field)))
         check("campaign %s: a penny a step, so £7.50 is typeable" % field,
               s["step"] == "0.01", str(s["step"]))
         check("campaign %s: accepts a decimal" % field,
@@ -271,6 +406,8 @@ with sync_playwright() as pw:
               not would_accept(page, sel, "0")["valid"])
         check("%s: a value past the ceiling is refused too" % label,
               not would_accept(page, sel, str(int(high) + 1))["valid"])
+        check("%s: keeps its spinner" % label,
+              spinner(page, sel)["appearance"] == SPUN)
 
     # ---- and the validation messages are sentences, not codes
     page.goto(BASE + "/donate", wait_until="load")
@@ -280,6 +417,61 @@ with sync_playwright() as pw:
     print("  (donate, value 0) browser says: %s" % msg)
 
     ctx.close()
+
+    # ================================================================
+    # The money fields at every screen, phones included. The spinner and
+    # the validation do not depend on width, but the quick-pick row that
+    # REPLACES the spinner does: it is the control now, so it has to be
+    # reachable and a fair size on the screen most donations come from.
+    # ================================================================
+    for width, height in VIEWPORTS:
+        ctx = new_context(browser, width, height, motion=STILL)
+        page = ctx.new_page()
+        for path, sel, label in (("/donate", "#amount", "donate"),
+                                 ("/collections/seaside-trip", "#donation",
+                                  "collection")):
+            page.goto(BASE + path, wait_until="load")
+            tag = "%s %dx%d" % (label, width, height)
+            sp = spinner(page, sel)
+            check("%s: no spinner" % tag, sp["appearance"] == UNSPUN,
+                  str(sp))
+            check("%s: still a number field with a decimal keypad" % tag,
+                  sp["type"] == "number"
+                  and page.evaluate("(s) => document.querySelector(s)"
+                                    ".inputMode", sel) == "decimal",
+                  str(sp))
+            check("%s: £12.50 still accepted" % tag,
+                  would_accept(page, sel, "12.50")["valid"])
+            check("%s: a negative still refused" % tag,
+                  not would_accept(page, sel, "-5")["valid"])
+            check("%s: over the ceiling still refused" % tag,
+                  not would_accept(page, sel, "10001")["valid"])
+            picks = page.evaluate("""() => [...document.querySelectorAll(
+                    '.amount-presets [data-amount]')].map(b => {
+                const r = b.getBoundingClientRect();
+                return {w: Math.round(r.width), h: Math.round(r.height),
+                        left: Math.round(r.left),
+                        right: Math.round(r.right)};
+            })""")
+            check("%s: every quick pick is a fair target" % tag,
+                  picks and all(b["h"] >= 40 and b["w"] >= 55 for b in picks),
+                  str(picks))
+            check("%s: and none of them runs off the side" % tag,
+                  all(b["left"] >= 0 and b["right"] <= width for b in picks),
+                  str(picks))
+            check("%s: the page does not scroll sideways" % tag,
+                  page.evaluate(
+                      "() => document.documentElement.scrollWidth - "
+                      "document.documentElement.clientWidth") <= 0)
+            # Tapping one still works at this size, and still shows which.
+            page.click(".amount-presets [data-amount]")
+            check("%s: tapping a quick pick fills and marks it" % tag,
+                  page.evaluate("(s) => document.querySelector(s).value", sel)
+                  != ""
+                  and page.evaluate("""() => document.querySelectorAll(
+                      '.amount-presets .is-picked').length""") == 1)
+        ctx.close()
+
     browser.close()
 
 server.shutdown()
