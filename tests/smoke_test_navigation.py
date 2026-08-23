@@ -170,9 +170,13 @@ check("and links to the campaign page",
       "/collections/seaside-trip" in listing)
 check("campaign page opens",
       client.get("/collections/seaside-trip").status_code == 200)
+# Counted on the OPENING of the class attribute, not the whole of it:
+# the last group also carries .nav-group-last (its panel opens leftwards
+# so it cannot hang off the window), and an exact-string count read that
+# as one group fewer.
 check("it is under Get involved, not a new top-level item",
-      home.count('class="nav-group"') == 3,
-      str(home.count('class="nav-group"')))
+      home.count('class="nav-group') == 3,
+      str(home.count('class="nav-group')))
 
 # ---- legal pages are footer-only, which is conventional and correct
 foot = home.split("<footer")[1]

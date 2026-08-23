@@ -55,7 +55,10 @@
             <li><a href="{{ url_for('gallery') }}">Gallery</a></li>
           </ul>
         </li>
-        <li class="nav-group">
+        {#- Last group in the row, so its panel opens leftwards — see
+            .nav-group-last. A class rather than :last-of-type, which
+            would match the phone item and never a group. -#}
+        <li class="nav-group nav-group-last">
           <a href="{{ url_for('contact') }}">Get involved</a>
           <ul class="nav-drop">
             {% if features.membership_form %}<li><a href="{{ url_for('membership') }}">Become a member</a></li>{% endif %}
@@ -98,6 +101,15 @@
         <span class="foot-logo"><img src="{{ url_for('static', filename='img/ebwa-logo.png') }}" alt="EBWA logo"></span>
         <h4>EBWA</h4>
         <p class="foot-about">A community-driven organisation dedicated to enhancing the quality of life of Bangladeshi people and the wider Enfield community.</p>
+        {#- The invitation, after the sentence that says who is asking.
+            On a phone the header's Donate pill is inside the collapsed
+            menu, so for most visitors this is the one that is actually
+            on the page — hence a real button here rather than another
+            quiet link among the quick links. Flag-gated exactly like the
+            header pill: switch donations off and both go. -#}
+        {% if features.donations %}
+        <a class="btn btn-red foot-donate" href="{{ url_for('donate') }}">Donate to EBWA</a>
+        {% endif %}
       </div>
       <div>
         <h4>Newsletter</h4>
@@ -165,15 +177,22 @@
   var menuBtn = document.getElementById('menuBtn');
   var navLinks = document.getElementById('navLinks');
   if (menuBtn) {
-    menuBtn.addEventListener('click', function(){
-      var open = navLinks.classList.toggle('open');
+    /* body.menu-open is what lifts the cookie notice off the bottom of
+       the open menu — the same trick the lightbox uses. The strip is
+       fixed to the bottom of the screen and is 190px tall on a phone,
+       so on a short screen it sat over the last few items of the menu:
+       Donate among them, which is the one somebody was looking for. It
+       is not dismissed, only not painted while the menu is over it. */
+    function setMenu(open) {
+      navLinks.classList.toggle('open', open);
+      document.body.classList.toggle('menu-open', open);
       menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    menuBtn.addEventListener('click', function(){
+      setMenu(!navLinks.classList.contains('open'));
     });
     navLinks.addEventListener('click', function(e){
-      if (e.target.tagName === 'A') {
-        navLinks.classList.remove('open');
-        menuBtn.setAttribute('aria-expanded','false');
-      }
+      if (e.target.tagName === 'A') setMenu(false);
     });
   }
 </script>

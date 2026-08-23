@@ -41,6 +41,13 @@ from app import app, db, DEFAULT_BLOCKS, Block, FEATURES, FeatureFlag  # noqa: E
 WIDTHS = [1440, 1280, 1024, 900, 768, 390]
 MOBILE_MENU_MAX = 899          # below this the hamburger takes over
 PAGES = ["/", "/about", "/events", "/contact", "/admin/login"]
+# SHORT screens, for the section at the end. Everything above runs at
+# 900px tall, which is why the open menu running off the bottom of a
+# phone went unnoticed: with all four groups expanded in place the panel
+# is ~720px, so it fits 900 comfortably and fits neither of these. 740
+# is a Galaxy S10's viewport; 640 is the same phone with the browser's
+# own chrome showing, which is how anybody actually holds it.
+SHORT_SCREENS = [(360, 740), (360, 640)]
 
 shots_dir = None
 if "--shots" in sys.argv:
@@ -347,6 +354,149 @@ with sync_playwright() as pw:
             page.screenshot(path=os.path.join(shots_dir,
                                               "header-%d.png" % width))
         page.close()
+    # ================================================================
+    # The open menu on a SHORT screen: every item reachable and tappable.
+    #
+    # Reported from a Galaxy S10 — the menu did not show all its items
+    # and Donate was missing from it. Donate was rendered and the flag
+    # was on: the panel was simply taller than the screen. It is
+    # absolutely positioned inside a sticky header, so it travels with
+    # the header and is not part of the page's scroll, and anything past
+    # the bottom of the screen could not be reached at all. Measured at
+    # 360x640: Contact us, Donate and the phone number all off screen,
+    # and scrolling the page moved none of them.
+    # ================================================================
+    for width, height in SHORT_SCREENS:
+        page = new_page(browser, width, height=height)
+        page.goto(BASE + "/", wait_until="load")
+        page.click("#menuBtn")
+        page.wait_for_timeout(150)
+        tag = "%dx%d" % (width, height)
+
+        panel = page.evaluate("""() => {
+            const ul = document.getElementById('navLinks');
+            const cs = getComputedStyle(ul);
+            const r = ul.getBoundingClientRect();
+            return {top: r.top, bottom: r.bottom, height: r.height,
+                    scrollHeight: ul.scrollHeight,
+                    clientHeight: ul.clientHeight,
+                    overflowY: cs.overflowY,
+                    overscroll: cs.overscrollBehaviorY,
+                    vh: window.innerHeight};
+        }""")
+        check("%s: the open menu ends inside the screen" % tag,
+              panel["bottom"] <= panel["vh"] + 1,
+              "bottom %.0f, viewport %d" % (panel["bottom"], panel["vh"]))
+        taller = panel["scrollHeight"] > panel["clientHeight"] + 1
+        check("%s: it is taller than the space, so it must scroll" % tag,
+              taller, "content %d, box %d" % (panel["scrollHeight"],
+                                              panel["clientHeight"]))
+        check("%s: and it scrolls itself" % tag,
+              panel["overflowY"] in ("auto", "scroll"), panel["overflowY"])
+        check("%s: without dragging the page along behind it" % tag,
+              panel["overscroll"] == "contain", str(panel["overscroll"]))
+
+        # Every link in the menu, Donate included: scroll the PANEL to it
+        # and check the tap actually lands on that link and not on
+        # whatever is painted over it.
+        links = page.evaluate("""() => [...document.querySelectorAll(
+            '#navLinks a')].map(a => a.getAttribute('href'))""")
+        check("%s: the menu still lists everything" % tag,
+              "/donate" in links and len(links) >= 12,
+              "%d links: %s" % (len(links), links))
+        unreachable = page.evaluate("""() => {
+            const ul = document.getElementById('navLinks');
+            const bad = [];
+            for (const a of ul.querySelectorAll('a')) {
+                // The three group triggers are pointer-events:none in the
+                // menu on purpose — each group's own page is listed
+                // underneath it — so a tap is MEANT to fall through them.
+                if (getComputedStyle(a).pointerEvents === 'none') continue;
+                a.scrollIntoView({block: 'center', behavior: 'instant'});
+                const r = a.getBoundingClientRect();
+                const x = Math.round(r.left + r.width / 2);
+                const y = Math.round(r.top + r.height / 2);
+                const onScreen = r.top >= 0 && r.bottom <= innerHeight;
+                const hit = document.elementFromPoint(x, y);
+                if (!onScreen || !hit || !(hit === a || a.contains(hit)))
+                    bad.push((a.getAttribute('href') || '?')
+                             + (onScreen ? ' (covered by '
+                                 + (hit ? (hit.className || hit.tagName) : '?')
+                                 + ')' : ' (off screen)'));
+            }
+            return bad;
+        }""")
+        check("%s: every item can be scrolled to and tapped" % tag,
+              not unreachable, str(unreachable))
+
+        # The one the bug was reported about, driven the way a thumb
+        # would: scroll it into view inside the panel, then tap it.
+        page.evaluate("""() => document.querySelector('#navLinks .nav-donate')
+            .scrollIntoView({block: 'center', behavior: 'instant'})""")
+        page.wait_for_timeout(80)
+        donate = page.evaluate("""() => {
+            const a = document.querySelector('#navLinks .nav-donate');
+            const r = a.getBoundingClientRect();
+            return {top: r.top, bottom: r.bottom, height: r.height,
+                    vh: window.innerHeight};
+        }""")
+        check("%s: Donate is on screen once scrolled to" % tag,
+              donate["top"] >= 0 and donate["bottom"] <= donate["vh"] + 1,
+              str(donate))
+        check("%s: and is a fair size to tap" % tag, donate["height"] >= 30,
+              "%.0fpx tall" % donate["height"])
+        page.click("#navLinks .nav-donate")
+        page.wait_for_load_state("load")
+        check("%s: tapping Donate opens the donation page" % tag,
+              page.url.endswith("/donate"), page.url)
+
+        if shots_dir:
+            page.go_back()
+            page.wait_for_load_state("load")
+            page.click("#menuBtn")
+            page.wait_for_timeout(150)
+            page.screenshot(path=os.path.join(
+                shots_dir, "menu-short-%dx%d.png" % (width, height)))
+        page.close()
+
+    # ================================================================
+    # The row with the Donate pill SWITCHED OFF. The nav is right
+    # aligned, so what is in it decides how far right the last group
+    # sits — and its panel is visibility:hidden, not display:none, so it
+    # counts toward the page's scrollWidth whether or not anybody has
+    # hovered it. With donations off there was 76px of sideways scroll
+    # at 1024 and 900 on every page, panel shut. Hence .nav-group-last.
+    # ================================================================
+    with app.app_context():
+        FeatureFlag.query.filter_by(name="donations").first().enabled = False
+        db.session.commit()
+    for width in (1440, 1024, 900):
+        page = new_page(browser, width)
+        page.goto(BASE + "/", wait_until="load")
+        over = page.evaluate(
+            "() => document.documentElement.scrollWidth - "
+            "document.documentElement.clientWidth")
+        check("%dpx: no sideways scroll with donations off" % width,
+              over <= 0, "%dpx" % over)
+        page.locator("#navLinks > li.nav-group").last.hover()
+        page.wait_for_timeout(220)
+        panel = page.evaluate("""() => {
+            const d = document.querySelector('.nav-group-last .nav-drop');
+            const r = d.getBoundingClientRect();
+            return {vis: getComputedStyle(d).visibility,
+                    right: r.right, left: r.left, vw: innerWidth};
+        }""")
+        check("%dpx: the last panel still opens" % width,
+              panel["vis"] == "visible", panel["vis"])
+        check("%dpx: and opens inside the window" % width,
+              panel["right"] <= panel["vw"] + 1 and panel["left"] >= -1,
+              "left %.0f right %.0f of %d"
+              % (panel["left"], panel["right"], panel["vw"]))
+        page.close()
+    with app.app_context():
+        FeatureFlag.query.filter_by(name="donations").first().enabled = True
+        db.session.commit()
+
     browser.close()
 
 server.shutdown()

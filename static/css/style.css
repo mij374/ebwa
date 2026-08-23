@@ -134,6 +134,15 @@ header{
 }
 .nav-group:hover > .nav-drop,
 .nav-group:focus-within > .nav-drop{opacity:1;visibility:visible;transform:none}
+/* The rightmost group's panel opens LEFTWARDS, or it hangs off the edge
+   of the window. The nav is right-aligned, so how far right that group
+   sits depends on what else is in the row — and with donations switched
+   off there is no Donate pill after it: measured 76px of sideways
+   scroll at 1024 and 900 in that state. A panel is visibility:hidden
+   until it is hovered, and a hidden panel still counts toward the
+   page's scrollWidth, so this was a sideways scroll on every page with
+   no panel open at all. */
+.nav-group-last > .nav-drop{left:auto;right:-14px}
 .nav-drop a{
   display:block;padding:9px 12px;border-radius:9px;border-bottom:none;
   white-space:nowrap;font-size:15px;
@@ -610,6 +619,14 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
 .foot-grid a{text-decoration:none;font-size:14.5px;opacity:.85}
 .foot-grid a:hover{opacity:1}
 .foot-about{font-size:14.5px;max-width:38ch}
+/* The footer's Donate button. On a phone the header pill is inside the
+   collapsed menu, so this is the call to action most visitors actually
+   see — it earns its own line and a top margin rather than sitting in
+   the run of links. Colours come straight from .btn-red; only the
+   spacing and the focus ring are its own, the global ring being a red
+   that disappears against a red button on dark green. */
+.foot-donate{margin-top:16px}
+.foot-donate:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .foot-bar{border-top:1px solid rgba(255,255,255,.16);padding-top:22px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13.5px;opacity:.7}
 .foot-admin{text-decoration:none}
 .foot-legal{display:flex;gap:18px;flex-wrap:wrap}
@@ -907,6 +924,13 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
    wraps onto more lines as the viewport narrows, so the clearance grows
    with it — measured at each step in tests/check_header_layout.py. */
 body.has-notice footer{padding-bottom:110px}
+/* The strip is fixed to the bottom of the screen, so on a phone it sits
+   OVER the open mobile menu — 190px of it, which on a short screen is
+   the last few items including Donate. Covered is as unreachable as off
+   screen: measured at 360x740 and 360x640, the taps landed on the
+   notice. Same treatment as the lightbox above: not dismissed, just not
+   painted while the menu is over it. */
+body.menu-open .cookie-notice{display:none}
 @media (max-width: 900px){
   body.has-notice footer{padding-bottom:190px}
 }
@@ -968,10 +992,31 @@ body.has-notice footer{padding-bottom:110px}
   .nav-links{display:none}
   .menu-btn{display:block}
   .main-nav{margin-left:auto}
+  /* The panel SCROLLS ITSELF when it is taller than the screen. It is
+     absolutely positioned inside a sticky header, so it travels with the
+     header and is not part of the page's own scroll: anything past the
+     bottom of the screen used to be simply unreachable, and scrolling
+     the page did not move it a pixel. Measured on a Galaxy S10 (360
+     CSS px): the open menu is 720px tall with all four groups expanded,
+     so at 360x740 the phone number was off the bottom and at 360x640 —
+     the same phone once the browser's own chrome is showing — Contact
+     us, Donate and the phone number all were. The Donate pill was the
+     visible half of that: gone from the menu, and the menu is where it
+     lives on a phone.
+     Both max-heights on purpose, in this order: dvh is the viewport
+     that EXCLUDES the browser's chrome, which is the whole problem
+     here, and vh is what an older Samsung Internet understands. The
+     second line simply does not apply where dvh is unknown. */
   .nav-links.open{
     display:grid;position:absolute;top:var(--header-h);left:0;right:0;
     background:var(--paper);padding:20px 24px 26px;gap:16px;
     border-bottom:1px solid var(--line);box-shadow:0 20px 40px rgba(0,0,0,.08);
+    max-height:calc(100vh - var(--header-h));
+    max-height:calc(100dvh - var(--header-h));
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
+    /* Scrolling the menu must not start scrolling the page behind it
+       once it reaches its end. */
+    overscroll-behavior:contain;
   }
   .nav-links.open .nav-phone-item{display:block}
   /* No nested dropdowns to tap through on a phone: each group is a

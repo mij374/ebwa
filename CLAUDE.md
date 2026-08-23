@@ -618,6 +618,15 @@ Built and maintained by Netbus IT Support.
   - The footer's quick links carry the same items in the same order as
     the menu. Two lists in different orders is two things to keep in
     step, and one of them drifts.
+  - The footer ALSO carries a Donate button (`.foot-donate`, `.btn
+    .btn-red`), in the first column under the who-we-are text and gated
+    on the same `donations` flag as the header pill — switch the flag
+    off and both go, or the one left behind is a dead link on a page
+    whose flag says there are no donations. It is there because on a
+    phone the header pill is folded inside the menu button, so for most
+    visitors the footer one is the only Donate actually on the page.
+    It is a call to action and deliberately NOT another entry in the
+    quick links.
   - Every group trigger is a real link to a CORE page (`about`,
     `events`, `contact` — none of them flaggable), so a click always
     lands somewhere and a group can never end up empty. Dropdown items
@@ -634,13 +643,49 @@ Built and maintained by Netbus IT Support.
   - On a phone the groups do not become nested menus: inside the open
     `.nav-links.open` the panels are `position:static` and always
     visible, each group a heading with its pages beneath it.
+  - **The open menu must always be able to reach every item**, and two
+    separate things used to stop it on a short screen. Both are fixed;
+    keep both.
+    - It SCROLLS ITSELF (`max-height` + `overflow-y:auto` +
+      `overscroll-behavior:contain`). The panel is absolutely positioned
+      inside a sticky header, so it travels with the header and is not
+      part of the page's scroll — anything past the bottom of the screen
+      could not be reached at all, and scrolling the page moved it not
+      one pixel. With all four groups expanded the panel is ~720px, so
+      it fits a 900px-tall test window and neither a Galaxy S10 at
+      360x740 (phone number lost) nor the same phone with its browser
+      chrome showing at 360x640 (Contact us, Donate and the phone lost).
+      The `max-height` is declared twice, `vh` then `dvh`: dvh is the
+      viewport EXCLUDING the browser chrome, which is the case that
+      breaks, and vh is what an older Samsung Internet understands.
+    - The cookie notice is a FIXED strip at the bottom of the screen,
+      190px tall on a phone, so it sat over the last few items — covered
+      is as unreachable as off screen. `body.menu-open .cookie-notice
+      {display:none}` lifts it while the menu is open, exactly as
+      `body.lightbox-open` already did. It is not dismissed, only not
+      painted; it returns when the menu closes.
+  - The RIGHTMOST group's panel opens leftwards (`.nav-group-last`). The
+    nav is right-aligned, so how far right that group sits depends on
+    what else is in the row, and a panel is `visibility:hidden` rather
+    than `display:none` — it counts toward the page's scrollWidth
+    whether or not anybody has hovered it. With donations switched off,
+    and so no Donate pill after it, that was 76px of sideways scroll at
+    1024 and 900 on every page with no panel open. Any future group
+    added to the end of the row takes the class with it.
   - `tests/check_header_layout.py` is the proof, at the widths in its
     own `WIDTHS` list — 1440/1280/1024/900/768/390, which includes 900
     and 768 either side of the 899px shed point, since that is where a
     header regression would land: one line (measured by item CENTRES, since a trigger is taller
     than the pill), no sideways scroll, panels shut until hovered or
     focused, every destination reachable by Tab alone, and the mobile
-    menu listing all of them. Run it after touching the header, the nav
+    menu listing all of them. It also runs two sections the six widths
+    cannot cover, because neither is about width: `SHORT_SCREENS`
+    (360x740 and 360x640) opens the menu and asserts every item can be
+    scrolled to AND tapped — `elementFromPoint`, so anything painted
+    over an item fails it too — ending with a real tap on Donate that
+    must land on /donate; and a pass with the donations flag OFF,
+    asserting no sideways scroll and that the last group's panel still
+    opens inside the window. Run it after touching the header, the nav
     or the breakpoints.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.

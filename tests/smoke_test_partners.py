@@ -433,6 +433,20 @@ check("Donate appears on every public page",
       "nav-donate" in client.get("/about").data.decode("utf-8")
       and "nav-donate" in client.get("/contact").data.decode("utf-8"))
 
+# The footer one matters most on a phone, where the header pill is
+# folded away inside the menu button and most visitors never open it.
+foot = html.split("<footer")[1]
+check("and a Donate button in the footer as well",
+      "foot-donate" in foot, foot[:400])
+check("the footer button is a real button, not another quiet link",
+      'class="btn btn-red foot-donate"' in foot, foot[:400])
+check("it sits in the first footer column, by the who-we-are text",
+      foot.find("foot-donate") < foot.find("Newsletter"),
+      "%d vs %d" % (foot.find("foot-donate"), foot.find("Newsletter")))
+check("the footer Donate is on every public page",
+      "foot-donate" in client.get("/about").data.decode("utf-8")
+      and "foot-donate" in client.get("/contact").data.decode("utf-8"))
+
 set_flag("donations", False)
 html = home()
 # to </nav>, not the first </ul>: the nav has dropdown lists inside it
@@ -440,10 +454,18 @@ nav = html.split('id="navLinks"')[1].split("</nav>")[0]
 check("Donate button gone when donations are off", "nav-donate" not in nav,
       nav[:400])
 check("no dead link to /donate in the nav", '/donate"' not in nav, nav[:400])
+# Both gates or neither: a footer button left behind by the flag would be
+# a dead link on a page the flag says has no donations.
+check("the footer Donate goes with it",
+      "foot-donate" not in html, html.split("<footer")[1][:400])
+check("no dead link to /donate anywhere on the page",
+      '"/donate"' not in html)
 check("and /donate itself 404s, as before",
       client.get("/donate").status_code == 404)
 set_flag("donations", True)
-check("Donate button returns with the flag", "nav-donate" in home())
+html = home()
+check("Donate button returns with the flag", "nav-donate" in html)
+check("and so does the footer one", "foot-donate" in html)
 
 # ---- teardown: delete the throwaway db (incl. WAL sidecars)
 with app.app_context():
