@@ -1143,6 +1143,139 @@ with sync_playwright() as pw:
 
     set_motion("scroll")      # leave the row as the site ships it
 
+    # ================================================================
+    # J. AT REST, NO CARD IS SLICED.
+    #
+    # A stopped row showing two thirds of a card at its right edge looks
+    # like a mistake rather than a design. Step mode and the
+    # no-movement setting are both rest states, so both have to settle
+    # on a boundary; a DRIFTING row is excluded, because a part-card at
+    # the edge is what says it is moving.
+    #
+    # "Sliced" is measured as a reader sees it: any card whose box
+    # crosses either edge of the strip while any part of it is inside.
+    # ================================================================
+    SLICED = """() => {
+        const box = document.querySelector(window.__row);
+        const b = box.getBoundingClientRect();
+        const cut = [];
+        let whole = 0;
+        for (const c of box.querySelectorAll('.marquee-set > *')) {
+            const r = c.getBoundingClientRect();
+            const inside = r.right > b.left + 0.5 && r.left < b.right - 0.5;
+            if (!inside) continue;
+            if (r.left < b.left - 0.5 || r.right > b.right + 0.5) {
+                cut.push(Math.round(Math.min(r.right, b.right)
+                                    - Math.max(r.left, b.left)));
+            } else {
+                whole++;
+            }
+        }
+        const cs = getComputedStyle(box);
+        return {sliced: cut, whole: whole,
+                pad: Math.round(parseFloat(cs.paddingLeft) || 0),
+                strip: Math.round(b.width),
+                card: Math.round(box.querySelector('.marquee-set > *')
+                                 .getBoundingClientRect().width)};
+    }"""
+
+    for count in ROW["counts"]:
+        seed(count)
+        for mode, motion, label in (("step", MOVING, "stepping"),
+                                    ("none", MOVING, "no-movement"),
+                                    ("scroll", STILL, "reduced motion")):
+            set_motion(mode, seconds=STEP_SECONDS)
+            for width, height in VIEWPORTS:
+                ctx = new_context(browser, width, height, motion=motion)
+                ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
+                page = ctx.new_page()
+                page.goto(BASE + "/", wait_until="load")
+                show_row(page)
+                tag = "rest %s %d %s %dx%d" % (label, count, ROW_NAME,
+                                               width, height)
+                if mode == "step":
+                    # Let one step land, so this is a rest position the
+                    # row actually arrives at rather than its first one.
+                    page.wait_for_timeout(STEP_SECONDS * 1000 + 500)
+                    settle(page)
+                at = page.evaluate(SLICED)
+                check("%s: no card is sliced" % tag, not at["sliced"],
+                      "%s of %spx card, strip %s, pad %s"
+                      % (at["sliced"], at["card"], at["strip"], at["pad"]))
+                check("%s: and at least one whole card shows" % tag,
+                      at["whole"] >= 1, str(at))
+                if mode == "step":
+                    # The step wrap needs a whole stride of room past
+                    # the end of the first set. Fitting makes that
+                    # structural rather than a measured margin: with n
+                    # whole cards visible out of N, the room is exactly
+                    # (N - n) strides, so it cannot go negative while
+                    # any card is off screen. Asserted, not assumed.
+                    room = page.evaluate("""() => {
+                        const box = document.querySelector(window.__row);
+                        const set = box.querySelector('.marquee-set');
+                        const cs = getComputedStyle(box);
+                        const gap = parseFloat(getComputedStyle(
+                            box.querySelector('.marquee-track')).columnGap) || 0;
+                        const card = box.querySelector('.marquee-set > *')
+                            .getBoundingClientRect().width;
+                        const pad = (parseFloat(cs.paddingLeft) || 0)
+                                  + (parseFloat(cs.paddingRight) || 0);
+                        return {room: set.getBoundingClientRect().width
+                                      - (box.clientWidth - pad),
+                                stride: card + gap};
+                    }""")
+                    check("%s: a whole stride of room for the wrap" % tag,
+                          room["room"] >= room["stride"] - 1
+                          or room["room"] <= 1,
+                          "%.0f of room against a %.0f stride"
+                          % (room["room"], room["stride"]))
+                # The row must FILL its width rather than sit in a pool
+                # of nothing: whatever the growth could not absorb is
+                # split evenly, and half of it is the most a side gets.
+                check("%s: the leftover is split evenly, not left at the "
+                      "end" % tag,
+                      at["pad"] * 2 <= at["strip"] - at["whole"] * at["card"]
+                      + 2, str(at))
+                ctx.close()
+
+    # ---- an arrow press lands on a boundary too
+    set_motion("none")
+    seed(ROW["counts"][-1])
+    for width, height in ((1440, 900), (1024, 768), (390, 740), (360, 640)):
+        ctx = new_context(browser, width, height, motion=STILL)
+        ctx.add_init_script("window.__row = '%s';" % ROW_BOX)
+        page = ctx.new_page()
+        page.goto(BASE + "/", wait_until="load")
+        show_row(page)
+        tag = "rest arrows %s %dx%d" % (ROW_NAME, width, height)
+        for press in range(3):
+            page.click(ROW_SEL + ' .marquee-arrow-next')
+            settle(page)
+            at = page.evaluate(SLICED)
+            check("%s: press %d lands on a boundary" % (tag, press + 1),
+                  not at["sliced"], "%s" % at)
+        ctx.close()
+
+    # ---- and a DRIFTING row is left alone, on purpose
+    set_motion("scroll")
+    ctx, page = open_home(browser, 1024, MOVING)
+    drift = page.evaluate("""() => {
+        const box = document.querySelector(window.__row);
+        const cs = getComputedStyle(box);
+        return {pad: Math.round(parseFloat(cs.paddingLeft) || 0),
+                card: Math.round(box.querySelector('.marquee-set > *')
+                                 .getBoundingClientRect().width),
+                base: parseFloat(getComputedStyle(
+                    box.closest('.marquee-row'))
+                    .getPropertyValue('--marquee-card-base'))};
+    }""")
+    check("drifting: the card keeps its designed width",
+          abs(drift["card"] - drift["base"]) <= 1, str(drift))
+    check("drifting: and no padding is added to line it up",
+          drift["pad"] == 0, str(drift))
+    ctx.close()
+
     browser.close()
 
 server.shutdown()

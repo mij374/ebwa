@@ -1215,9 +1215,20 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
    measures the margin at every width and partner count and warns with
    the numbers rather than failing; check what it reports if you change
    either. */
+/* The card width is a RANGE, not a number, because a row that has come
+   to rest must not show a sliced card at its right edge — see
+   fitWholeCards() in index.html. The script picks how many whole cards
+   fit at the current width and grows them to fill it, between the base
+   below and the max; the base is what a card is designed to be and what
+   it stays with no JavaScript at all. */
+.marquee-row{--marquee-card-base:260px;--marquee-card-max:360px}
+.marquee-row[data-row="testimonials"]{
+  --marquee-card-base:360px;--marquee-card-max:540px;
+}
 .marquee .partner-card,
 .marquee .quote-card{
-  flex:0 0 260px;width:260px;
+  flex:0 0 var(--marquee-card, var(--marquee-card-base));
+  width:var(--marquee-card, var(--marquee-card-base));
   /* Snap to the START of a card, not its centre: the arrows move by
      exactly one card, and the resting position is a card against the
      left edge rather than one card centred with two half cards beside
@@ -1233,7 +1244,7 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
    becomes a scroller at all), and 360 is what clears it: at 340 the
    check warns. Watch what tests/check_marquees.py prints if this
    changes. */
-.marquee .quote-card{flex:0 0 360px;width:360px}
+
 /* The copy set exists only to make the loop endless, so it is HIDDEN BY
    DEFAULT and revealed only while the row is genuinely animating. That
    direction is the whole point and must not be reversed: hiding it used
@@ -1317,7 +1328,9 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
   /* A card has to be narrower than the strip it scrolls in, or no card
      is ever fully in view. 360px is fine on a laptop and absurd on a
      360px phone. */
-  .marquee .quote-card{flex:0 0 280px;width:280px}
+  .marquee-row[data-row="testimonials"]{
+    --marquee-card-base:280px;--marquee-card-max:420px;
+  }
 }
 .partner-card b{display:block;font-family:var(--font-display);font-size:16px;color:var(--green)}
 .partner-card span{font-size:13.5px;color:var(--ink-soft)}

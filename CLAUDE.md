@@ -1356,6 +1356,35 @@ Built (post-signing variation, Jul 2026):
         row moving two ways at once.
       - Anything the VISITOR does — a drag, an arrow — cancels a glide
         in progress (`partnerCancelGlide`). One offset, one mover.
+    - **A row AT REST shows whole cards only.** Step mode and the
+      no-movement setting are both rest states, and a stopped row with a
+      sliced card at its right edge looks like a mistake rather than a
+      design. `fitWholeCards()` counts how many whole cards fit at the
+      current width and GROWS them to fill it, between
+      `--marquee-card-base` (what a card is designed to be, and what it
+      stays with no JavaScript) and `--marquee-card-max`.
+      - Growing rather than only centring: five 260px partner cards fit
+        three across a 1076px strip and leave 260px over, which centred
+        is 130px of nothing either side — a row that reads as inset
+        rather than full. Grown, the three are 347px and it fills.
+      - **The max is a preference, not a rule.** Leftover wider than one
+        gap is not empty space: the next card starts a gap after the
+        last visible one, so more than a gap of slack shows a slice of
+        it — and, split evenly, a slice of the previous card on the left
+        too. Measured at 768: one 540px quote card in a 616px strip left
+        76px and put 20px of the next card on screen. Where the cap
+        would leave more than a gap it gives way and the cards fill.
+      - A DRIFTING row is excluded deliberately: a part-card at the edge
+        is what tells the eye the row is moving, and there is no rest
+        position to tidy.
+      - **Order matters**: the arrows are ~104px of the strip, so fit
+        AFTER deciding whether they are shown, or the row settles that
+        much short with a sliver showing. `relayout()` is
+        refreshArrows → fit → refreshArrows for exactly that reason.
+      - It also makes the step wrap structural: with n whole cards
+        visible out of N, the room past the first set is exactly
+        (N - n) strides, so it cannot go negative while any card is off
+        screen. The margins below are what that used to be measured as.
     - **The card width and the gap are load-bearing for the step
       wrap**, not just a look. Stepping wraps back by a set only once
       `scrollLeft` has gone PAST one, and it gets there one stride — a

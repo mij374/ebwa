@@ -362,6 +362,84 @@
     function setStride() {           /* one whole set plus its gap */
       return partnerSet.getBoundingClientRect().width + partnerGap();
     }
+
+    /* ---- a row AT REST shows whole cards, never a sliced one
+       A fixed card width and a container that is not a whole number of
+       cards wide leaves the last card cut off by the right edge. That
+       looks like a mistake on a row that has stopped — and a stopped
+       row is what step mode and the no-movement setting both are.
+
+       So: work out how many whole cards fit at this width, then GROW
+       them to fill it, between the base width a card is designed to be
+       and the max it may stretch to (both from the stylesheet, so the
+       phone gets its own pair and a browser with no JavaScript keeps
+       the base). Whatever is left after the max bites is split evenly
+       either side, which reads as centring rather than as clipping.
+
+       Growing rather than only centring, because centring alone leaves
+       a lot of nothing: measured at 1440, five partner cards of 260 fit
+       three across a 1076px strip and leave 260px over — 130px of empty
+       either side, a row that looks narrow rather than full. Grown, the
+       three cards are 347px and the strip is exactly filled.
+
+       A DRIFTING row is excluded on purpose: a part-card at the edge is
+       what tells the eye the row is moving, and there is no rest
+       position to tidy.
+
+       One thing this makes structural rather than lucky: the step wrap
+       needs a whole stride of room past the end of the first set, and
+       with n whole cards visible out of N the room is exactly (N - n)
+       strides. It cannot go negative while any card is off screen,
+       which is what the 22px and 44px margins used to be measured for. */
+    function fitWholeCards() {
+      var drifting = moves && partnerMode === 'scroll';
+      var css = getComputedStyle(partnerWrap);
+      if (drifting) {
+        partnerWrap.style.removeProperty('--marquee-card');
+        partnerBox.style.paddingLeft = '';
+        partnerBox.style.paddingRight = '';
+        partnerBox.style.scrollPaddingLeft = '';
+        return;
+      }
+      var gap = partnerGap();
+      var base = parseFloat(css.getPropertyValue('--marquee-card-base'));
+      var most = parseFloat(css.getPropertyValue('--marquee-card-max'));
+      if (!base) return;                 /* a row with no sizing to do */
+      if (!most || most < base) most = base;
+      /* clientWidth is the padding box, so it does not move when the
+         padding below does — the arithmetic stays consistent. */
+      var space = partnerBox.clientWidth;
+      var cards = partnerSet.children.length;
+      if (!space || !cards) return;
+      var fits = Math.max(1, Math.floor((space + gap) / (base + gap)));
+      if (fits > cards) fits = cards;    /* nothing to line up beyond them */
+      var full = (space - (fits - 1) * gap) / fits;   /* fills exactly */
+      var width = Math.min(most, full);
+      if (width < base) width = base;    /* never below the designed size */
+      var over = space - (fits * width + (fits - 1) * gap);
+      /* THE MAX IS A PREFERENCE, NOT A RULE. Leftover space wider than
+         one gap is not empty: the NEXT card starts a gap after the last
+         visible one, so anything more than a gap of slack shows a slice
+         of it — and, split evenly, a slice of the previous card on the
+         left as well. Measured at 768: one 540px quote card in a 616px
+         strip left 76px, which put 20px of the next card on screen.
+         So where the cap would leave more than a gap, it gives way and
+         the cards fill the strip. It still does its job everywhere it
+         matters, trimming by less than a gap. */
+      if (over > gap) {
+        width = full;
+        over = 0;
+      }
+      var pad = Math.max(0, Math.round(over / 2));
+      partnerWrap.style.setProperty('--marquee-card',
+                                    (Math.floor(width * 100) / 100) + 'px');
+      partnerBox.style.paddingLeft = pad + 'px';
+      partnerBox.style.paddingRight = pad + 'px';
+      /* The snapport has to start where the cards do, or snapping would
+         pull the left-hand pad out of view and put a card against the
+         edge again. */
+      partnerBox.style.scrollPaddingLeft = pad + 'px';
+    }
     /* Keep the position inside the first set. The copy behind it shows
        exactly the same cards, so subtracting one set is invisible — and
        it means the row can be scrolled or dragged for ever without
@@ -521,7 +599,11 @@
       driftFrame = 0; stepTimer = 0; stuck = 0;
       partnerWrap.classList.remove('is-moving');
       partnerBox.scrollLeft = 0;
-      refreshArrows();
+      /* It has just stopped being a drifting row, so it is one that has
+         to sit on a boundary now — and it is about to gain arrows,
+         which is why this goes through relayout rather than fitting on
+         its own. */
+      relayout();
     }
 
     /* ---- the arrows, for a row that is standing still */
@@ -550,9 +632,20 @@
         e.preventDefault();
       });
     }
+    /* ORDER MATTERS. The arrows are shown or hidden by refreshArrows,
+       and they are 104px of the strip's width on a laptop — so fitting
+       the cards first measures a strip that is about to change size,
+       and the row settles 104px short with a sliver of the next card
+       showing. Decide the arrows, fit to what is left, then let the
+       arrows work out their disabled states against the new geometry. */
+    function relayout() {
+      refreshArrows();
+      fitWholeCards();
+      refreshArrows();
+    }
     partnerBox.addEventListener('scroll', refreshArrows);
-    window.addEventListener('resize', refreshArrows);
-    refreshArrows();
+    window.addEventListener('resize', relayout);
+    relayout();
 
     /* ---- continuous drift */
     if (moves && partnerMode === 'scroll') {
