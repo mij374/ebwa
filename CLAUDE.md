@@ -530,6 +530,14 @@ Built and maintained by Netbus IT Support.
     narrower and nothing else. Note that the shared selector's `:not()`
     chain outranks a plain `.field input[type=x]`, so a per-type
     override needs the shared rule to leave that property alone.
+- Grid tracks that hold anything unbreakable are `minmax(0,1fr)`, never
+  a bare `1fr`: an `fr` track's automatic minimum is MIN-CONTENT, so one
+  item that cannot shrink sizes the track wider than its container and
+  every cell overflows with it. The footer newsletter input and its
+  button, side by side, did exactly that — 3px of sideways scroll on the
+  page at 360px (a Galaxy S10) and 43px at 320px, at every breakpoint
+  down to one column. `.admin-shell` carries the same guard for the same
+  reason.
 - Every public page must be reachable from the nav or the footer.
   `tests/smoke_test_navigation.py` walks the URL map and fails otherwise;
   a page reached from inside a section (`/gallery/all`) is listed there
@@ -688,8 +696,16 @@ exactly one card plus one gap and then rests, the pause on hover and
 focus, drag-to-scroll not swallowing the click while a sub-threshold
 wobble still opens the partner, the arrows appearing only for a still
 row with somewhere to go, a touch swipe still panning, and every mode
-falling back to still under reduced motion. Run it after touching the
-row, its script or `PARTNER_MOTIONS`:
+falling back to still under reduced motion.
+Its last section (H) is the FAIL-SAFE one, at 360 and 412 — the CSS
+widths of the two phones the duplicate-cards bug was reported across. It
+breaks the script four different ways (JavaScript disabled entirely, an
+exception on the way in, reduced motion, and an offset that refuses to
+move) and asserts the same three things every time: one set rendered,
+five cards not ten, arrows showing. It also drives a phone-width row
+with no `Element.scrollBy` at all, and checks the two ways of moving a
+row that has no scrollbar — arrows and a swipe — at 360.
+Run it after touching the row, its script or `PARTNER_MOTIONS`:
 `python tests/check_partner_marquee.py [--shots DIR]`. It also reports
 the step wrap's headroom (see the partner rules above) as a WARNING
 rather than a failure, and prints the tightest margin it saw — headroom
@@ -728,9 +744,9 @@ reduce`, set per context through `tests/browser_motion.py`
   `tests/check_partner_marquee.py`, whose drift, stepping and
   arrow-swapping are the behaviour under test. Inheriting the still
   default there would pass while measuring a row that never moved, and
-  under reduced motion the stylesheet also hides the duplicate
-  `.partner-set` and turns snapping back on, so the thing being asserted
-  is not even on the page. That file mixes both on purpose: MOVING for
+  under reduced motion the script never adds `.is-moving`, so the
+  duplicate `.partner-set` stays hidden and snapping stays on, and the
+  thing being asserted is not even on the page. That file mixes both on purpose: MOVING for
   the drift and the steps, STILL for the drag, the arrows and the touch
   pan — which is the state those are about, and which stops the row
   sliding under the pointer while the check measures it.
@@ -1004,6 +1020,27 @@ Built (post-signing variation, Jul 2026):
       `aria-hidden="true"` on the set AND `tabindex="-1"` with empty alt
       on every card inside it, or a screen reader reads the partner list
       twice and Tab walks through phantom links.
+    - **The copy set is HIDDEN BY DEFAULT and revealed only by
+      `.is-moving`** — never the other way round. Hiding it used to
+      depend on the admin's `none` setting or a `prefers-reduced-motion`
+      match, which left every OTHER way of not animating showing the
+      same five logos twice: the script blocked, erroring or not run at
+      all, or an engine too old to support the media feature. Reported
+      from a Galaxy S10 rendering ten cards where a Note 10 rendered
+      five. The default state — no JavaScript, no knowledge of what the
+      browser supports — must be the real partners and nothing else.
+    - `.is-moving` therefore has to MEAN it, because it is what puts the
+      copies on screen. Every attempted move reports whether the offset
+      actually changed (`partnerMoved()`), and a run of attempts that
+      changed nothing calls `partnerStill()`: class off, copies gone,
+      arrows back. Anything new that moves the row reports through the
+      same pair.
+    - Move the row through `partnerScrollBy()`, never `scrollBy()`
+      directly. `Element.scrollBy` is Chromium 61 and later — Samsung
+      Internet 7 and earlier do not have it — and stepping and the
+      arrows were the only two things that used it, so on such a phone
+      a stepping row wore `.is-moving` and never moved. The helper falls
+      back to the same `scrollLeft` everything else here uses.
     - Cards snap to their START, not their centre, so an arrow press
       moves exactly one card and the row rests with a card against the
       left edge.
@@ -1035,17 +1072,25 @@ Built (post-signing variation, Jul 2026):
     - **Every mode falls back to a still row under
       `prefers-reduced-motion`**, and that is not a fourth option for an
       admin to override. The script checks `matchMedia` before it starts
-      anything, and the stylesheet hides the copy set — keep both.
+      anything, and the stylesheet overrides the `.is-moving` reveal as
+      well — keep both. The reduced-motion rule is no longer what hides
+      the copies (they are hidden by default now); it is the guarantee
+      that no sequence of classes can put one on screen in an engine
+      that does support the feature.
     - **The arrows are the affordance for a row that is standing still**
-      (the `none` setting, or anybody with reduced motion). The script
-      un-hides them only when the row is static AND has somewhere to go,
-      and the scrollbar-hiding rules hang off the classes it sets
-      (`has-arrows` / `is-moving`) — so with no JavaScript there are
-      neither dead buttons nor a hidden scrollbar, and the row still
-      scrolls. They move one card, disable at each end, and carry real
-      labels ("Previous partners" / "Next partners"). On a phone they
-      sit UNDER the row: beside it they took 84px of a 342px window and
-      no card was ever fully in view.
+      (the `none` setting, anybody with reduced motion, and any browser
+      that never gets the row moving). They ship VISIBLE in the markup
+      and the script hides them when it takes the row over — while it is
+      drifting or stepping, or when there is nowhere to scroll to. That
+      is the way round it has to be: rendering them `hidden` for the
+      script to reveal made the one state most in need of them the state
+      without them. The scrollbar-hiding rules still hang off the
+      classes the script sets (`has-arrows` / `is-moving`), so with no
+      JavaScript the scrollbar is there to scroll with and the buttons
+      are the hint that there is more. They move one card, disable at
+      each end, and carry real labels ("Previous partners" / "Next
+      partners"). On a phone they sit UNDER the row: beside it they took
+      84px of a 342px window and no card was ever fully in view.
     - Drag-to-scroll (pointer events, no library) is what a mouse user
       has instead of a scrollbar. Two things it must keep doing, both
       learned by breaking them:

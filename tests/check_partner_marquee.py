@@ -74,6 +74,10 @@ WIDTHS = [1440, 1280, 1024, 900, 768, 390]
 # narrowest set, the tightest case for the loop invariant.
 COUNTS = [5, 7, 9]
 STEP_SECONDS = 2          # long enough to watch a step land and stop
+# Section H's widths: the CSS pixel widths of the two phones the
+# duplicate-cards bug was reported across — a Galaxy S10 (360) showing
+# ten cards where a Note 10 (412) showed five.
+FALLBACK_WIDTHS = [360, 412]
 
 shots_dir = None
 if "--shots" in sys.argv:
@@ -174,6 +178,11 @@ MEASURE = """() => {
         setsInMarkup: sets.length,
         setsShown: sets.filter(
             s => getComputedStyle(s).display !== 'none').length,
+        // Cards actually laid out on the page — a card inside a
+        // display:none set has no client rects at all. This is the
+        // number a visitor counts, which is the whole point of H.
+        cardsRendered: [...box.querySelectorAll('.partner-card')]
+            .filter(c => c.getClientRects().length > 0).length,
         scrollbarWidth: getComputedStyle(box).scrollbarWidth,
         snap: getComputedStyle(box).scrollSnapType,
         arrowsHidden: [...row.querySelectorAll('.partner-arrow')]
@@ -676,6 +685,184 @@ with sync_playwright() as pw:
               abs(page.evaluate(SCROLL_LEFT) - at) <= 1,
               "moved %.1f" % (page.evaluate(SCROLL_LEFT) - at))
         ctx.close()
+
+    # ================================================================
+    # H. FAIL SAFE: whatever stops the row animating, what is left is
+    #    the REAL cards and the arrows — never the aria-hidden copies.
+    #
+    # Reported from a Galaxy S10: ten cards, static, where a Note 10
+    # showed five and drifted. Hiding the copy set used to depend on the
+    # admin's `none` setting or on a prefers-reduced-motion match, so
+    # every OTHER way of not animating — the script blocked, erroring,
+    # not run, or an engine too old to move the row the way the script
+    # asked — left the same five logos on the page twice.
+    #
+    # So each case below breaks the script in a different way and asserts
+    # the same three things: one set, five cards, arrows showing.
+    # ================================================================
+    seed(5)
+    for width in FALLBACK_WIDTHS:
+
+        # (a) No JavaScript at all. Nothing adds a class, nothing hides
+        #     anything: this is purely what the server sent plus the
+        #     stylesheet, which is the state the fix has to be built in.
+        set_motion("scroll")
+        ctx, page = open_home(browser, width, STILL,
+                              java_script_enabled=False)
+        tag = "%dpx, no JavaScript" % width
+        m = page.evaluate(MEASURE)
+        check("%s: one set rendered" % tag, m["setsShown"] == 1,
+              str(m["setsShown"]))
+        check("%s: five cards, not ten" % tag, m["cardsRendered"] == 5,
+              str(m["cardsRendered"]))
+        check("%s: the arrows are there" % tag,
+              not any(m["arrowsHidden"]), str(m["arrowsHidden"]))
+        check("%s: the row is not claiming to move" % tag, not m["moving"])
+        check("%s: and its scrollbar is still there to scroll with" % tag,
+              m["scrollbarWidth"] != "none", m["scrollbarWidth"])
+        check("%s: the page does not scroll sideways" % tag,
+              page.evaluate("() => document.documentElement.scrollWidth - "
+                            "document.documentElement.clientWidth") <= 0)
+        if shots_dir:
+            page.screenshot(path=os.path.join(
+                shots_dir, "fallback-nojs-%d.png" % width))
+        ctx.close()
+
+        # (b) The script runs and throws on the way in. Different cause,
+        #     same requirement — and this one leaves the page's other
+        #     scripts running, so it is not just "no JS" again.
+        ctx = new_context(browser, width, motion=MOVING)
+        # matchMedia, because the partner block calls it on its fifth
+        # line — and because MEASURE below does not, so the check can
+        # still read the page it has just broken.
+        ctx.add_init_script("""
+            window.matchMedia = function () {
+                throw new TypeError('no matchMedia here');
+            };""")
+        page = ctx.new_page()
+        page.goto(BASE + "/", wait_until="load")
+        show_row(page)
+        tag = "%dpx, the script throws" % width
+        m = page.evaluate(MEASURE)
+        check("%s: one set rendered" % tag, m["setsShown"] == 1,
+              str(m["setsShown"]))
+        check("%s: five cards, not ten" % tag, m["cardsRendered"] == 5,
+              str(m["cardsRendered"]))
+        check("%s: the arrows are there" % tag,
+              not any(m["arrowsHidden"]), str(m["arrowsHidden"]))
+        ctx.close()
+
+        # (c) Reduced motion, which the site has always handled — here at
+        #     the phone widths, and now holding without the media query
+        #     being the thing that hides the copies.
+        ctx, page = open_home(browser, width, STILL)
+        tag = "%dpx, reduced motion" % width
+        m = page.evaluate(MEASURE)
+        check("%s: one set rendered" % tag, m["setsShown"] == 1,
+              str(m["setsShown"]))
+        check("%s: five cards, not ten" % tag, m["cardsRendered"] == 5,
+              str(m["cardsRendered"]))
+        check("%s: the arrows are there" % tag,
+              not any(m["arrowsHidden"]), str(m["arrowsHidden"]))
+        ctx.close()
+
+        # (d) The row says it is moving but the offset will not move —
+        #     a clamp, a bug, an engine doing something else. .is-moving
+        #     is what reveals the copies, so the script has to notice and
+        #     take it back off rather than show them for a motion that is
+        #     not happening.
+        set_motion("scroll")
+        ctx = new_context(browser, width, motion=MOVING)
+        ctx.add_init_script("""
+            Object.defineProperty(Element.prototype, 'scrollLeft', {
+                get: function () { return 0; },
+                set: function () {},
+                configurable: true});""")
+        page = ctx.new_page()
+        page.goto(BASE + "/", wait_until="load")
+        show_row(page)
+        page.wait_for_timeout(1500)      # 30 still frames is half a second
+        tag = "%dpx, a drift that cannot move" % width
+        m = page.evaluate(MEASURE)
+        check("%s: the row stops claiming to move" % tag, not m["moving"])
+        check("%s: one set rendered" % tag, m["setsShown"] == 1,
+              str(m["setsShown"]))
+        check("%s: five cards, not ten" % tag, m["cardsRendered"] == 5,
+              str(m["cardsRendered"]))
+        check("%s: and the arrows come back" % tag,
+              not any(m["arrowsHidden"]), str(m["arrowsHidden"]))
+        ctx.close()
+
+    # (e) An engine without Element.scrollBy — Chromium below 61, which
+    #     is Samsung Internet 7 and earlier. Stepping and the arrows were
+    #     the only two things that went through it, so on such a phone a
+    #     stepping row wore .is-moving and never moved. It should step
+    #     anyway now, on the offset every other part of this uses.
+    set_motion("step")
+    ctx = new_context(browser, 360, motion=MOVING)
+    ctx.add_init_script("delete Element.prototype.scrollBy;")
+    page = ctx.new_page()
+    page.goto(BASE + "/", wait_until="load")
+    show_row(page)
+    m = page.evaluate(MEASURE)
+    check("no Element.scrollBy: the row has no scrollBy to call",
+          page.evaluate(
+              "() => !document.getElementById('partnerRow').scrollBy"))
+    page.wait_for_timeout(STEP_SECONDS * 1000 + 400)
+    landed = settle(page)
+    check("no Element.scrollBy: it steps one card anyway",
+          abs(landed - m["cardStride"]) <= 3,
+          "moved %.0f, stride %.0f" % (landed, m["cardStride"]))
+    check("no Element.scrollBy: so it is genuinely moving, copies and all",
+          page.evaluate(MEASURE)["setsShown"] == 2)
+    ctx.close()
+
+    # (f) The phone itself: at 360 five partners overflow, so the two
+    #     ways of moving a row without a scrollbar both have to work.
+    set_motion("none")
+    ctx, page = open_home(browser, 360, STILL, has_touch=True)
+    m = page.evaluate(MEASURE)
+    check("360px: five partners overflow the row",
+          m["scrollWidth"] > m["clientWidth"] + 1,
+          "%d vs %d" % (m["scrollWidth"], m["clientWidth"]))
+    check("360px: so the arrows are showing", not any(m["arrowsHidden"]),
+          str(m["arrowsHidden"]))
+    check("360px: only the real cards are in that overflow",
+          m["cardsRendered"] == 5, str(m["cardsRendered"]))
+    arrow = page.locator(".partner-arrow-next").bounding_box()
+    row = page.locator(".partner-marquee").bounding_box()
+    check("360px: the arrows sit under the row, not beside it",
+          arrow["y"] >= row["y"] + row["height"] - 2,
+          "arrow at %.0f, row ends %.0f" % (arrow["y"],
+                                            row["y"] + row["height"]))
+    check("360px: and are a fair size to hit",
+          arrow["width"] >= 40 and arrow["height"] >= 40,
+          "%.0fx%.0f" % (arrow["width"], arrow["height"]))
+    page.click(".partner-arrow-next")
+    landed = settle(page)
+    check("360px: the next arrow moves the row one card",
+          abs(landed - m["cardStride"]) <= 3,
+          "moved %.0f, stride %.0f" % (landed, m["cardStride"]))
+    point = card_point(page)
+    before = page.evaluate(SCROLL_LEFT)
+    cdp = ctx.new_cdp_session(page)
+    cdp.send("Input.dispatchTouchEvent", {
+        "type": "touchStart",
+        "touchPoints": [{"x": point["x"], "y": point["y"], "id": 1}]})
+    for i in range(1, 11):
+        cdp.send("Input.dispatchTouchEvent", {
+            "type": "touchMove",
+            "touchPoints": [{"x": point["x"] - 20 * i,
+                             "y": point["y"], "id": 1}]})
+        page.wait_for_timeout(16)
+    cdp.send("Input.dispatchTouchEvent",
+             {"type": "touchEnd", "touchPoints": []})
+    after = settle(page)
+    check("360px: and a swipe still pans it", after - before > 40,
+          "moved %.0f" % (after - before))
+    if shots_dir:
+        page.screenshot(path=os.path.join(shots_dir, "fallback-360.png"))
+    ctx.close()
 
     browser.close()
 

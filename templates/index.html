@@ -159,15 +159,23 @@
         mode is off under prefers-reduced-motion, the continuous one by
         the global rule at the top of the stylesheet and the stepping one
         because the script checks. Either way the row can still be
-        scrolled, dragged, swiped and tabbed through. -#}
+        scrolled, dragged, swiped and tabbed through.
+        The duplicate set below is decoration for the loop and is hidden
+        by the stylesheet unless the row is genuinely animating, so this
+        renders as the real partners and nothing else in every browser
+        that does not get as far as moving it. -#}
     <div class="partner-row" data-motion="{{ motion.mode }}"
          data-step-seconds="{{ motion.step_seconds }}">
-      {#- The arrows start hidden and the script shows them only when the
-          row is standing still AND has somewhere to go. So with no
-          JavaScript there are no dead buttons, and the scrollbar — which
-          the script is what hides — is still there to scroll with. -#}
+      {#- The arrows are HERE BY DEFAULT and the script hides them once it
+          takes the row over — while it is drifting or stepping, or if
+          there turns out to be nowhere to scroll to. The other way round
+          (hidden until the script shows them) meant that the one state
+          most in need of them — the script blocked, erroring or not run
+          at all — was the state with no arrows and no way to move the
+          row but the scrollbar. The scrollbar is still there in exactly
+          that case, since hiding it is on a class only the script adds. -#}
       <button type="button" class="partner-arrow partner-arrow-prev"
-              aria-label="Previous partners" aria-controls="partnerRow" hidden>
+              aria-label="Previous partners" aria-controls="partnerRow">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
                 stroke-width="2.2" stroke-linecap="round"
@@ -185,7 +193,7 @@
         </div>
       </div>
       <button type="button" class="partner-arrow partner-arrow-next"
-              aria-label="Next partners" aria-controls="partnerRow" hidden>
+              aria-label="Next partners" aria-controls="partnerRow">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M9 5 L16 12 L9 19" fill="none" stroke="currentColor"
                 stroke-width="2.2" stroke-linecap="round"
@@ -267,9 +275,13 @@
       && !stillPlease.matches;
     var DRAG_MIN = 6;        /* below this it was a click, not a drag */
     var DRIFT_PER_SECOND = 45;
+    /* Attempted moves that changed nothing before we stop believing the
+       row is moving. A drift attempts one a frame, so 30 is half a
+       second; a step attempts one every few seconds, so it gets 2. */
+    var STUCK_FRAMES = 30, STUCK_STEPS = 2;
     var held = false, dragging = false, dragCaught = false, onScreen = true;
     var dragFrom = 0, dragScroll = 0, dragMoved = 0;
-    var driftAt = 0, driftFrame = 0;
+    var driftAt = 0, driftFrame = 0, stepTimer = 0, stuck = 0;
 
     function partnerGap() {
       var track = partnerBox.querySelector('.partner-track');
@@ -366,12 +378,49 @@
       }, { threshold: 0 }).observe(partnerBox);
     }
 
+    /* ---- moving the row, on any engine
+       Element.scrollBy with an options object is Chromium 61 and later:
+       Samsung Internet 7 and earlier do not have the method at all. That
+       is one of the ways a row can end up wearing .is-moving — and, as
+       the markup used to be, showing its duplicate cards — while never
+       actually moving, because stepping and the arrows were the only two
+       things that went through it. Everything else here already uses the
+       offset directly, so fall back to that. */
+    function partnerScrollBy(delta, smooth) {
+      if (partnerBox.scrollBy) {
+        try {
+          partnerBox.scrollBy({ left: delta,
+                                behavior: smooth ? 'smooth' : 'auto' });
+          return;
+        } catch (e) { /* an engine that takes only (x, y) — fall through */ }
+      }
+      partnerBox.scrollLeft = partnerBox.scrollLeft + delta;
+    }
+    /* .is-moving is what reveals the duplicate set, so it has to be true
+       rather than merely intended. Every attempt to move reports whether
+       the offset actually changed, and a run of attempts that changed
+       nothing puts the row back to still — real cards only, arrows
+       showing — instead of leaving the copies on screen for a motion
+       that is not happening. */
+    function partnerMoved(did, limit) {
+      if (!moves) return;
+      if (did) { stuck = 0; return; }
+      if (++stuck > limit) partnerStill();
+    }
+    function partnerStill() {
+      moves = false;
+      if (driftFrame) { window.cancelAnimationFrame(driftFrame); }
+      if (stepTimer) { window.clearInterval(stepTimer); }
+      driftFrame = 0; stepTimer = 0; stuck = 0;
+      partnerWrap.classList.remove('is-moving');
+      partnerBox.scrollLeft = 0;
+      refreshArrows();
+    }
+
     /* ---- the arrows, for a row that is standing still */
     function arrowScroll(direction) {
-      partnerBox.scrollBy({
-        left: direction * (cardStride() || 260),
-        behavior: stillPlease.matches ? 'auto' : 'smooth'
-      });
+      partnerScrollBy(direction * (cardStride() || 260),
+                      !stillPlease.matches);
     }
     function refreshArrows() {
       var scrollable = partnerBox.scrollWidth > partnerBox.clientWidth + 1;
@@ -414,7 +463,9 @@
           driftAt = partnerBox.scrollLeft;
         }
         driftAt = wrapped(driftAt + DRIFT_PER_SECOND * seconds);
+        var before = partnerBox.scrollLeft;
         partnerBox.scrollLeft = driftAt;
+        partnerMoved(partnerBox.scrollLeft !== before, STUCK_FRAMES);
       };
       driftFrame = window.requestAnimationFrame(driftStep);
     }
@@ -424,14 +475,20 @@
       partnerWrap.classList.add('is-moving');
       var every = parseInt(partnerWrap.getAttribute('data-step-seconds'), 10);
       if (!every || every < 1) every = 4;
-      window.setInterval(function () {
+      stepTimer = window.setInterval(function () {
         if (held || dragging || !onScreen) return;
         var stride = cardStride();
         if (!stride) return;
         if (partnerBox.scrollLeft + stride >= setStride()) {
           partnerBox.scrollLeft = wrapped(partnerBox.scrollLeft);
         }
-        partnerBox.scrollBy({ left: stride, behavior: 'smooth' });
+        var before = partnerBox.scrollLeft;
+        partnerScrollBy(stride, true);
+        /* A smooth step is still gliding on the next line, so let it
+           land before deciding that nothing happened. */
+        window.setTimeout(function () {
+          partnerMoved(partnerBox.scrollLeft !== before, STUCK_STEPS);
+        }, 600);
       }, every * 1000);
     }
   }

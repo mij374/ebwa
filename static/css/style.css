@@ -592,7 +592,19 @@ body.lightbox-open .cookie-notice{display:none}
 
 /* ---------- Footer ---------- */
 footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 32px}
-.foot-grid{display:grid;grid-template-columns:1.3fr 1.2fr .8fr 1fr;gap:36px;margin-bottom:40px}
+/* minmax(0,·) on every track, for the reason the admin shell spells out
+   below: an `fr` track's automatic minimum is MIN-CONTENT, so one item
+   that cannot be broken — the newsletter input and its button side by
+   side — sizes the track wider than the footer and every cell overflows
+   with it. Measured at the narrow end, where the column is one and the
+   whole footer carries it: 3px of sideways scroll on the page at 360
+   (a Galaxy S10) and 43px at 320. Nothing overflows its cell once the
+   floor is zero, so nothing else needed changing. */
+.foot-grid{
+  display:grid;gap:36px;margin-bottom:40px;
+  grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr)
+                        minmax(0,.8fr) minmax(0,1fr);
+}
 .foot-grid h4{font-family:var(--font-display);color:#fff;font-size:16px;margin-bottom:14px}
 .foot-grid ul{list-style:none;display:grid;gap:9px}
 .foot-grid a{text-decoration:none;font-size:14.5px;opacity:.85}
@@ -988,7 +1000,7 @@ body.has-notice footer{padding-bottom:110px}
   .album-grid{grid-template-columns:1fr 1fr}
   .photo-masonry{columns:2}
   .stats-grid{grid-template-columns:1fr 1fr;gap:34px}
-  .foot-grid{grid-template-columns:1fr 1fr}
+  .foot-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admin-shell{grid-template-columns:minmax(0,1fr)}
   .admin-side{flex-direction:row;align-items:center;gap:18px;flex-wrap:wrap}
   .admin-side nav{display:flex;gap:4px;flex-wrap:wrap}
@@ -1047,7 +1059,7 @@ body.has-notice footer{padding-bottom:110px}
     width:auto;white-space:normal;overflow:visible;text-overflow:clip;
   }
   .admin-gallery-grid{grid-template-columns:1fr 1fr}
-  .foot-grid{grid-template-columns:1fr}
+  .foot-grid{grid-template-columns:minmax(0,1fr)}
 }
 
 /* ---------- Testimonials ---------- */
@@ -1137,11 +1149,23 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
      move a fraction of a card and every later one a whole one. */
   scroll-snap-align:start;
 }
-/* The copy set exists only to make the loop endless. With nothing
-   moving it is the same logos twice, so it goes. */
-.partner-row[data-motion="none"] .partner-set[aria-hidden="true"]{
-  display:none;
-}
+/* The copy set exists only to make the loop endless, so it is HIDDEN BY
+   DEFAULT and revealed only while the row is genuinely animating. That
+   direction is the whole point and must not be reversed: hiding it used
+   to depend on the admin's `none` setting or on a
+   prefers-reduced-motion match, which meant every way of NOT animating
+   that neither of those knew about — the script blocked, erroring, or
+   simply not run, or an engine too old to support the media feature —
+   left the same five logos on the page twice, aria-hidden and
+   untabbable but perfectly visible. Reported from a Galaxy S10 showing
+   ten cards where a Note 10 showed five.
+   So: the default state renders the real set alone, whatever the
+   browser knows or the script manages, and .is-moving — added only
+   once the drift or the stepping is actually running — is what brings
+   the copies back. Failure now lands on a still row of real cards with
+   arrows, never on visible duplicates. */
+.partner-set[aria-hidden="true"]{display:none}
+.partner-row.is-moving .partner-set[aria-hidden="true"]{display:flex}
 /* Grab-to-pull, wherever the row can move at all. */
 .partner-row .partner-marquee{cursor:grab}
 .partner-row.is-dragging .partner-marquee{
@@ -1150,10 +1174,18 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 /* Snapping fights a drift that moves the row every frame. */
 .partner-row.is-moving .partner-marquee{scroll-snap-type:none}
 
-/* The arrows: the affordance for a row that is standing still. The
-   script un-hides them only when there is somewhere to go, so with no
-   JavaScript there are no dead buttons — and no hidden scrollbar
-   either, since the rule below is on a class the script adds. */
+/* The arrows: the affordance for a row that is standing still, and now
+   the DEFAULT state of the markup rather than something the script
+   grants. A row that is not moving is a row somebody has to push, and
+   the case where the script cannot grant anything is exactly the case
+   that needs them. The script hides them again the moment it takes the
+   row over — while it is drifting or stepping, or if there is nowhere
+   to scroll to.
+   With no JavaScript at all they cannot scroll the row, so the
+   scrollbar-hiding rule below stays on .has-arrows — a class only the
+   script adds. No script, no hidden scrollbar: the row is still
+   scrollable by bar, wheel and swipe, and the buttons are the hint
+   that it is. */
 .partner-arrow{
   flex:0 0 auto;width:42px;height:42px;border-radius:50%;
   border:1px solid var(--line);background:var(--white);color:var(--green);
@@ -1181,9 +1213,12 @@ a.partner-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(2,56
 
 /* Under prefers-reduced-motion the script never starts a drift or a
    step whatever the admin chose, so the row is static and gets the
-   arrows — see the has-arrows rule above. Snapping comes back with it. */
+   arrows — see the has-arrows rule above. Snapping comes back with it.
+   The copies are already hidden by default; this overrides the .is-moving
+   reveal as well, so that in the engines that do support the feature no
+   sequence of classes can put a duplicate on screen. */
 @media (prefers-reduced-motion: reduce){
-  .partner-set[aria-hidden="true"]{display:none}
+  .partner-row.is-moving .partner-set[aria-hidden="true"]{display:none}
   .partner-marquee{scroll-snap-type:x mandatory}
 }
 /* On a phone the arrows go UNDER the row rather than either side of it.

@@ -321,9 +321,15 @@ check("and the interval, so no Jinja is needed inside the script",
 check("the arrows are in the markup, labelled",
       'aria-label="Previous partners"' in html
       and 'aria-label="Next partners"' in html)
-check("and start hidden, so no JavaScript means no dead buttons",
-      html.count("partner-arrow") >= 2
-      and html.count("hidden>") >= 2, str(html.count("hidden>")))
+# They used to be rendered `hidden`, for the script to reveal. That made
+# the ONE state that most needs them — the script blocked, erroring or
+# never run — the state without them, and it left the duplicate cards on
+# screen with no way to move the row but the scrollbar. Now they ship
+# visible and the script hides them when it takes the row over.
+check("and are NOT hidden, so a browser that never runs the script has "
+      "something to push",
+      html.count("partner-arrow") >= 2 and "hidden>" not in html,
+      str(html.count("hidden>")))
 
 r = client.get("/admin/partners")
 page = r.data.decode("utf-8")
