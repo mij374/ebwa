@@ -588,6 +588,25 @@ Built and maintained by Netbus IT Support.
   page at 360px (a Galaxy S10) and 43px at 320px, at every breakpoint
   down to one column. `.admin-shell` carries the same guard for the same
   reason.
+- **Every ORDER BY ends in a key that cannot tie**, normally `id`. Two
+  rows with the same `sort` and nothing after it come back in whatever
+  order the database finds them; SQLite's answer is rowid, so insertion
+  order, which is a coincidence and not a promise — it moves when a row
+  is rewritten, when an index appears, or on any other engine. The
+  public page and its admin list must also carry the SAME order, so the
+  person arranging the rows sees what the visitor will see.
+  - A `sort` column is ascending, so a lower number is earlier and a
+    NEGATIVE number pins to the top. That is deliberate and the reason
+    the admin forms carry no `min` on a sort field.
+  - Match the tie-break to the direction above it: an ascending list
+    ends `id` ascending (insertion order), a newest-first list ends `id`
+    DESCENDING, or the last two rows of a tie read backwards against the
+    rest of the page.
+  - `tests/smoke_test_ordering.py` pins every one of them, and builds
+    each tie on purpose — rows inserted in the opposite order to the one
+    expected, so a missing tie-break fails rather than passing by luck
+    on SQLite's rowid. Eleven checks in it fail without the keys added
+    in the same commit.
 - Every public page must be reachable from the nav or the footer.
   `tests/smoke_test_navigation.py` walks the URL map and fails otherwise;
   a page reached from inside a section (`/gallery/all`) is listed there
@@ -1357,8 +1376,9 @@ Built (post-signing variation, Jul 2026):
 
 Each module has a smoke test in tests/ (smoke_test_<module>.py, run
 directly with python); seed_demo.py fills a fresh db with demo content.
-`smoke_test_asset_version.py` is the one that is not a module: it holds
-the static-asset cache busting described in the conventions above.
+Two are not modules: `smoke_test_asset_version.py` holds the
+static-asset cache busting, and `smoke_test_ordering.py` holds the
+order every list comes out in, ties included.
 Phase 1 is code-complete but NOT yet deployed: deploy needs init-db
 (new tables), pip install (stripe), Stripe env vars + webhook
 registration (see README).

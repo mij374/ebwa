@@ -935,7 +935,8 @@ def parse_pounds(raw):
 
 
 def blocks_for(group):
-    rows = Block.query.filter_by(group=group).order_by(Block.sort).all()
+    rows = (Block.query.filter_by(group=group)
+            .order_by(Block.sort, Block.id).all())
     return {b.key: b.value for b in rows}
 
 
@@ -2826,22 +2827,26 @@ def home():
     upcoming = (Event.query
                 .filter_by(published=True)
                 .filter(Event.event_date >= date.today())
-                .order_by(Event.event_date.asc())
+                .order_by(Event.event_date.asc(), Event.id.asc())
                 .limit(3).all())
     latest_news = []
     if feature_enabled("news"):
         latest_news = (NewsPost.query.filter_by(published=True)
                        .order_by(NewsPost.published_date.desc(),
-                                 NewsPost.created_at.desc())
+                                 NewsPost.created_at.desc(),
+                                 NewsPost.id.desc())
                        .limit(3).all())
     campaigns = []
     if feature_enabled("donations"):
         campaigns = (Campaign.query.filter_by(active=True)
                      .order_by(Campaign.created_at.desc()).all())
     testimonials = (Testimonial.query.filter_by(published=True)
-                    .order_by(Testimonial.sort, Testimonial.created_at.desc())
+                    .order_by(Testimonial.sort,
+                              Testimonial.created_at.desc(),
+                              Testimonial.id.desc())
                     .limit(6).all())
-    partners = Partner.query.order_by(Partner.sort, Partner.name).all()
+    partners = (Partner.query
+                .order_by(Partner.sort, Partner.name, Partner.id).all())
     services = (Service.query.filter_by(published=True)
                 .order_by(Service.sort, Service.id).all())
     return render_template("index.html", c=content, upcoming=upcoming,
@@ -2925,10 +2930,11 @@ def events():
     today = date.today()
     upcoming = (Event.query.filter_by(published=True)
                 .filter(Event.event_date >= today)
-                .order_by(Event.event_date.asc()).all())
+                .order_by(Event.event_date.asc(), Event.id.asc()).all())
     past = (Event.query.filter_by(published=True)
             .filter(Event.event_date < today)
-            .order_by(Event.event_date.desc()).limit(12).all())
+            .order_by(Event.event_date.desc(), Event.id.desc())
+            .limit(12).all())
     return render_template("events.html", upcoming=upcoming, past=past)
 
 
@@ -2946,7 +2952,8 @@ def event_detail(slug):
 def news():
     posts = (NewsPost.query.filter_by(published=True)
              .order_by(NewsPost.published_date.desc(),
-                       NewsPost.created_at.desc()).all())
+                       NewsPost.created_at.desc(),
+                       NewsPost.id.desc()).all())
     return render_template("news.html", posts=posts)
 
 
@@ -3016,7 +3023,8 @@ def gallery_photos(album=None, unfiled_only=False):
         q = q.filter(db.or_(GalleryImage.album_id.is_(None),
                             GalleryImage.album_id.notin_(hidden)))
     return q.order_by(GalleryImage.sort,
-                      GalleryImage.created_at.desc()).all()
+                      GalleryImage.created_at.desc(),
+                      GalleryImage.id.desc()).all()
 
 
 def with_ratios(photos):
@@ -3028,7 +3036,8 @@ def with_ratios(photos):
 def gallery():
     """Album covers, plus a way into everything that is not in an album."""
     albums = (GalleryAlbum.query.filter_by(published=True)
-              .order_by(GalleryAlbum.sort, GalleryAlbum.created_at.desc())
+              .order_by(GalleryAlbum.sort, GalleryAlbum.created_at.desc(),
+                        GalleryAlbum.id.desc())
               .all())
     # One grouped count rather than a query per album.
     counts = dict(db.session.query(GalleryImage.album_id,
@@ -3039,7 +3048,8 @@ def gallery():
         if not a.cover_image:
             newest = (GalleryImage.query.filter_by(album_id=a.id)
                       .order_by(GalleryImage.sort,
-                                GalleryImage.created_at.desc()).first())
+                                GalleryImage.created_at.desc(),
+                                GalleryImage.id.desc()).first())
             covers[a.id] = newest.filename if newest else ""
     cards = [{"album": a,
               "count": counts.get(a.id, 0),
@@ -3078,7 +3088,7 @@ def gallery_album(slug):
 @feature_required("resources")
 def resources():
     rows = Resource.query.order_by(Resource.category, Resource.sort,
-                                   Resource.name).all()
+                                   Resource.name, Resource.id).all()
     grouped = []   # [(category, [resources])], in query order
     for r in rows:
         if grouped and grouped[-1][0] == r.category:
@@ -3128,7 +3138,7 @@ def faq():
 def journey():
     rows = (Milestone.query.filter_by(published=True)
             .order_by(Milestone.year.desc(), Milestone.sort,
-                      Milestone.title).all())
+                      Milestone.title, Milestone.id).all())
     rich = rich_content_for_many("milestone", rows)
     grouped = []   # [(year, [entries])], in query order
     for m in rows:
@@ -4006,7 +4016,7 @@ def admin_content():
     # about_layout is chosen with the layout picker, not typed into a box
     blocks = (Block.query.filter_by(group=group)
               .filter(Block.key.notin_(HIDDEN_BLOCK_KEYS))
-              .order_by(Block.sort).all())
+              .order_by(Block.sort, Block.id).all())
 
     if request.method == "POST":
         changed = []          # block keys, never the text that was typed
@@ -4198,7 +4208,8 @@ def admin_layout_save(owner_type, owner_id):
 @app.route("/admin/events")
 @login_required
 def admin_events():
-    rows = Event.query.order_by(Event.event_date.desc()).all()
+    rows = Event.query.order_by(Event.event_date.desc(),
+                                Event.id.desc()).all()
     return render_template("admin/events_list.html", rows=rows)
 
 
@@ -4271,7 +4282,8 @@ def admin_event_delete(event_id):
 @login_required
 def admin_news():
     rows = NewsPost.query.order_by(NewsPost.published_date.desc(),
-                                   NewsPost.created_at.desc()).all()
+                                   NewsPost.created_at.desc(),
+                                   NewsPost.id.desc()).all()
     return render_template("admin/news_list.html", rows=rows)
 
 
@@ -4467,7 +4479,8 @@ def admin_gallery():
     else:
         view = ""
         images = GalleryImage.query.order_by(
-            GalleryImage.sort, GalleryImage.created_at.desc()).all()
+            GalleryImage.sort, GalleryImage.created_at.desc(),
+            GalleryImage.id.desc()).all()
     counts = dict(db.session.query(GalleryImage.album_id,
                                    db.func.count(GalleryImage.id))
                   .group_by(GalleryImage.album_id).all())
@@ -4519,7 +4532,8 @@ def admin_gallery_delete(image_id):
 @login_required
 def admin_albums():
     rows = GalleryAlbum.query.order_by(GalleryAlbum.sort,
-                                       GalleryAlbum.created_at.desc()).all()
+                                       GalleryAlbum.created_at.desc(),
+                                       GalleryAlbum.id.desc()).all()
     counts = dict(db.session.query(GalleryImage.album_id,
                                    db.func.count(GalleryImage.id))
                   .group_by(GalleryImage.album_id).all())
@@ -4622,7 +4636,8 @@ def admin_testimonials():
             flash("Name and quote are required.", "error")
         return redirect(url_for("admin_testimonials"))
     rows = Testimonial.query.order_by(Testimonial.sort,
-                                      Testimonial.created_at.desc()).all()
+                                      Testimonial.created_at.desc(),
+                                      Testimonial.id.desc()).all()
     return render_template("admin/testimonials.html", rows=rows)
 
 
@@ -4656,7 +4671,8 @@ def admin_testimonial_toggle(t_id):
 @app.route("/admin/partners")
 @login_required
 def admin_partners():
-    rows = Partner.query.order_by(Partner.sort, Partner.name).all()
+    rows = (Partner.query
+            .order_by(Partner.sort, Partner.name, Partner.id).all())
     return render_template("admin/partners.html", rows=rows,
                            motions=PARTNER_MOTIONS, motion=partner_motion(),
                            step_min=PARTNER_STEP_MIN,
@@ -4859,7 +4875,7 @@ def admin_partner_delete(p_id):
 @login_required
 def admin_resources():
     rows = Resource.query.order_by(Resource.category, Resource.sort,
-                                   Resource.name).all()
+                                   Resource.name, Resource.id).all()
     return render_template("admin/resources_list.html", rows=rows)
 
 
@@ -4993,7 +5009,7 @@ def admin_faq_delete(faq_id):
 @login_required
 def admin_milestones():
     rows = Milestone.query.order_by(Milestone.year.desc(), Milestone.sort,
-                                    Milestone.title).all()
+                                    Milestone.title, Milestone.id).all()
     return render_template("admin/milestones_list.html", rows=rows)
 
 
