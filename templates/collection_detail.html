@@ -6,14 +6,19 @@
     <p class="eyebrow"><a href="{{ url_for('home') }}" class="crumb">← Home</a></p>
     <h1 class="event-title">{{ camp.title }}</h1>
 
-    {#- A video takes the lead where the photo would be, the same way it
-        does inside the rich-content macro — a campaign is not a rich
-        owner, so it borrows the player macro alone. -#}
+    {#- A video LEADS, it does not replace. The photograph is somebody's
+        picture of the trip and the campaign's own identity — it is on
+        the card and the homepage strip — so a video must not take it off
+        the page. Both appear, video first.
+        The one exception is when the photo IS the video's poster, which
+        happens when no still could be fetched from the provider: showing
+        it again underneath would just be the same picture twice. -#}
     {% set video = video_of(camp, camp.image) %}
     {% if video %}
       {% from "_rich_content.html" import video_player %}
       {{ video_player(video) }}
-    {% elif camp.image %}
+    {% endif %}
+    {% if camp.image and not (video and video.poster == camp.image) %}
     <img class="event-hero" src="{{ upload_url(camp.image) }}" alt="">
     {% endif %}
 

@@ -73,6 +73,9 @@
 {% if rich %}
 {% include "admin/_content_images.html" %}
 {% elif rich_hint %}
-<p class="admin-sub" style="margin-top:36px">Save this first, then come back to choose a layout and add photos.</p>
+<p class="admin-sub" style="margin-top:36px">Save this first, then come
+  back to choose a layout, add photos{% if features.video %} and add a
+  video{% endif %}. They all hang off the saved record, so there is
+  nothing to attach them to until it exists.</p>
 {% endif %}
 {% endblock %}

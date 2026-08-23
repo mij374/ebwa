@@ -308,6 +308,105 @@ check("and refuses a link that is neither provider",
       b"does not look like a YouTube or Vimeo link" in r.data)
 
 # =====================================================================
+# A VIDEO LEADS, IT DOES NOT DISPLACE. The photograph is the item's
+# identity — it is on the card, the listing and the homepage strip — so
+# adding a video must never take it off the page. This is the bug that
+# was reported on collections: the video replaced the picture.
+# =====================================================================
+with app.app_context():
+    c = db.session.get(Campaign, CAMP_ID)
+    # Active again: the edits above posted no `active` checkbox, which
+    # is how an unticked box reads, and an inactive campaign has no
+    # public page to look at.
+    c.active = True
+    c.image = "campaign-photo.jpg"
+    c.video_url = "https://vimeo.com/123456789"
+    c.video_thumb = "campaign-poster.jpg"
+    db.session.commit()
+page = client.get("/collections/video-campaign").data.decode("utf-8")
+check("campaign: the player is there", 'class="video-play"' in page)
+check("CAMPAIGN: AND THE PHOTOGRAPH IS STILL THERE",
+      "campaign-photo.jpg" in page, page[page.find("event-detail"):][:400])
+check("campaign: with the fetched still as the poster",
+      "campaign-poster.jpg" in page)
+
+# ...but not the same picture twice, which is what happens when no
+# still could be fetched and the photo is doing duty as the poster.
+with app.app_context():
+    db.session.get(Campaign, CAMP_ID).video_thumb = ""
+    db.session.commit()
+page = client.get("/collections/video-campaign").data.decode("utf-8")
+check("campaign: with no fetched still, the photo becomes the poster",
+      'class="video-play"' in page and "campaign-photo.jpg" in page)
+check("campaign: and is not ALSO shown underneath",
+      page.count("campaign-photo.jpg") == 1,
+      str(page.count("campaign-photo.jpg")))
+
+# The card contexts never had the bug, and must not gain it.
+with app.app_context():
+    db.session.get(Campaign, CAMP_ID).video_thumb = "campaign-poster.jpg"
+    db.session.commit()
+listing = client.get("/collections").data.decode("utf-8")
+check("campaign: the LISTING CARD still uses the photograph",
+      "campaign-photo.jpg" in listing)
+check("campaign: and not the video poster",
+      "campaign-poster.jpg" not in listing)
+
+# ---- the same rule inside the rich-content macro
+with app.app_context():
+    p = db.session.get(NewsPost, POST_ID)
+    p.image = "news-photo.jpg"
+    p.video_url = "https://www.youtube.com/watch?v=%s" % YT
+    p.video_thumb = "news-poster.jpg"
+    db.session.commit()
+page = client.get("/news/video-post").data.decode("utf-8")
+check("news: the video leads and the poster is the fetched still",
+      'class="video-play"' in page and "news-poster.jpg" in page)
+with app.app_context():
+    db.session.get(NewsPost, POST_ID).video_thumb = ""
+    db.session.commit()
+page = client.get("/news/video-post").data.decode("utf-8")
+check("news: with no still, the post's own photo becomes the poster",
+      "news-photo.jpg" in page)
+check("news: and is not repeated in the strip below",
+      page.count("news-photo.jpg") == 1,
+      str(page.count("news-photo.jpg")))
+
+# =====================================================================
+# Our Journey: the milestone video, end to end
+# =====================================================================
+with app.app_context():
+    m = db.session.get(Milestone, MS_ID)
+    m.video_url = ""
+    m.video_thumb = ""
+    db.session.commit()
+form = client.get("/admin/journey/%d/edit" % MS_ID).data.decode("utf-8")
+check("MILESTONE: the video box IS on the admin form",
+      'name="video_url"' in form)
+check("milestone: posting to the shared route saves it",
+      b"Video saved" in client.post(
+          "/admin/milestone/%d/video" % MS_ID,
+          data={"video_url": "https://youtu.be/%s" % YT},
+          follow_redirects=True).data)
+with app.app_context():
+    m = db.session.get(Milestone, MS_ID)
+    check("milestone: stored canonically",
+          m.video_url == "https://www.youtube.com/watch?v=%s" % YT,
+          m.video_url)
+page = client.get("/our-journey").data.decode("utf-8")
+check("milestone: the player is on Our Journey", 'class="video-play"' in page)
+# A NEW milestone has nothing to hang a video off yet, the same as its
+# photos and its layout — so the form says so rather than offering a box
+# that cannot work.
+new_form = client.get("/admin/journey/new").data.decode("utf-8")
+check("milestone: a new one has no video box, like its photos",
+      'name="video_url"' not in new_form)
+check("milestone: and the hint says to save first, naming the video",
+      "Save this first" in " ".join(new_form.split())
+      and "add a video" in " ".join(new_form.split()),
+      " ".join(new_form.split())[:0])
+
+# =====================================================================
 # The feature flag
 # =====================================================================
 with app.app_context():

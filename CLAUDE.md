@@ -824,9 +824,22 @@ Built and maintained by Netbus IT Support.
     Our Journey and About all get it from one place and one route
     (`admin_video_save`), exactly as the layout picker does. Campaigns
     are not rich owners and carry their own field.
-  - A video takes the LEAD slot in the macro, where the first image
-    would sit, and every image moves down a place rather than being
-    displaced — adding a video never costs a photograph its spot.
+  - **A video LEADS; it never DISPLACES.** It takes the lead slot in
+    the macro, where the first image would sit, and every image moves
+    down a place rather than being dropped — adding a video never costs
+    a photograph its spot. The campaign page got this wrong at first
+    (`{% elif camp.image %}`, so the video replaced the picture) and the
+    photograph vanished from the page while staying on the card, which
+    is exactly the sort of half-there that makes a client think the CMS
+    ate their content.
+  - The one exception is the picture that is doing duty as the video's
+    POSTER — which happens when no still could be fetched from the
+    provider. Showing it again underneath is the same photograph twice,
+    so it is dropped from the strip. Both halves are pinned by tests.
+  - CARD AND COVER CONTEXTS ALWAYS USE THE IMAGE, never the video
+    poster: the listing card, the homepage strip and every other
+    thumbnail are the item's identity, and a video changes what is ON
+    the page, not what the page IS.
   - Pasting an embed code into a BODY field is refused with a message
     pointing at the video box (`body_embed_problem()`). It used to
     render as escaped source code on the live page, which is what

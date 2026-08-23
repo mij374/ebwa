@@ -113,9 +113,12 @@
       column, and only About wants a "put a photo here" box on the live
       page. -#}
   {#- With a video, the lead slot is the video and EVERY image goes to
-      the strip below, so adding one never costs a photograph its
-      place. -#}
-  {% set strip = images if video else images[1:] %}
+      the strip below, so adding one never costs a photograph its place.
+      Except the one that is doing duty as the video's POSTER — that
+      happens when no still could be fetched from the provider, and
+      showing it again in the strip is the same picture twice. -#}
+  {% set strip = images | rejectattr('filename', 'equalto', video.poster)
+                        | list if video else images[1:] %}
   <div class="rc-classic-top{{ ' is-textonly' if not images and not video and not placeholder }}">
     <div class="rc-text">
       {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
