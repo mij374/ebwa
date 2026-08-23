@@ -7094,6 +7094,20 @@ def _suggested_alter(table_name, col):
     return sql + ";"
 
 
+def _suggested_index(table_name, index):
+    """A CREATE INDEX for an index the database is missing.
+
+    IF NOT EXISTS, so running the whole block from DEPLOY.md twice is
+    harmless — the same reason the ALTERs above are listed one per line
+    rather than as a script that stops on the first duplicate.
+    """
+    columns = [c.name for c in index.columns] or [
+        str(e) for e in index.expressions]
+    return "CREATE %sINDEX IF NOT EXISTS %s ON %s (%s);" % (
+        "UNIQUE " if index.unique else "", index.name, table_name,
+        ", ".join(columns))
+
+
 @app.cli.command("check-schema")
 def check_schema():
     """Compare the models against the database; exit 1 if anything is
@@ -7103,7 +7117,7 @@ def check_schema():
     insp = inspect(db.engine)
     present = set(insp.get_table_names())
 
-    missing_tables, missing_columns = [], []
+    missing_tables, missing_columns, missing_indexes = [], [], []
     for table in db.metadata.sorted_tables:
         if table.name not in present:
             missing_tables.append(table)
@@ -7112,6 +7126,19 @@ def check_schema():
         for col in table.columns:
             if col.name not in actual:
                 missing_columns.append((table.name, col))
+        # INDEXES TOO, because nothing else will ever tell you they are
+        # missing: create_all() skips a table that already exists, so a
+        # new index on an old table is simply never created, and until
+        # this was here the only symptom was the site getting slower.
+        # Compared by NAME — every index in the models is named — and
+        # only in one direction: an index the database has and the
+        # models do not is left alone, exactly like an orphan table.
+        # SQLite's own sqlite_autoindex_* entries for unique constraints
+        # are therefore ignored for free.
+        have = {i["name"] for i in insp.get_indexes(table.name)}
+        for index in sorted(table.indexes, key=lambda i: i.name or ""):
+            if index.name and index.name not in have:
+                missing_indexes.append((table.name, index))
 
     # Columns and tables the database has but the models no longer do.
     # Never a failure — this project never drops anything, so retired
@@ -7131,18 +7158,35 @@ def check_schema():
         print("  Fix (check each against DEPLOY.md first):")
         for table_name, col in missing_columns:
             print("    %s" % _suggested_alter(table_name, col))
+    if missing_indexes:
+        print("MISSING INDEXES (%d):" % len(missing_indexes))
+        for table_name, index in missing_indexes:
+            print("  - %s.%s" % (table_name, index.name))
+        print("  Fix (safe to re-run; each is IF NOT EXISTS):")
+        for table_name, index in missing_indexes:
+            print("    %s" % _suggested_index(table_name, index))
+        # ASCII only: this prints on a Windows console during a deploy,
+        # and the smoke test holds the whole command to that.
+        print("  The site RUNS without these: they are not a 500 the way "
+              "a missing column is.")
+        print("  It runs more slowly, on tables that only grow, and "
+              "nothing else reports them.")
     if orphan_tables:
         print("Tables in the database but not in the models: %s"
               % ", ".join(orphan_tables))
         print("  Expected for retired modules. Nothing to do: this "
               "project never drops tables.")
 
-    if missing_tables or missing_columns:
+    if missing_tables or missing_columns or missing_indexes:
         print("\nSchema is BEHIND the code. Apply the above BEFORE "
               "restarting the app.")
         raise SystemExit(1)
-    print("Schema is up to date: %d tables, all columns present."
-          % len(model_tables))
+    index_count = sum(len([i for i in t.indexes if i.name])
+                      for t in db.metadata.sorted_tables)
+    print("Schema is up to date: %d tables, all columns present, "
+          "%d index%s present."
+          % (len(model_tables), index_count,
+             "" if index_count == 1 else "es"))
 
 
 @app.cli.command("reprocess-images")

@@ -5,6 +5,11 @@ missing column are each reported and exit 1, the suggested ALTER matches
 the statement recorded in DEPLOY.md, and a leftover table from a retired
 module is reported without being treated as a failure.
 
+A MISSING INDEX too, which is the case nothing else in the project can
+see: create_all() will not add an index to a table that already exists,
+so one added later is simply never created, and the only symptom is the
+site getting slower on a table that only ever grows.
+
 Runs against a throwaway SQLite db in this folder via DATABASE_URL,
 so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
@@ -95,6 +100,75 @@ for statement in sorted(suggested):
     sql(statement.rstrip(";"))
 r = run_check()
 check("applying the suggestions fixes it", r.exit_code == 0, r.output.strip())
+
+# =====================================================================
+# A MISSING INDEX. This is the one a deploy could not see: create_all()
+# skips a table that already exists, so an index added to an old table
+# is never created, and until check-schema looked the only symptom was
+# the site getting slower on a table that only grows.
+# =====================================================================
+from app import AuditLog  # noqa: E402
+
+MODEL_INDEXES = sorted(i.name for i in AuditLog.__table__.indexes)
+check("the audit log declares the two indexes to look for",
+      MODEL_INDEXES == ["ix_auditlog_action_created", "ix_auditlog_created"],
+      str(MODEL_INDEXES))
+
+for name in MODEL_INDEXES:
+    sql("DROP INDEX IF EXISTS %s" % name)
+r = run_check()
+check("A MISSING INDEX EXITS 1", r.exit_code == 1, str(r.exit_code))
+check("MISSING INDEXES section shown", "MISSING INDEXES (2)" in r.output,
+      r.output.strip())
+for name in MODEL_INDEXES:
+    check("names %s" % name, "audit_log.%s" % name in r.output,
+          r.output.strip())
+check("says the site still runs without them, unlike a missing column",
+      "RUNS without these" in r.output and "not a 500" in r.output,
+      r.output.strip())
+check("and that nothing else reports them",
+      "nothing else reports them" in r.output)
+
+created = set(re.findall(r"^\s+(CREATE .*?INDEX .*?;)$", r.output, re.M))
+check("a CREATE INDEX is suggested for each", len(created) == 2,
+      str(created))
+check("each is IF NOT EXISTS, so re-running is harmless",
+      all("IF NOT EXISTS" in c for c in created), str(created))
+check("and names the columns in order",
+      any("(action, created_at)" in c for c in created)
+      and any("(created_at)" in c for c in created), str(created))
+
+deploy_md = open(os.path.join(os.path.dirname(HERE), "DEPLOY.md"),
+                 encoding="utf-8").read()
+flat_deploy = " ".join(deploy_md.split())
+check("the suggestions match what DEPLOY.md tells a deployer to run",
+      all(" ".join(c.split()) in flat_deploy for c in created),
+      "not all of %s appear in DEPLOY.md" % sorted(created))
+
+# and they work
+for statement in sorted(created):
+    sql(statement.rstrip(";"))
+r = run_check()
+check("APPLYING THEM CLEARS IT", r.exit_code == 0, r.output.strip())
+check("and the summary counts the indexes it checked",
+      "indexes present" in r.output, r.output.strip())
+
+# One missing on its own is still caught — not just the pair.
+sql("DROP INDEX IF EXISTS ix_auditlog_created")
+r = run_check()
+check("a single missing index is caught too",
+      r.exit_code == 1 and "MISSING INDEXES (1)" in r.output,
+      r.output.strip())
+sql("CREATE INDEX ix_auditlog_created ON audit_log (created_at)")
+check("and clean again once it is back", run_check().exit_code == 0)
+
+# An index the DATABASE has and the models do not is left alone, the
+# same as an orphan table: this project never drops anything.
+sql("CREATE INDEX ix_something_nobody_declared ON audit_log (user_email)")
+r = run_check()
+check("an index the models do not declare is not a failure",
+      r.exit_code == 0, r.output.strip())
+sql("DROP INDEX ix_something_nobody_declared")
 
 # ---- a leftover table from a retired module is noted, not failed
 sql("CREATE TABLE funding_record (id INTEGER NOT NULL PRIMARY KEY, "

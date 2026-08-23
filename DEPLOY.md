@@ -80,6 +80,10 @@ sudo systemctl restart ebwa
 `IF NOT EXISTS`, so re-running is harmless and a fresh database created
 by `init-db` (which does make them) is unaffected.
 
+**`check-schema` now reports a missing index**, so this is no longer a
+step that can be skipped silently — it names both, prints the statements
+above and exits 1, exactly as it does for a missing column.
+
 Why: the audit log only ever grows — nothing prunes an append-only log —
 and three things now read it on a schedule: the dashboard's failed
 sign-in count, the health panel's counts for today/7/30 days, and the

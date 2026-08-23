@@ -486,10 +486,20 @@ Built and maintained by Netbus IT Support.
   `(created_at)`, because it only ever grows and three things read it on
   a schedule: the dashboard's failed sign-in count, the health panel's
   today/7/30-day counts, and the log's own listing. **`create_all()`
-  does not add an index to a table that already exists, and
-  `check-schema` compares columns rather than indexes** — so a new index
-  needs a `CREATE INDEX IF NOT EXISTS` in DEPLOY.md and will not be
-  reported as missing by anything.
+  does not add an index to a table that already exists**, so a new index
+  on an old table is never created by `init-db`: it needs a
+  `CREATE INDEX IF NOT EXISTS` in DEPLOY.md, like an `ALTER TABLE`.
+  `check-schema` compares the models' indexes against the database and
+  names any that are missing with the statement to run - it used to
+  compare only columns, which is how this very pair sat missing on a
+  database while the check called it up to date.
+  - A missing index exits 1 like a missing column, but says plainly that
+    the site RUNS without it and is only slower. The severity differs
+    and a deployer under pressure should not have to guess.
+  - An index the database has and the models do not is left alone, the
+    same as an orphan table. That also means SQLite's own
+    `sqlite_autoindex_*` entries for unique constraints are ignored
+    without having to name them.
 - Audit log: `AuditLog` is APPEND-ONLY. Never write a route, helper or
   CLI command that updates or deletes an entry, and never make recording
   conditional on anything — a log that can be edited or switched off is
@@ -948,8 +958,9 @@ No migration tool. Schema changes are additive:
    - Tick a box only once it has actually been applied to that
      environment, and commit the tick.
 6. `flask --app app check-schema` compares the models against the
-   database, names any missing tables or columns, suggests the
-   `ALTER TABLE` for each, and exits 1 if anything is missing. Run it at
+   database, names any missing tables, columns OR INDEXES, suggests the
+   `ALTER TABLE` / `CREATE INDEX` for each, and exits 1 if anything is
+   missing. Run it at
    the end of every deploy, BEFORE the restart — it turns a missed step
    into a failed check instead of a 500 for every visitor. It is
    read-only. Leftover tables from retired modules are reported but
