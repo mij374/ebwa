@@ -59,6 +59,43 @@ not been deployed yet — tick them as you go.
 
 ---
 
+## (pending) — 2026-08-23 — Health panel: swap + failed sign-ins
+
+**No new columns, but TWO NEW INDEXES on `audit_log`**, and this is the
+one kind of schema change `check-schema` will NOT catch: it compares
+columns, not indexes, and `create_all()` does not add an index to a
+table that already exists. So on any database that already has an
+`audit_log` table, these must be run by hand:
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+CREATE INDEX IF NOT EXISTS ix_auditlog_action_created
+    ON audit_log (action, created_at);
+CREATE INDEX IF NOT EXISTS ix_auditlog_created
+    ON audit_log (created_at);
+SQL
+sudo systemctl restart ebwa
+```
+
+`IF NOT EXISTS`, so re-running is harmless and a fresh database created
+by `init-db` (which does make them) is unaffected.
+
+Why: the audit log only ever grows — nothing prunes an append-only log —
+and three things now read it on a schedule: the dashboard's failed
+sign-in count, the health panel's counts for today/7/30 days, and the
+log's own listing. Without the indexes each is a full table scan that
+gets slower every day the site is used. The dashboard's existing check
+needs no code change: it filters on the same (action, created_at) pair
+and simply starts using the index.
+
+Nothing else to do — the panel picks the new cards up on restart.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-23 — Video embedding (YouTube / Vimeo)
 
 **EIGHT NEW COLUMNS and two new Blocks.** Run the statements first, then

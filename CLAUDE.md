@@ -210,6 +210,33 @@ Built and maintained by Netbus IT Support.
     on the settings page.
   - No speed test, ever: it would mean putting traffic on a client's
     server to produce a number nobody acts on.
+  - SWAP is shown BESIDE memory, never on its own: 85% of memory with
+    2GB of swap behind it and 85% with none are different machines, and
+    reading either number alone is how you draw the wrong conclusion. Its
+    thresholds are deliberately tighter than memory's (amber at a
+    quarter, not 80%) because swap is the overflow — any sustained use
+    of it means the machine has already been under pressure and is now
+    reading pages back off a disk, which is where a site feels slow for
+    reasons the memory figure does not explain. No swap configured is
+    reported as "none", which is a normal machine, not "unknown", which
+    is a machine we could not ask.
+  - FAILED SIGN-INS are counted as ONE TOTAL, not three kinds. A wrong
+    password, a wrong two-factor code and an attempt stopped by the rate
+    limiter are all recorded under the same `login_failed` action and
+    told apart only by the sentence in their summary — counting them
+    separately would mean matching on prose written for a trustee to
+    read. The number that matters is how many times somebody failed to
+    get in; which door they were stopped at is one click away in the log
+    the figures link to.
+  - Those figures are the one exception to "the panel contains no
+    links". The rule is that NOTHING HERE ACTS — no restart, no service
+    control, no command — not that the panel may not be navigated from,
+    and a count you cannot click through to is a number somebody has to
+    go and look up by hand. The test asserts every link in the panel is
+    a plain GET to the audit log.
+  - Day boundaries are UK LOCAL, per the admin date convention: "today"
+    means today as somebody in Enfield counts it, though the column is
+    naive UTC.
   - The auto-refresh is opt-in, every 30 seconds, and rate limited like
     everything else that reads the machine.
 - Backups: `run_backup()` writes a database snapshot (through sqlite3's
@@ -455,6 +482,14 @@ Built and maintained by Netbus IT Support.
   is added in front, do not switch to trusting a whole forwarded chain,
   and keep gunicorn bound to 127.0.0.1 so the app is unreachable except
   through nginx.
+- `audit_log` carries two indexes, `(action, created_at)` and
+  `(created_at)`, because it only ever grows and three things read it on
+  a schedule: the dashboard's failed sign-in count, the health panel's
+  today/7/30-day counts, and the log's own listing. **`create_all()`
+  does not add an index to a table that already exists, and
+  `check-schema` compares columns rather than indexes** — so a new index
+  needs a `CREATE INDEX IF NOT EXISTS` in DEPLOY.md and will not be
+  reported as missing by anything.
 - Audit log: `AuditLog` is APPEND-ONLY. Never write a route, helper or
   CLI command that updates or deletes an entry, and never make recording
   conditional on anything — a log that can be edited or switched off is

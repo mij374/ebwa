@@ -225,6 +225,22 @@ class AuditLog(db.Model):
     ip = db.Column(db.String(45), default="")              # fits IPv6
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
+    # This table only ever grows — nothing prunes an append-only log —
+    # and two things read it on a schedule: the dashboard's failed
+    # sign-in count and the health panel's counts for today, the week
+    # and the month. Both filter on (action, created_at), so without
+    # this they are table scans that get slower every day the site is
+    # used. The log list orders by created_at on its own, hence the
+    # second one.
+    # NOTE: create_all() does NOT add an index to a table that already
+    # exists, so an existing database needs the CREATE INDEX statements
+    # in DEPLOY.md. check-schema compares columns, not indexes, and will
+    # not tell you they are missing.
+    __table_args__ = (
+        db.Index("ix_auditlog_action_created", "action", "created_at"),
+        db.Index("ix_auditlog_created", "created_at"),
+    )
+
 
 # The three rich-content layouts, shared by every content type.
 CONTENT_LAYOUTS = ("classic", "gallery", "alternating")
@@ -3085,6 +3101,93 @@ def health_memory():
             "percent": percent, "level": _level(percent, amber=80, red=92)}
 
 
+def health_swap():
+    """Swap, read beside memory rather than on its own.
+
+    2GB of memory at 85% with no swap is a machine about to start
+    killing processes; the same figure with swap behind it is a machine
+    with somewhere to go. The two only mean something together, which is
+    why the panel shows them side by side.
+
+    Heavy swap USE is its own warning, even when memory looks
+    comfortable: it means the machine has already been under pressure
+    and is now reading pages back off a disk, which is where a site
+    starts feeling slow for reasons the memory number does not explain.
+
+    Degrades to "not available" rather than raising: a machine with no
+    swap configured is a normal machine, and so is a Windows development
+    box where the numbers do not mean the same thing.
+    """
+    ps = _psutil()
+    if ps is not None:
+        try:
+            sw = ps.swap_memory()
+            if not sw.total:
+                return {"total": 0, "used": 0, "free": 0, "percent": None,
+                        "level": "none"}
+            return {"total": sw.total, "used": sw.used, "free": sw.free,
+                    "percent": round(sw.percent, 1),
+                    "level": _level(sw.percent, amber=25, red=60)}
+        except Exception:
+            pass
+    info = _meminfo()          # /proc/meminfo, where there is one
+    total = info.get("SwapTotal")
+    if total is None:
+        return {"total": None, "used": None, "free": None, "percent": None,
+                "level": "unknown"}
+    if not total:
+        return {"total": 0, "used": 0, "free": 0, "percent": None,
+                "level": "none"}
+    free = info.get("SwapFree", 0)
+    used = total - free
+    percent = round(used * 100.0 / total, 1)
+    # Amber at a QUARTER, not at the 80% memory uses. Swap is the
+    # overflow: any sustained use of it is worth knowing about, where
+    # memory sitting at 60% is simply a machine doing its job.
+    return {"total": total, "used": used, "free": free, "percent": percent,
+            "level": _level(percent, amber=25, red=60)}
+
+
+# How many failed sign-ins is unusual for a DAY. A community charity has
+# a handful of admins: a wrong password now and then is ordinary, a
+# dozen in one day is somebody trying. The thresholds are for the "today"
+# figure; the week and month are context for it rather than alarms of
+# their own.
+SIGNIN_AMBER, SIGNIN_RED = 6, 20
+
+
+def health_signins():
+    """Failed sign-ins today, this week and this month.
+
+    ONE TOTAL, not three kinds. All three failures — a wrong password, a
+    wrong two-factor code, and an attempt refused by the rate limiter —
+    are recorded under the same `login_failed` action and told apart
+    only by the sentence in their summary. Counting them separately
+    would mean matching on that prose, which is written for a trustee to
+    read and is free to change; and operationally the number that
+    matters is "how many times did somebody fail to get in", not which
+    door they were stopped at. The breakdown is one click away in the
+    log itself, which is what the figures link to.
+
+    Day boundaries are UK LOCAL, per the admin date convention: "today"
+    means today as somebody in Enfield would count it, even though the
+    column is naive UTC.
+    """
+    today = utc_as_uk(datetime.utcnow()).date()
+    spans = (("today", today), ("week", today - timedelta(days=6)),
+             ("month", today - timedelta(days=29)))
+    out = {}
+    for name, start in spans:
+        out[name] = db.session.query(db.func.count(AuditLog.id)).filter(
+            AuditLog.action == FAILED_LOGIN_ACTION,
+            AuditLog.created_at >= uk_midnight_as_utc(start)).scalar() or 0
+        out[name + "_from"] = start.isoformat()
+    out["to"] = today.isoformat()
+    out["action"] = FAILED_LOGIN_ACTION
+    out["level"] = _level(out["today"], amber=SIGNIN_AMBER, red=SIGNIN_RED)
+    return out
+
+
 def _meminfo():
     """/proc/meminfo as bytes, or {} where there is no /proc."""
     try:
@@ -3266,7 +3369,9 @@ def _level(percent, amber, red):
 def server_health():
     """Every metric, in one dict. Read-only from top to bottom."""
     return {"cpu": health_cpu(), "memory": health_memory(),
+            "swap": health_swap(),
             "disk": health_disk(), "uptime": health_uptime(),
+            "signins": health_signins(),
             "services": health_services(), "network": health_network(),
             "python": platform.python_version(),
             "system": "%s %s" % (platform.system(), platform.release()),

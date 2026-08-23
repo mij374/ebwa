@@ -231,11 +231,215 @@ check("panel says no speed test, and why",
       "No speed test" in page)
 check("panel offers the 30-second refresh", 'id="healthAuto"' in page)
 
+# =====================================================================
+# SWAP, which is only meaningful beside memory. Every way a machine can
+# answer: real numbers, no swap at all, no /proc and no psutil.
+# =====================================================================
+real_psutil = appmod._psutil
+real_meminfo = appmod._meminfo
+
+
+class FakeSwap(object):
+    def __init__(self, total, used, free, percent):
+        self.total, self.used, self.free = total, used, free
+        self.percent = percent
+
+
+def with_psutil(swap):
+    class Stub(object):
+        @staticmethod
+        def swap_memory():
+            return swap
+
+        @staticmethod
+        def virtual_memory():
+            raise RuntimeError("not under test here")
+    appmod._psutil = lambda: Stub
+
+
+try:
+    GB = 1024 ** 3
+    with_psutil(FakeSwap(2 * GB, GB // 2, 3 * GB // 2, 25.0))
+    sw = appmod.health_swap()
+    check("swap: the numbers come straight from psutil",
+          sw["total"] == 2 * GB and sw["used"] == GB // 2
+          and sw["free"] == 3 * GB // 2 and sw["percent"] == 25.0, str(sw))
+    check("swap: a quarter used is amber, not green — swap in steady use "
+          "is worth knowing about", sw["level"] == "amber", sw["level"])
+
+    with_psutil(FakeSwap(2 * GB, GB // 20, 0, 5.0))
+    check("swap: barely touched is green",
+          appmod.health_swap()["level"] == "green")
+    with_psutil(FakeSwap(2 * GB, 3 * GB // 2, 0, 75.0))
+    check("swap: leaning on it hard is red",
+          appmod.health_swap()["level"] == "red")
+
+    # NO SWAP AT ALL — a normal machine, not a broken one.
+    with_psutil(FakeSwap(0, 0, 0, 0.0))
+    sw = appmod.health_swap()
+    check("NO SWAP CONFIGURED: reported as none, not as unknown",
+          sw["total"] == 0 and sw["level"] == "none", str(sw))
+    check("no swap: and no percentage is invented",
+          sw["percent"] is None, str(sw))
+
+    # No psutil, but a /proc that reports swap.
+    appmod._psutil = lambda: None
+    appmod._meminfo = lambda: {"MemTotal": 4 * GB, "MemAvailable": 2 * GB,
+                               "SwapTotal": 2 * GB, "SwapFree": GB}
+    sw = appmod.health_swap()
+    check("swap: read from /proc/meminfo when psutil is absent",
+          sw["total"] == 2 * GB and sw["used"] == GB and sw["percent"] == 50.0,
+          str(sw))
+    appmod._meminfo = lambda: {"MemTotal": 4 * GB, "SwapTotal": 0}
+    check("swap: /proc saying zero is none, not unknown",
+          appmod.health_swap()["level"] == "none")
+
+    # NEITHER — the Windows development box this is written on.
+    appmod._meminfo = lambda: {}
+    sw = appmod.health_swap()
+    check("NO PSUTIL AND NO /PROC: honest unknown, no crash",
+          sw["level"] == "unknown" and sw["total"] is None, str(sw))
+finally:
+    appmod._psutil = real_psutil
+    appmod._meminfo = real_meminfo
+
+check("swap survives whatever THIS machine is",
+      appmod.health_swap()["level"] in ("green", "amber", "red", "none",
+                                        "unknown"))
+
+# =====================================================================
+# FAILED SIGN-INS: counted over UK-local days, one total of all three
+# kinds, with a zero day reading as zero rather than as nothing.
+# =====================================================================
+from datetime import datetime, timedelta        # noqa: E402
+from app import (AuditLog, FAILED_LOGIN_ACTION, SIGNIN_AMBER,  # noqa: E402
+                 SIGNIN_RED, uk_midnight_as_utc, utc_as_uk)
+
+with app.app_context():
+    AuditLog.query.delete()
+    db.session.commit()
+    counts = appmod.health_signins()
+check("A DAY WITH NO FAILURES READS AS ZERO",
+      counts["today"] == 0 and counts["week"] == 0 and counts["month"] == 0,
+      str(counts))
+check("zero is green, not unknown", counts["level"] == "green",
+      counts["level"])
+check("and the card still names a period to link to",
+      counts["today_from"] and counts["week_from"] and counts["to"],
+      str(counts))
+
+
+def add_failure(when, summary="Attempted email: x@example.com"):
+    with app.app_context():
+        db.session.add(AuditLog(user_email="", action=FAILED_LOGIN_ACTION,
+                                summary=summary, created_at=when))
+        db.session.commit()
+
+
+today_uk = utc_as_uk(datetime.utcnow()).date()
+noon_today = uk_midnight_as_utc(today_uk) + timedelta(hours=12)
+# One of each KIND, all three of which are logged under the same action
+# — that is why they are counted as one total.
+add_failure(noon_today, "Attempted email: a@example.com")
+add_failure(noon_today, "Rate limited. Attempted email: b@example.com")
+add_failure(noon_today, "Wrong two-factor code. Attempted email: c@e.com")
+# ...and older ones, to prove the windows are windows.
+add_failure(uk_midnight_as_utc(today_uk - timedelta(days=3))
+            + timedelta(hours=9))
+add_failure(uk_midnight_as_utc(today_uk - timedelta(days=20))
+            + timedelta(hours=9))
+add_failure(uk_midnight_as_utc(today_uk - timedelta(days=45))
+            + timedelta(hours=9))
+
+with app.app_context():
+    counts = appmod.health_signins()
+check("today counts all three KINDS as one total",
+      counts["today"] == 3, str(counts))
+check("seven days reaches back three days but not twenty",
+      counts["week"] == 4, str(counts))
+check("thirty days reaches twenty but not forty-five",
+      counts["month"] == 5, str(counts))
+
+# The boundary itself: one second before midnight UK is yesterday.
+add_failure(uk_midnight_as_utc(today_uk) - timedelta(seconds=1))
+with app.app_context():
+    counts = appmod.health_signins()
+check("A UK MIDNIGHT IS THE BOUNDARY, not a UTC one",
+      counts["today"] == 3 and counts["week"] == 5, str(counts))
+
+for n, want in ((SIGNIN_AMBER, "amber"), (SIGNIN_RED, "red")):
+    with app.app_context():
+        AuditLog.query.delete()
+        db.session.commit()
+    for _ in range(n):
+        add_failure(noon_today)
+    with app.app_context():
+        check("%d failures today reads %s" % (n, want),
+              appmod.health_signins()["level"] == want,
+              appmod.health_signins()["level"])
+
+with app.app_context():
+    AuditLog.query.delete()
+    db.session.commit()
+for _ in range(SIGNIN_AMBER):
+    add_failure(noon_today)
+page_now = client.get("/admin/features").data.decode("utf-8")
+check("the panel shows the count", "Failed sign-ins" in page_now)
+check("and links it to the log filtered to failures for that period",
+      "/admin/audit?action=%s" % FAILED_LOGIN_ACTION in page_now
+      or "action=%s" % FAILED_LOGIN_ACTION in page_now, "")
+check("the card is coloured by today's figure",
+      'data-card="signins"' in page_now and "is-amber" in page_now)
+
+# The audit page those links point at must actually accept them.
+link_start = page_now.index("/admin/audit")
+link = page_now[link_start:page_now.index('"', link_start)].replace(
+    "&amp;", "&")
+r = client.get(link)
+check("the link opens the audit log", r.status_code == 200, link)
+check("filtered to failures only",
+      b"login_failed" in r.data, link)
+
+with app.app_context():
+    AuditLog.query.delete()
+    db.session.commit()
+
+# =====================================================================
+# The queries behind those counts must use the index, not scan.
+# =====================================================================
+with app.app_context():
+    names = {i.name for i in AuditLog.__table__.indexes}
+    check("audit_log is indexed on (action, created_at)",
+          "ix_auditlog_action_created" in names, str(names))
+    check("and on created_at for the log's own ordering",
+          "ix_auditlog_created" in names, str(names))
+    plan = db.session.execute(db.text(
+        "EXPLAIN QUERY PLAN SELECT count(id) FROM audit_log "
+        "WHERE action = 'login_failed' AND created_at >= '2026-01-01'"
+    )).fetchall()
+    plan_text = " ".join(str(row) for row in plan)
+    check("THE COUNT USES THE INDEX RATHER THAN SCANNING THE TABLE",
+          "ix_auditlog_action_created" in plan_text
+          and "SCAN audit_log" not in plan_text, plan_text)
+
 # ---- READ-ONLY: nothing here acts
 panel = page.split("Server health")[1].split("Optional modules")[0]
 check("the panel contains no form", "<form" not in panel)
 check("the panel contains no button", "<button" not in panel)
-check("the panel contains no link at all", "<a " not in panel)
+# The rule is that NOTHING HERE ACTS — no restart, no service control,
+# no command. It is not that the panel may not be navigated FROM: the
+# failed sign-in figures link to the audit log, which is another
+# read-only page, and a count you cannot click through to is a number
+# you have to go and look up by hand. So: no forms, no buttons, and
+# every link a plain GET to the log.
+import re as _re
+hrefs = _re.findall(r'href="([^"]*)"', panel)
+check("the panel has links only to the audit log",
+      hrefs and all(h.startswith("/admin/audit") for h in hrefs),
+      str(hrefs))
+check("and none of them is a javascript: or data: href",
+      not any(h.lower().startswith(("javascript:", "data:")) for h in hrefs),
+      str(hrefs))
 # Words in prose are fine — the panel explains what it deliberately does
 # NOT do. What must not exist is a way to act: a handler, a form target,
 # or a link that does something.

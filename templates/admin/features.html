@@ -385,7 +385,7 @@
   that acts stay on SSH, where they can be seen and undone.</p>
 
 <div class="health-grid" id="healthPanel">
-  <div class="health-card is-{{ health.cpu.level }}">
+  <div class="health-card is-{{ health.cpu.level }}" data-card="cpu">
     <h3>Processor</h3>
     {% if health.cpu.load %}
     <b data-health="cpu.load.0">{{ '%.2f'|format(health.cpu.load[0]) }}</b>
@@ -399,7 +399,7 @@
     {% endif %}
   </div>
 
-  <div class="health-card is-{{ health.memory.level }}">
+  <div class="health-card is-{{ health.memory.level }}" data-card="memory">
     <h3>Memory</h3>
     {% if health.memory.total %}
     <b data-health="memory.percent">{{ health.memory.percent }}%</b>
@@ -411,7 +411,33 @@
     {% endif %}
   </div>
 
-  <div class="health-card is-{{ health.disk.level }}">
+  {#- Straight after Memory, and deliberately so: 85% of memory with
+      swap behind it and 85% with none are different machines, and
+      reading either number on its own is how you draw the wrong
+      conclusion. -#}
+  <div class="health-card is-{{ health.swap.level }}" data-card="swap">
+    <h3>Swap</h3>
+    {% if health.swap.total %}
+    <b data-health="swap.percent">{{ health.swap.percent }}%</b>
+    <span>{{ health.swap.used|filesize }} of {{ health.swap.total|filesize }} used</span>
+    <em>{{ health.swap.free|filesize }} free —
+      {%- if health.swap.level == 'red' %} the machine is leaning on it
+      heavily, which is slow even while memory looks fine
+      {%- elif health.swap.level == 'amber' %} in steady use, which is
+      worth watching even while memory looks fine
+      {%- else %} barely touched{% endif -%}.</em>
+    {% elif health.swap.total == 0 %}
+    <b>None</b>
+    <span>no swap configured</span>
+    <em>Memory pressure has nowhere to go on this machine, so read the
+      memory figure strictly.</em>
+    {% else %}
+    <b>—</b><span>not available here</span>
+    <em>Needs psutil or /proc — both present on the server.</em>
+    {% endif %}
+  </div>
+
+  <div class="health-card is-{{ health.disk.level }}" data-card="disk">
     <h3>Disk</h3>
     {% if health.disk.total %}
     <b data-health="disk.percent">{{ health.disk.percent }}%</b>
@@ -420,6 +446,35 @@
     {% else %}
     <b>—</b><span>not available here</span>
     {% endif %}
+  </div>
+
+  {#- The audit log already records every failed sign-in; this only
+      counts them, and links each figure to the log filtered to that
+      period so the entries themselves are one click away. One TOTAL
+      rather than three kinds — see health_signins() for why. -#}
+  <div class="health-card is-{{ health.signins.level }}" data-card="signins">
+    <h3>Failed sign-ins</h3>
+    <b>
+      <a data-health-count="signins.today"
+         href="{{ url_for('admin_audit', action=health.signins.action,
+                          from=health.signins.today_from,
+                          to=health.signins.to) }}">{{ health.signins.today }}</a>
+    </b>
+    <span>today{% if health.signins.level == 'red' %} — far more than a
+      normal day{% elif health.signins.level == 'amber' %} — more than a
+      normal day{% endif %}</span>
+    <em>
+      <a href="{{ url_for('admin_audit', action=health.signins.action,
+                          from=health.signins.week_from,
+                          to=health.signins.to) }}"
+         data-health-count="signins.week">{{ health.signins.week }}</a>
+      in 7 days ·
+      <a href="{{ url_for('admin_audit', action=health.signins.action,
+                          from=health.signins.month_from,
+                          to=health.signins.to) }}"
+         data-health-count="signins.month">{{ health.signins.month }}</a>
+      in 30 days
+    </em>
   </div>
 
   <div class="health-card">
@@ -541,13 +596,29 @@
       nodes[i].textContent = path[0] === 'cpu' ? Number(value).toFixed(2)
                                                : value + '%';
     }
-    var levels = {memory: data.memory.level, disk: data.disk.level,
-                  cpu: data.cpu.level};
-    var cards = document.querySelectorAll('.health-card');
-    var keys = ['cpu', 'memory', 'disk'];
-    for (var k = 0; k < keys.length; k++) {
-      if (cards[k] && levels[keys[k]]) {
-        cards[k].className = 'health-card is-' + levels[keys[k]];
+    /* Counts rather than percentages, and each one is inside a link to
+       the log — so the text is set on the <a> itself and the link
+       survives the refresh. */
+    var counts = document.querySelectorAll('[data-health-count]');
+    for (var n = 0; n < counts.length; n++) {
+      var where = counts[n].getAttribute('data-health-count').split('.');
+      var count = data;
+      for (var m = 0; m < where.length && count !== null
+           && count !== undefined; m++) {
+        count = count[where[m]];
+      }
+      if (count === null || count === undefined) { continue; }
+      counts[n].textContent = count;
+    }
+    /* Cards are found BY NAME. This used to index into the list of
+       cards positionally, which meant inserting one — Swap, between
+       Memory and Disk — silently repainted the wrong card with the
+       wrong colour. */
+    var cards = document.querySelectorAll('.health-card[data-card]');
+    for (var k = 0; k < cards.length; k++) {
+      var which = cards[k].getAttribute('data-card');
+      if (data[which] && data[which].level) {
+        cards[k].className = 'health-card is-' + data[which].level;
       }
     }
     stamp.firstChild.nodeValue = 'Read ' + data.checked_at + '. ';
