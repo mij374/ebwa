@@ -296,10 +296,15 @@ check("one real card and one copy per partner",
       str(html.count('class="partner-card"')))
 check("the copy is hidden from screen readers",
       'class="marquee-set" aria-hidden="true"' in html)
+# Scoped to the row, not the page. `tabindex="-1"` is not unique to the
+# copy set — the skip link's target carries one too — so counting it
+# across the whole document made this assertion depend on markup
+# somewhere else entirely.
+row = html.split('class="marquee-row"', 1)[1].split("</section>", 1)[0]
 check("the copy is out of the tab order",
-      html.count('tabindex="-1"') == 5, str(html.count('tabindex="-1"')))
+      row.count('tabindex="-1"') == 5, str(row.count('tabindex="-1"')))
 check("the real set is not aria-hidden and not tabindexed",
-      html.split('aria-hidden="true"')[0].count('tabindex="-1"') == 0)
+      row.split('aria-hidden="true"')[0].count('tabindex="-1"') == 0)
 # The drift is a constant speed now rather than a fixed cycle time, so
 # there is no count to hand to the CSS: a longer row simply takes longer
 # to come round, which is what you want.

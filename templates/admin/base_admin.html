@@ -9,6 +9,8 @@
 {% include "_icons.html" %}
 </head>
 <body class="admin-body">
+{#- The admin sidebar is fifteen links before any page content. -#}
+<a class="skip-link" href="#main">Skip to content</a>
 
 <div class="admin-shell">
   <aside class="admin-side">
@@ -50,7 +52,7 @@
     </div>
   </aside>
 
-  <div class="admin-main">
+  <div class="admin-main" id="main" tabindex="-1">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}
       <div class="flash flash-{{ cat }}">{{ msg }}</div>

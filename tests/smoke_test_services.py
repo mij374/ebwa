@@ -233,7 +233,10 @@ for i, key in enumerate(CONTACT_KEYS):
     check("editing %s changes the page" % key, "EDITED%d" % i in html)
 # Scope to <main>: the shared footer has its own "Get in touch" heading,
 # which is chrome on every page and not part of this section.
-main = html.split("<main>", 1)[1].split("</main>", 1)[0]
+# Split on the OPENING TAG NAME, not the whole tag: <main> carries an id
+# and a tabindex now (the skip link's target), and matching the literal
+# "<main>" made this depend on that element having no attributes.
+main = html.split("<main", 1)[1].split("</main>", 1)[0]
 for _g, key, _l, _k, value in DEFAULT_BLOCKS:
     if key in CONTACT_KEYS and value:
         check("old hardcoded text for %s is gone" % key, value not in main,

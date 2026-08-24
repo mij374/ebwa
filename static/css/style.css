@@ -58,6 +58,23 @@ h2{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:16px}
 .btn-ghost{border:2px solid var(--green);color:var(--green);background:transparent}
 .btn-red{background:var(--red);color:#fff;box-shadow:0 6px 18px rgba(232,51,63,.26)}
 
+/* ---------- Skip to content ----------
+   Off-screen until focused, rather than display:none — a hidden element
+   cannot take focus, so display:none would make the link unreachable by
+   the very people it is for. It comes back on :focus, which is the only
+   time anybody needs to see it. */
+.skip-link{
+  position:absolute;left:-9999px;top:0;z-index:200;
+  background:var(--green);color:#fff;padding:12px 20px;
+  font-family:var(--font-display);font-weight:700;font-size:15px;
+  text-decoration:none;border-radius:0 0 10px 0;
+}
+.skip-link:focus{left:0}
+.skip-link:focus-visible{outline:3px solid var(--red);outline-offset:-3px}
+/* The target must not draw a focus ring of its own: focus is moved there
+   programmatically, and a box around the whole page would be alarming. */
+#main:focus{outline:none}
+
 /* ---------- Header ---------- */
 header{
   position:sticky;top:0;z-index:50;

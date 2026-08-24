@@ -7,6 +7,12 @@ __pycache__/
 # test_ebwa_marquee.db, ...) and the header one does not always get to
 # delete it, so `git add -A` could sweep a database into the repository.
 tests/test_*.db*
+
+# axe-core for the accessibility check: half a megabyte of third-party
+# minified JavaScript, fetched on demand by tests/check_accessibility.py.
+# This project has no npm and no build step, and vendoring it would put
+# a dependency in the repository that nothing else here needs.
+tests/vendor/
 *.pyc
 venv/
 .env

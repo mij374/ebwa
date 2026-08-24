@@ -910,6 +910,55 @@ Built and maintained by Netbus IT Support.
     somebody gets for doing the reasonable thing in a CMS that has no
     video field. Only `<iframe|script|embed|object|video|source>` as
     tags: "5 < 10" and "<3" are ordinary writing and go through.
+- Accessibility: every page begins with a skip-to-content link
+  (`.skip-link` → `#main`), in BOTH shells — `base.html` and
+  `admin/base_admin.html`. Rules that are easy to undo by accident:
+  - It is positioned off screen (`left:-9999px`), NOT `display:none`. A
+    hidden element cannot take focus, so `display:none` would make the
+    link unreachable by exactly the people it exists for.
+  - The target carries `tabindex="-1"`. Without it the browser scrolls
+    to `#main` but leaves FOCUS where it was, so the next Tab goes
+    straight back into the nav that was just skipped — a skip link that
+    looks right and does nothing.
+  - `admin/login.html` and `admin/login_2fa.html` deliberately have
+    none: they are standalone templates with no sidebar, and WCAG's
+    bypass-blocks requirement is about repeated blocks of content.
+  - `tests/check_accessibility.py` proves all three (first Tab stop,
+    visible when focused, focus lands on `#main`) on a public page and
+    on the dashboard.
+- `tests/check_accessibility.py` runs axe-core over the public pages and
+  the admin at 1280x800 and 390x740, and reports violations by severity
+  with public and admin separated. Run it after any markup or colour
+  change: `python tests/check_accessibility.py [--strict] [--json FILE]`.
+  - It REPORTS and exits 0 by default; `--strict` turns it into a gate
+    that fails on critical or serious violations on PUBLIC pages. Leave
+    it reporting until the public pages are clean, then switch the gate
+    on — a check that fails on its own first run is one people learn to
+    ignore.
+  - axe-core is fetched on demand into `tests/vendor/` (gitignored):
+    half a megabyte of third-party minified JavaScript does not belong
+    in a repository with no npm and no build step. It is injected with
+    `page.evaluate`, which goes through CDP and so is not subject to the
+    site's CSP — a `<script src>` would correctly have been blocked.
+  - **It seeds its own fixtures and audits opened states, and both are
+    load-bearing.** `seed_demo` leaves every image blank and seeds no
+    album and no campaign, so an audit of it alone never sees a
+    photograph, a gallery, a video player or a rich-content figure. The
+    unlabelled bulk-move checkboxes on /admin/gallery — the one CRITICAL
+    finding — appeared only once photos existed. Likewise axe sees the
+    DOM as delivered: the mobile menu, a nav dropdown and the lightbox
+    are opened and scanned, because a `role="dialog"` is where labelling
+    goes wrong and the closed page is the half nobody has trouble with.
+  - Every opened state is CONFIRMED to have opened (`confirm()`). A scan
+    of a state that silently failed to open is a scan of the ordinary
+    page, comes back clean, and is the most misleading result this file
+    could produce. It caught one immediately: below 899px there is no
+    dropdown to open, since the panels are `position:static` inside the
+    menu.
+  - Automated rules catch roughly a third of what matters. A clean run
+    is a FLOOR, not a pass: reading order, whether alt text says the
+    right thing, and whether the site can be operated with a screen
+    reader are not answered by any of it.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 - Cookies: the site sets exactly two, both first-party and strictly

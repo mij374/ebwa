@@ -13,6 +13,12 @@
 <meta property="og:image" content="{{ url_for('static', filename='img/ebwa-logo.png', _external=True) }}">
 </head>
 <body{% if show_cookie_notice %} class="has-notice"{% endif %}>
+{#- The first thing in the tab order, and the first thing a screen
+    reader meets: a way past the header. Without it every visit begins
+    by tabbing through three nav groups, their dropdown items and the
+    Donate pill before reaching a word of the page. Hidden until it has
+    focus, so it costs a sighted mouse user nothing. -#}
+<a class="skip-link" href="#main">Skip to content</a>
 
 <header>
   <div class="wrap nav">
@@ -92,7 +98,10 @@
   {% endif %}
 {% endwith %}
 
-<main>{% block content %}{% endblock %}</main>
+{#- tabindex="-1" so the skip link can actually put focus HERE. Without
+    it the browser moves the viewport but leaves focus where it was, and
+    the next Tab goes back into the nav the visitor just skipped. -#}
+<main id="main" tabindex="-1">{% block content %}{% endblock %}</main>
 
 <footer>
   <div class="wrap">
