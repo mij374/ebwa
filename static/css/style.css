@@ -654,12 +654,14 @@ body.lightbox-open .cookie-notice{display:none}
 footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 32px}
 /* minmax(0,·) on every track, for the reason the admin shell spells out
    below: an `fr` track's automatic minimum is MIN-CONTENT, so one item
-   that cannot be broken — the newsletter input and its button side by
-   side — sizes the track wider than the footer and every cell overflows
-   with it. Measured at the narrow end, where the column is one and the
-   whole footer carries it: 3px of sideways scroll on the page at 360
-   (a Galaxy S10) and 43px at 320. Nothing overflows its cell once the
-   floor is zero, so nothing else needed changing. */
+   that cannot be broken sizes the track wider than the footer and every
+   cell overflows with it. Measured at the narrow end, where the column
+   is one and the whole footer carries it: 3px of sideways scroll on the
+   page at 360 (a Galaxy S10) and 43px at 320. The item that did it was
+   the newsletter input and its button SIDE BY SIDE, which they no
+   longer are — the floor stays at zero all the same, because it is the
+   guard and not the fix, and the next unbreakable thing dropped into a
+   footer column would do exactly the same. */
 .foot-grid{
   display:grid;gap:36px;margin-bottom:40px;
   grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr)
@@ -1517,20 +1519,32 @@ input.money{-moz-appearance:textfield;appearance:textfield}
 .rc-lead-video{margin-bottom:26px}
 
 /* ---------- Footer newsletter ---------- */
-.foot-subscribe{display:flex;gap:8px}
+/* STACKED, not side by side: the address goes on its own line and the
+   button underneath it. Sharing one line meant the input gave up
+   whatever the button needed — and the button is 18.7px bold, for
+   contrast — so in a 282px footer column the field was down to about
+   140px, which shows perhaps a dozen characters of an email address. */
+.foot-subscribe{display:flex;flex-direction:column;gap:10px}
 /* Same height and font as every other input; the colours differ because
-   it sits on the dark footer, and the pill shape because it pairs with a
-   pill button beside it. */
+   it sits on the dark footer, and the pill shape to match the button
+   below it. */
 .foot-subscribe input{
-  flex:1;min-width:0;padding:11px 16px;border-radius:999px;
+  width:100%;min-width:0;padding:11px 16px;border-radius:999px;
   border:1.5px solid rgba(255,255,255,.25);
   background:rgba(255,255,255,.10);color:#fff;font:inherit;font-size:16px;
   line-height:1.4;
 }
 .foot-subscribe input::placeholder{color:rgba(255,255,255,.55)}
 .foot-subscribe input:focus{outline:none;border-color:rgba(255,255,255,.6)}
+/* Left-aligned to the input's edge and only as wide as its own word,
+   NOT stretched. A full-width Subscribe is 282px of red in the desktop
+   column and the whole width of the screen once the footer stacks —
+   louder than Donate, which is the action that matters. This way it
+   reads as the same kind of thing as the Donate button one column
+   over, which is also a left-aligned pill under a paragraph. */
 .foot-subscribe button{
-  border:none;border-radius:999px;padding:10px 18px;font-family:var(--font-display);
+  align-self:flex-start;
+  border:none;border-radius:999px;padding:10px 22px;font-family:var(--font-display);
   font-weight:700;font-size:var(--large-text);background:var(--red);color:#fff;
   cursor:pointer;
 }

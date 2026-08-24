@@ -588,8 +588,17 @@ Built and maintained by Netbus IT Support.
   later would have gone the same way. Do not add a per-form copy of the
   padding/radius/border: if a form looks wrong, the shared rule is
   wrong. The footer newsletter is the one deliberate variant (dark
-  ground, pill shape to match the button beside it) and still shares the
+  ground, pill shape to match the button below it) and still shares the
   height and font size.
+  - Its field and button are STACKED, not side by side. Sharing a line
+    meant the input gave up whatever the button needed, and the button
+    is `--large-text` bold for contrast — which left the field at 133px
+    at 1440 and 106px at 1024, about eight characters of an email
+    address. Stacked it is 269px and 242px. The button is left-aligned
+    to the input's edge and sized to its own word, never stretched: a
+    full-width Subscribe is the whole width of the screen once the
+    footer stacks, and louder than Donate, which is the action that
+    matters.
   - Only genuine differences belong per field: `input[type=number]` is
     narrower and nothing else. Note that the shared selector's `:not()`
     chain outranks a plain `.field input[type=x]`, so a per-type
