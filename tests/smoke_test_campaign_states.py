@@ -234,9 +234,16 @@ check("the Gift Aid claim page opens whatever any collection's state is",
       r.status_code == 200, str(r.status_code))
 r = client.get("/admin/campaigns")
 listing = r.data.decode("utf-8")
-check("the admin list names all three states",
-      "Taking payments" in listing and "Closed" in listing
-      and "Hidden" in listing)
+check("the admin list names all three states, one word each",
+      ">Open<" in listing and ">Closed<" in listing
+      and ">Hidden<" in listing)
+# The form is where the fuller wording belongs — the list is read, the
+# form is chosen from.
+form_html = client.get("/admin/campaigns/%d/edit" % IDS["open"]).data.decode()
+check("the form still spells out what each state does",
+      "Taking payments" in form_html
+      and "with the payment form" in form_html
+      and "Off the public website entirely" in form_html)
 check("the admin list offers View for the two public ones only",
       listing.count('/collections/') == 2, str(listing.count('/collections/')))
 

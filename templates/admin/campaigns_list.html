@@ -21,7 +21,12 @@
       <td class="nowrap">{{ camp.raised_pence|pounds }}</td>
       <td class="nowrap">{{ camp.target_pence|pounds if camp.target_pence else '—' }}</td>
       <td>
-        {% if camp.state == 'open' %}<span class="pill pill-green">Taking payments</span>
+        {#- One word each, to sit in a narrow column beside Closed and
+            Hidden without wrapping. The fuller "Taking payments" is on
+            the FORM, under the select, where somebody is choosing
+            between the three and the difference is what they need. Here
+            they are only reading which one a row is in. -#}
+        {% if camp.state == 'open' %}<span class="pill pill-green">Open</span>
         {% elif camp.state == 'closed' %}<span class="pill pill-amber">Closed</span>
         {% else %}<span class="pill pill-grey">Hidden</span>{% endif %}
       </td>
