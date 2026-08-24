@@ -722,6 +722,38 @@ Built and maintained by Netbus IT Support.
   that nothing links (crawler and Stripe-return URLs) are listed with the
   reason. Legal pages are footer-only, which is conventional — do not
   add them to the header.
+- **The homepage's plain/tinted bands are decided by POSITION, not by
+  section.** `alternating_bands()` (a template global, beside
+  `thumb_url`) takes the sections in the order the page emits them with
+  whether each is visible, and hands back a class per name; skipped
+  sections take no turn. The classes used to be written into the
+  template one at a time, which is correct only when every section is on
+  the page — and five of the six can vanish, from a feature flag or
+  simply from having nothing to show this month. That is 64
+  arrangements, one of which was right. Hide a section and the two
+  either side come out the same colour, so the page has a seam in it
+  where a band silently doubles in height.
+  - **The list in `index.html` is the order the page emits them in.**
+    Adding a section means adding it there too. Miss it and that section
+    renders plain — wrong next to another plain one, and visibly so,
+    rather than quietly shifting every band after it. That failure mode
+    is the reason an unlisted name returns `""` instead of raising.
+  - Server-side rather than CSS, and the CSS option is worth knowing
+    about before someone proposes it again: `:nth-of-type` counts by
+    ELEMENT TYPE and ignores class, so it would work only while every
+    band is a bare `<section>` sibling and nothing else is; and
+    `:nth-child(even of .band)` is too new to rely on here, where a
+    Samsung Internet 7 bug report is a thing that has actually happened.
+    A helper is also the version a smoke test can exhaust in a blink.
+  - `tests/smoke_test_home_bands.py` checks all 64 arrangements TWICE:
+    against the helper, and against the rendered page. Both halves are
+    needed — a helper that answers correctly and a template that asks
+    it the wrong question look identical from the helper's side, and
+    only the HTML can say the list is in the page's own order. It also
+    renders each section alone (each must come out plain), pins the
+    all-visible sequence so the page cannot silently change appearance
+    for everybody, and asserts that faq, resources and our_journey move
+    no band — they gate pages, not homepage sections.
 - CSS: extend `static/css/style.css` using the existing custom properties
   (`--green`, `--red`, `--paper`, etc.) and class naming style. Design
   identity: Bangladeshi flag bottle green + red circle motif, Bengali

@@ -1,6 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
 
+{#- WHICH BAND A SECTION GETS DEPENDS ON WHERE IT LANDS, not on which
+    section it is. Five of the six below can be absent — a feature flag
+    off, or simply nothing to show this month — and the classes used to
+    be written in one by one, which is right only when every section is
+    on the page. Hide one and the two either side come out the same
+    colour, so the page has a seam where a band silently doubles in
+    height.
+    THIS LIST IS THE ORDER THE PAGE EMITS THEM IN. Adding a section
+    means adding it here as well; miss it and that section renders
+    plain, which looks wrong next to another plain one rather than
+    quietly shifting every band after it. -#}
+{% set bands = alternating_bands([
+     ('services', services),
+     ('events', upcoming),
+     ('news', latest_news),
+     ('collections', campaigns),
+     ('testimonials', testimonials),
+     ('partners', partners)]) %}
+
 <section class="hero">
   <div class="wrap hero-grid">
     <div>
@@ -32,7 +51,7 @@
 </div>
 
 {% if services %}
-<section>
+<section class="{{ bands.services }}">
   <div class="wrap">
     <p class="eyebrow">What we do <span class="bn">· আমাদের কাজ</span></p>
     <h2>Support for every generation</h2>
@@ -46,7 +65,7 @@
 {% endif %}
 
 {% if upcoming %}
-<section class="tinted">
+<section class="{{ bands.events }}">
   <div class="wrap">
     <p class="eyebrow">Coming up <span class="bn">· আসন্ন অনুষ্ঠান</span></p>
     <h2>Upcoming events</h2>
@@ -68,7 +87,7 @@
 {% endif %}
 
 {% if latest_news %}
-<section>
+<section class="{{ bands.news }}">
   <div class="wrap">
     <p class="eyebrow">Latest news <span class="bn">· সাম্প্রতিক খবর</span></p>
     <h2>News &amp; projects</h2>
@@ -90,7 +109,7 @@
 {% endif %}
 
 {% if campaigns %}
-<section class="tinted">
+<section class="{{ bands.collections }}">
   <div class="wrap">
     <p class="eyebrow">Support a collection <span class="bn">· সহযোগিতা করুন</span></p>
     <h2>Help us get there</h2>
@@ -116,7 +135,7 @@
 {% endif %}
 
 {% if testimonials %}
-<section>
+<section class="{{ bands.testimonials }}">
   <div class="wrap">
     <p class="eyebrow">Testimonials <span class="bn">· প্রশংসাপত্র</span></p>
     <h2>What our community says</h2>
@@ -182,7 +201,7 @@
 {% endif %}
 
 {% if partners %}
-<section class="tinted">
+<section class="{{ bands.partners }}">
   <div class="wrap">
     <p class="eyebrow">Our partners <span class="bn">· সহযোগী সংস্থা</span></p>
     <h2>Working together for Enfield</h2>

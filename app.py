@@ -1044,6 +1044,43 @@ def asset_version(filename):
     return token
 
 
+# The homepage alternates plain and tinted bands. Which band a section
+# gets is a property of WHERE IT LANDS, not of which section it is.
+BAND_TINTED = "tinted"
+
+
+@app.template_global("alternating_bands")
+def alternating_bands(sections):
+    """name -> "" or "tinted", counting only the sections that RENDER.
+
+    `sections` is [(name, is_visible), ...] in the order the page emits
+    them. The classes used to be written into the template one by one,
+    which is correct only when every section is on the page: hide one
+    — a feature flag off, or simply no upcoming events this month — and
+    the two either side of the gap come out with the same background,
+    so the page has a seam in it where a band quietly doubles in height.
+    Five of the six can disappear, in any combination, which is 32 ways
+    for a hardcoded sequence to be wrong and one way for it to be right.
+
+    Skipped sections take no turn, so the visible ones alternate however
+    many are missing. The first visible section is always PLAIN, which
+    is what it was when nothing was hidden.
+
+    A section not named here gets "" — plain, and visibly wrong beside
+    another plain one rather than silently shifting everything after it.
+    That is deliberate: forgetting to list a new section should look
+    like a mistake, not like a different design.
+    """
+    bands, shown = {}, 0
+    for name, visible in sections:
+        if not visible:
+            bands[name] = ""
+            continue
+        bands[name] = BAND_TINTED if shown % 2 else ""
+        shown += 1
+    return bands
+
+
 @app.template_global("upload_url")
 def upload_url(filename):
     """Full-size upload — detail views and anything that fills a page."""
