@@ -169,7 +169,7 @@ with app.app_context():
     campaign = Campaign(title="Seaside trip 2026", slug="seaside-trip-2026",
                         description="A day at the coast for our elders.",
                         image=FIXTURE_IMAGE, target_pence=250000,
-                        fee_pence=1500, active=True,
+                        fee_pence=1500, state="open",
                         video_url="https://www.youtube.com/watch?v=aqz-KE-bpKQ",
                         video_thumb=FIXTURE_IMAGE)
     db.session.add(campaign)

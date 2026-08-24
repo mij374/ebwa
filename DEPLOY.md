@@ -136,6 +136,58 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-24 — Collections: three states instead of Active
+
+**ONE NEW COLUMN, AND A DATA MIGRATION THAT MUST RUN WITH IT.** The
+`UPDATE` is not optional and not deferrable: without it every existing
+collection is hidden, including the ones currently taking money.
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+ALTER TABLE campaign ADD COLUMN state VARCHAR(20) NOT NULL DEFAULT 'hidden';
+UPDATE campaign SET state = CASE WHEN active THEN 'open' ELSE 'hidden' END;
+SQL
+sudo systemctl restart ebwa
+```
+
+Then, before the restart:
+
+```bash
+flask --app app check-schema     # must be clean
+```
+
+**Why the column default is `hidden` when the app's own default is
+`open`.** The two are deliberately different, the same split
+`Partner.display_mode` uses. The ALTER is about the rows ALREADY THERE
+and the `UPDATE` on the next line is what gives them their real value;
+`hidden` is simply the safest thing for them to be for the moment in
+between. If the ALTER lands and the UPDATE does not — a killed shell, a
+typo, a full disk — the site shows no collections, which is a visible
+fault someone fixes in a minute. The other way round, `DEFAULT 'open'`
+would put a collection the admin had deliberately hidden back on the
+public website, and nobody would necessarily notice. Fail towards the
+quiet failure, not the loud publication. A NEW collection made in the
+admin still starts at "Taking payments", which is what somebody creating
+one means.
+
+The migration maps `active = 1` to **open** and `active = 0` to
+**hidden** — not to `closed`. An admin who unticked Active meant to take
+the thing off the website; assuming they meant "show this as finished"
+would publish pages they had chosen to remove.
+
+`active` is left in place and is now legacy. Nothing reads it; the admin
+form keeps it in step with `state` so that a database opened by hand
+does not contradict the website. Do not reintroduce it into a query.
+
+No new tables, no `init-db` needed, no new environment variables and no
+`pip install`.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-23 — Health panel: swap + failed sign-ins
 
 **No new columns, but TWO NEW INDEXES on `audit_log`**, and this is the

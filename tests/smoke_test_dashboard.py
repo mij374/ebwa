@@ -121,7 +121,7 @@ with app.app_context():
     add(MembershipApplication(), name="Nadia", email="n@example.com",
         status="contacted")
     add(Campaign(), title="Seaside trip", slug="seaside-trip",
-        fee_pence=1500, image="c.jpg", active=True)
+        fee_pence=1500, image="c.jpg", state="open")
     db.session.commit()
 
 client = app.test_client()
@@ -249,7 +249,7 @@ attention_case(
 attention_case(
     "campaign with no image",
     lambda: add(Campaign(), title="Winter appeal", slug="winter-appeal",
-                image="", active=True),
+                image="", state="open"),
     lambda: [db.session.delete(c) for c in Campaign.query
              .filter_by(slug="winter-appeal")],
     "1 collection with no photo")
@@ -305,7 +305,8 @@ check("draft with no photo does not raise the panel",
 with app.app_context():
     add(MembershipApplication(), name="Suraiya", email="s@example.com",
         status="new")
-    add(Campaign(), title="No photo appeal", slug="no-photo-appeal", image="")
+    add(Campaign(), title="No photo appeal", slug="no-photo-appeal",
+        image="", state="open")
     add(Payment(), donation_pence=500, status="pending",
         created_at=datetime.utcnow() - timedelta(days=3))
     db.session.commit()

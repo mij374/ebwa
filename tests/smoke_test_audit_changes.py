@@ -216,17 +216,17 @@ expect("milestone: year, funder and amount listed", last_summary(),
 # ---- campaigns ----------------------------------------------------
 client.post("/admin/campaigns/new", data={
     "title": "Seaside trip", "description": "A day out", "fee": "15",
-    "active": "on"})
+    "state": "open"})
 with app.app_context():
     camp_id = Campaign.query.first().id
 client.post("/admin/campaigns/%d/edit" % camp_id, data={
     "title": "Seaside trip", "description": "A day out", "fee": "15",
-    "target": "2000", "active": "on"})
+    "target": "2000", "state": "open"})
 expect("campaign: target listed", last_summary(), ["target_pence"])
 client.post("/admin/campaigns/%d/edit" % camp_id, data={
     "title": "Seaside trip", "description": "A day out", "fee": "15",
-    "target": "2000"})
-expect("campaign: deactivating is caught", last_summary(), ["active"])
+    "target": "2000", "state": "closed"})
+expect("campaign: closing it is caught", last_summary(), ["state"])
 
 # ---- blocks (page content) ----------------------------------------
 with app.app_context():

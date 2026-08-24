@@ -28,17 +28,48 @@
       {% endfor %}
     </div>
 
+    {#- The figures read differently once a collection has finished: a
+        running total invites you to add to it, a final one is a record
+        of what happened. Same numbers, past tense. -#}
     {% if camp.target_pence %}
     <div class="collection-progress">
+      {% if camp.takes_payments %}
       <p><b>{{ camp.raised_pence|pounds }}</b> raised of our {{ camp.target_pence|pounds }} target</p>
+      {% else %}
+      <p><b>{{ camp.raised_pence|pounds }}</b> raised in total, against a {{ camp.target_pence|pounds }} target</p>
+      {% endif %}
       <div class="progress"><b style="width:{{ camp.target_percent }}%"></b></div>
     </div>
     {% elif camp.raised_pence %}
     <div class="collection-progress">
+      {% if camp.takes_payments %}
       <p><b>{{ camp.raised_pence|pounds }}</b> raised so far — thank you!</p>
+      {% else %}
+      <p><b>{{ camp.raised_pence|pounds }}</b> raised in total.</p>
+      {% endif %}
     </div>
     {% endif %}
 
+    {#- A closed collection keeps its page and loses its form. The route
+        refuses a POST as well (see collection_detail), because hiding a
+        form is a courtesy and not a control — a stale tab still has one.
+        Contributor numbers are a COUNT, never len() of a fetched list. -#}
+    {% if not camp.takes_payments %}
+    <div class="collection-finished">
+      <h2>This collection has finished</h2>
+      <p>Thank you to
+        {% if camp.contributor_count %}the
+          {{ camp.contributor_count }} {{ 'person' if camp.contributor_count == 1 else 'people' }}
+          who gave{% else %}everyone who supported this{% endif %}. It is
+        no longer taking payments, and we have left the page here as a
+        record of what was raised.</p>
+      <p class="collection-finished-cta">Our
+        <a href="{{ url_for('donate') }}">donations page</a> supports
+        everything we do, and
+        <a href="{{ url_for('collections') }}">our other collections</a>
+        may still be open.</p>
+    </div>
+    {% else %}
     <form method="post" class="admin-form" style="margin-top:36px">
       {% if camp.fee_pence %}
       <div class="field field-check">
@@ -112,11 +143,16 @@
         <button class="btn btn-green" type="submit">Pay securely</button>
       </div>
     </form>
+    {% endif %}
   </div>
 </section>
 {% endblock %}
 
 {% block scripts %}
+{#- Only where there IS a form. Every line below reaches for an element
+    inside it, so on a closed collection the first statement would throw
+    on a null and take the rest of the script with it. -#}
+{% if camp.takes_payments %}
 <script>
   /* Gift Aid is only available once there is a donation amount — the fee
      for a place can never carry it. The server enforces this too. */
@@ -171,4 +207,5 @@
   }
 
 </script>
+{% endif %}
 {% endblock %}

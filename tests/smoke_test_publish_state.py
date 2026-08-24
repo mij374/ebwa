@@ -151,7 +151,7 @@ with app.app_context():
         "album": GalleryAlbum(title="Live album", slug="live-album",
                               published=True),
         "campaign": Campaign(title="Live campaign", slug="live-campaign",
-                             description="Words.", active=True),
+                             description="Words.", state="closed"),
     }
     db.session.add_all(live.values())
     db.session.commit()
@@ -170,7 +170,12 @@ FORMS = {
     "service": ("/admin/services/%d/edit", Service, "published"),
     "faq": ("/admin/faq/%d/edit", Faq, "published"),
     "album": ("/admin/gallery/albums/%d/edit", GalleryAlbum, "published"),
-    "campaign": ("/admin/campaigns/%d/edit", Campaign, "active"),
+    # Campaigns are NOT here any more, and their absence is the point:
+    # they carry a three-way <select> now, not a tick-box, so the whole
+    # failure this file exists for — an unticked box posting nothing,
+    # which is indistinguishable from "take it off the site" — cannot
+    # happen to them. A select always posts something. They get their
+    # own section below instead.
 }
 
 for name, (url_pattern, model, column) in FORMS.items():
@@ -215,6 +220,47 @@ for name, (url_pattern, model, column) in FORMS.items():
         # put it back for anything that follows
         setattr(row, column, True)
         db.session.commit()
+
+# ---- campaigns: a select, so the test is different in kind ----------
+# The risk here is not a field that vanishes; it is a field whose value
+# is not what the row currently holds. A form that offered "Taking
+# payments" as the selected option while editing a CLOSED collection
+# would reopen it for payment the moment somebody fixed a typo.
+url = "/admin/campaigns/%d/edit" % IDS["campaign"]
+html = client.get(url).data.decode("utf-8")
+fields = browser_would_post(html)
+check("campaign: the state field is in the form", "state" in fields,
+      "browser would post %s" % sorted(fields.keys()))
+check("campaign: the form offers the state the row is actually in",
+      fields.get("state") == "closed", str(fields.get("state")))
+
+client.post(url, data=fields, follow_redirects=True)
+with app.app_context():
+    row = db.session.get(Campaign, IDS["campaign"])
+    check("campaign: SAVING WITHOUT TOUCHING ANYTHING KEEPS ITS STATE",
+          row.state == "closed", row.state)
+
+for state in ("open", "hidden", "closed"):
+    posted = MultiDict([(n, v) for n, v in fields.items(multi=True)
+                        if n != "state"])
+    posted.add("state", state)
+    client.post(url, data=posted, follow_redirects=True)
+    with app.app_context():
+        row = db.session.get(Campaign, IDS["campaign"])
+        check("campaign: the select really does set '%s'" % state,
+              row.state == state, row.state)
+
+# A value nobody offered falls back to what the row HAS, never to a
+# default — otherwise a hand-made POST could publish a hidden collection.
+for junk in ("", "OPEN", "active", "deleted"):
+    posted = MultiDict([(n, v) for n, v in fields.items(multi=True)
+                        if n != "state"])
+    posted.add("state", junk)
+    client.post(url, data=posted, follow_redirects=True)
+    with app.app_context():
+        row = db.session.get(Campaign, IDS["campaign"])
+        check("campaign: junk state %r leaves it alone" % junk,
+              row.state == "closed", row.state)
 
 # ---- teardown
 with app.app_context():

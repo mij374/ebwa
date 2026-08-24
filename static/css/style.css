@@ -492,8 +492,23 @@ header{
 /* ---------- Collections listing ---------- */
 .collection-raised{margin-top:10px;font-size:14px;color:var(--ink-soft)}
 .collection-raised b{color:var(--green);font-size:16px}
-.collection-closed{list-style:none;display:grid;gap:10px;margin-top:20px;max-width:68ch}
-.collection-closed li{color:var(--ink-soft);font-size:15.5px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+/* A completed collection is a card like any other, so that it reads as
+   something that HAPPENED rather than as a leftover. It is quieter than
+   an open one — the eye should land on what is still open first — which
+   is a lighter ground and a muted date chip, not a smaller card. */
+.event-card.is-complete{background:var(--paper)}
+.event-card.is-complete .event-date{color:var(--ink-muted)}
+.event-card.is-complete .collection-raised b{color:var(--ink)}
+
+/* The notice that stands where the payment form was. */
+.collection-finished{
+  margin-top:36px;padding:28px 30px;border-radius:var(--radius);
+  background:var(--green-tint);border:1px solid var(--line);max-width:68ch;
+}
+.collection-finished h2{font-size:22px;margin-bottom:12px;color:var(--green)}
+.collection-finished p{color:var(--ink-soft);line-height:1.65}
+.collection-finished-cta{margin-top:12px}
+.collection-finished a{color:var(--green);font-weight:600}
 
 /* ---------- Stats ---------- */
 .stats{background:var(--green);color:#fff;padding:50px 0}
@@ -941,6 +956,10 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .pill{border-radius:999px;padding:3px 12px;font-size:13px;font-weight:700}
 .pill-green{background:var(--green-tint);color:var(--green)}
 .pill-grey{background:#ECEEEC;color:var(--ink-soft)}
+/* A third pill state, for a collection that has finished but is still on
+   the site: not "on" and not "off". 6.10:1, in the same register as the
+   green (7.60) and the grey (6.26) beside it. */
+.pill-amber{background:#FBF1DC;color:#7A5309}
 .pill-red{background:#FCE9EA;color:#9B1B26}
 
 /* Unread enquiries: a count beside the menu item, and a tinted row in

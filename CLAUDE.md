@@ -1282,6 +1282,51 @@ This is the most sensitive module. Follow these rules exactly:
 
 - Payment provider: Stripe (Checkout or Payment Element). Keys via env
   vars, never committed. Amounts stored in pence (integer), GBP only.
+- **A collection's STATE is three-way (`CAMPAIGN_STATES`), not a
+  boolean**, because being on the website and taking money are different
+  questions. `active` answered both with one tick, so closing a finished
+  trip also deleted it from the site — the day out that ran, that people
+  paid for and that a funder may ask about was simply gone, and showing
+  it again meant reopening the payment form.
+  - `open` on the site taking payments • `closed` on the site as a
+    record, with its final total, its contributor count and a line
+    saying it has finished • `hidden` off the public site entirely.
+    `PUBLIC_CAMPAIGN_STATES` is the pair a visitor can reach, in the
+    order /collections renders its two sections.
+  - **A CLOSED COLLECTION REFUSES A PAYMENT IN THE ROUTE**, not only by
+    hiding the form. Hiding a form is a courtesy to the person reading
+    the page; a stale tab, a back button and anything posting at the
+    endpoint all still arrive. Taking money for a trip that has already
+    happened must not rest on a template `{% if %}`.
+  - Filter on the state you MEAN. `closed` is not "not open": the
+    Completed section asks for `state == "closed"`, so a hidden
+    collection cannot reappear there — which is what `active == False`
+    would have become the moment there were three states.
+  - Contributor lists, CSV exports and Gift Aid records are available in
+    the admin for EVERY state, including hidden. The treasurer needs
+    them AFTER a collection ends, which is exactly when it is no longer
+    open. Nothing in those queries may filter on state.
+  - `active` is LEGACY and nothing reads it. The admin form keeps it in
+    step in the one place state is written, so a database opened by hand
+    does not contradict the website. Do not put it back in a query.
+  - The state control is a `<select>`, which is why the publish-checkbox
+    rule above does not apply to campaigns — a select always posts
+    something. It has its own trap instead: the selected option must be
+    the row's CURRENT state, or editing a closed collection reopens it
+    for payment. An unrecognised value falls back to what the row has,
+    never to a default, so a hand-made POST cannot publish a hidden one.
+  - **NOTHING STOPS A PAYMENT WHEN A TARGET IS REACHED, and that is
+    deliberate.** `target_pence` drives the progress bar and nothing
+    else; `target_percent` clamps to 100 for display only. For a
+    donation, going past the target is a good day. For a trip with a
+    fixed number of seats it is not — but a target is an AMOUNT OF
+    MONEY and seats are a COUNT OF PLACES, and the two only coincide
+    when every payer takes exactly one place at the full fee, which the
+    optional extra donation already breaks. Capacity needs its own
+    field and its own count of completed fee-paying payments; it is
+    Phase 2. Until then, closing a collection is how a trip that has
+    filled up stops selling seats, which is now something an admin can
+    do without deleting the page.
 - Two payment kinds: (1) GENERAL DONATION to the charity; (2) EVENT
   COLLECTION — payment toward a specific campaign/trip (e.g. seaside
   trip), with its own page, optional target amount and running total.

@@ -70,8 +70,10 @@ with app.app_context():
     for i in range(5):
         db.session.add(Partner(name="Partner %d" % i, display_mode="text",
                                sort=i))
+    # state="open" explicitly: this fixture exists to render the payment
+    # form, and a closed or hidden collection has no form to measure.
     db.session.add(Campaign(title="Seaside trip", slug="seaside-trip",
-                            description="A day out.", active=True,
+                            description="A day out.", state="open",
                             fee_pence=1200, target_pence=200000))
     db.session.commit()
 

@@ -1,7 +1,7 @@
 {% extends "admin/base_admin.html" %}
 {% block content %}
 <h1 class="admin-h1">{{ 'Edit collection' if camp else 'New collection' }}</h1>
-<p class="admin-sub">Each active collection gets its own page where people can pay for a place and add an optional donation. Gift Aid is only ever offered on the donation part — never the place fee.</p>
+<p class="admin-sub">A collection that is taking payments gets its own page where people can pay for a place and add an optional donation. Gift Aid is only ever offered on the donation part — never the place fee. Closing one keeps the page as a record of what was raised; hiding it takes it off the website altogether.</p>
 
 <form method="post" enctype="multipart/form-data" class="admin-form">
   <div class="field">
@@ -56,11 +56,25 @@
   </div>
   {% endif %}
 
-  <div class="field field-check">
-    <label>
-      <input type="checkbox" name="active" {{ 'checked' if not camp or camp.active }}>
-      Active (visible on the website and taking payments)
-    </label>
+  {#- Three states, not a tick-box, because being ON THE WEBSITE and
+      TAKING PAYMENTS are different questions. One tick answered both,
+      so closing a finished trip also deleted it from the site.
+      A select also has no "unticked posts nothing" trap: it always
+      submits, and the route falls back to the row's CURRENT state if
+      the value is not one it knows. -#}
+  <div class="field">
+    <label for="state">What this collection is doing</label>
+    <select id="state" name="state">
+      {% for value, label, _desc in campaign_states %}
+      <option value="{{ value }}"
+        {{ 'selected' if (camp.state if camp else campaign_states[0][0]) == value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <small>
+      {% for value, label, desc in campaign_states %}
+      <b>{{ label }}</b> — {{ desc }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </small>
   </div>
 
   <div class="form-actions">

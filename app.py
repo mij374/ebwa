@@ -679,8 +679,33 @@ class Campaign(db.Model):
     # See parse_video_url() and fetch_video_poster().
     video_url = db.Column(db.String(300), default="")
     video_thumb = db.Column(db.String(255), default="")   # uploads filename
+    # VISIBILITY AND TRADING ARE TWO QUESTIONS, and `active` answered both
+    # at once: closing a collection took it off the website, so the trip
+    # that was paid for and ran vanished the moment it stopped selling
+    # places. See CAMPAIGN_STATES.
+    state = db.Column(db.String(20), nullable=False, default="open",
+                      server_default="hidden")
+    # LEGACY. Nothing reads this any more; `state` is the only authority.
+    # It is kept in step in the one place state is written, purely so
+    # that a database opened by hand does not contradict the website.
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
+
+    @property
+    def is_public(self):
+        """On the website at all — taking payments or closed."""
+        return self.state in PUBLIC_CAMPAIGN_STATES
+
+    @property
+    def takes_payments(self):
+        return self.state == "open"
+
+    @property
+    def contributor_count(self):
+        """How many people paid. A COUNT, never len() of a fetched list."""
+        return db.session.query(db.func.count(Payment.id)).filter(
+            Payment.campaign_id == self.id,
+            Payment.status == "complete").scalar()
 
     @property
     def raised_pence(self):
@@ -696,6 +721,36 @@ class Campaign(db.Model):
         if not self.target_pence:
             return None
         return min(100, self.raised_pence * 100 // self.target_pence)
+
+
+# What a collection is DOING, which is two questions and not one. The
+# old `active` boolean answered both with the same tick, so an admin who
+# closed a finished trip also deleted it from the website — the day out
+# that ran, that people paid for and that the funder asked about was
+# simply gone. Ticking it back on to show it would have reopened the
+# payment form.
+#   open   — on the site, taking payments. What `active` used to mean.
+#   closed — on the site as a RECORD: the final total, how many people
+#            gave, and a line saying it has finished. No payment form,
+#            and the route refuses a POST as well as hiding the form.
+#   hidden — not on the public site at all: no card, no detail page, not
+#            in the sitemap. What unticking `active` used to mean.
+# Order matters: it is the order of the admin's dropdown, and the first
+# entry is what a new collection gets.
+CAMPAIGN_STATES = (
+    ("open", "Taking payments",
+     "On the website, with the payment form."),
+    ("closed", "Closed — still on the website",
+     "Shown with its final total and a line saying it has finished. "
+     "Nobody can pay."),
+    ("hidden", "Hidden",
+     "Off the public website entirely. Contributor lists and Gift Aid "
+     "records stay here in the admin."),
+)
+CAMPAIGN_STATE_LABELS = {k: label for k, label, _d in CAMPAIGN_STATES}
+# The two a visitor can reach. Keep the ORDER — open before closed is
+# the order the collections page renders its two sections in.
+PUBLIC_CAMPAIGN_STATES = ("open", "closed")
 
 
 class Payment(db.Model):
@@ -3412,7 +3467,9 @@ def home():
                        .limit(3).all())
     campaigns = []
     if feature_enabled("donations"):
-        campaigns = (Campaign.query.filter_by(active=True)
+        # OPEN only. The strip is an invitation to give; a finished
+        # collection belongs on /collections, where it reads as a record.
+        campaigns = (Campaign.query.filter_by(state="open")
                      .order_by(Campaign.created_at.desc(),
                                Campaign.id.desc()).all())
     testimonials = (Testimonial.query.filter_by(published=True)
@@ -3473,8 +3530,12 @@ def sitemap():
         urls += [url_for("news_detail", slug=p.slug) for p in
                  NewsPost.query.filter_by(published=True).all()]
     if flags["donations"]:
+        # Both public states: a closed collection still has a page, and
+        # a page nothing points a crawler at is a page nobody finds.
+        # Hidden ones stay out, exactly as a hidden album's photos do.
         urls += [url_for("collection_detail", slug=c.slug) for c in
-                 Campaign.query.filter_by(active=True).all()]
+                 Campaign.query.filter(
+                     Campaign.state.in_(PUBLIC_CAMPAIGN_STATES)).all()]
     xml = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for u in urls:
@@ -3808,10 +3869,14 @@ def collections():
     campaign fell off the site the moment three newer things pushed it
     out of that row.
     """
-    open_now = (Campaign.query.filter_by(active=True)
+    open_now = (Campaign.query.filter_by(state="open")
                 .order_by(Campaign.created_at.desc(),
                           Campaign.id.desc()).all())
-    closed = (Campaign.query.filter_by(active=False)
+    # CLOSED, not "everything that is not open". A hidden collection is
+    # off the website; it must not reappear in the Completed section,
+    # which is the bug the old active=False filter would have become the
+    # moment there were three states.
+    closed = (Campaign.query.filter_by(state="closed")
               .order_by(Campaign.created_at.desc(),
                         Campaign.id.desc()).all())
     return render_template("collections.html", open_now=open_now,
@@ -3821,8 +3886,22 @@ def collections():
 @app.route("/collections/<slug>", methods=["GET", "POST"])
 @feature_required("donations")
 def collection_detail(slug):
-    camp = Campaign.query.filter_by(slug=slug, active=True).first_or_404()
+    camp = (Campaign.query
+            .filter(Campaign.slug == slug,
+                    Campaign.state.in_(PUBLIC_CAMPAIGN_STATES))
+            .first_or_404())
     if request.method == "POST":
+        # A CLOSED COLLECTION REFUSES THE PAYMENT ITSELF. Hiding the form
+        # is a courtesy to the person reading the page; it is not a
+        # control. A stale tab, a back button, a bookmarked POST or
+        # anything typing at the endpoint directly all arrive here, and
+        # taking money for a trip that has been and gone is not a thing
+        # to leave resting on a template `{% if %}`.
+        if not camp.takes_payments:
+            flash("This collection has finished, so it is no longer taking "
+                  "payments. Thank you for wanting to give — our "
+                  "donations page supports everything we do.", "error")
+            return redirect(url_for("collection_detail", slug=camp.slug))
         if rate_limited("donate"):
             flash("Too many attempts — please try again a little later.",
                   "error")
@@ -4451,10 +4530,14 @@ def dashboard_cards(flags):
                            note="%s since the site opened"
                                 % pounds_filter(raised)))
 
+        closed_n = _count(Campaign, Campaign.state == "closed")
         cards.append(_card(money, "Collections open",
-                           _count(Campaign, Campaign.active == True),  # noqa: E712
+                           _count(Campaign, Campaign.state == "open"),
                            url_for("admin_campaigns"),
-                           note="%d in total" % _count(Campaign)))
+                           note="%d in total%s"
+                                % (_count(Campaign),
+                                   ", %d completed" % closed_n
+                                   if closed_n else "")))
 
         # The claim page's own filter, summed in SQL rather than fetching
         # the rows — order_by is dropped because this is an aggregate.
@@ -4553,8 +4636,10 @@ def dashboard_attention(flags):
                 url, "Add one")
 
     if flags["donations"]:
-        n = _count(Campaign, db.or_(Campaign.image == "",
-                                    Campaign.image.is_(None)))
+        # Public states only: a hidden collection is not on the website,
+        # so there is no page for a missing photo to look bare on.
+        n = _count(Campaign, Campaign.state.in_(PUBLIC_CAMPAIGN_STATES),
+                   db.or_(Campaign.image == "", Campaign.image.is_(None)))
         if n:
             add("%s with no photo — a collection page raises more with one."
                 % _plural(n, "collection"), url_for("admin_campaigns"),
@@ -5954,6 +6039,15 @@ def admin_campaign_form(campaign_id=None):
         pasted = body_embed_problem(request.form.get("description", ""))
         video_raw = request.form.get("video_url", "").strip()
         video = parse_video_url(video_raw) if video_raw else None
+        # A SELECT, not a tick-box, which is also why there is no
+        # "unticked posts nothing" trap here (CLAUDE.md, the publish
+        # checkbox rule): a select always posts something. An unknown
+        # value still falls back to what the row already had rather than
+        # to a default, so a hand-crafted POST cannot publish a hidden
+        # collection or reopen a closed one.
+        state = request.form.get("state", "")
+        if state not in CAMPAIGN_STATE_LABELS:
+            state = camp.state if camp else CAMPAIGN_STATES[0][0]
         if not title:
             flash("Title is required.", "error")
         elif pasted:
@@ -5975,10 +6069,14 @@ def admin_campaign_form(campaign_id=None):
                 "description": request.form.get("description", "").strip(),
                 "target_pence": target_pence,
                 "fee_pence": fee_pence,
-                "active": request.form.get("active") == "on",
+                "state": state,
             }
             changed = [] if is_new else changed_fields(camp, values)
             apply_values(camp, values)
+            # The legacy column, kept in step here and nowhere else, so
+            # that somebody reading the table with sqlite3 is not told
+            # the opposite of what the website is doing. Nothing reads it.
+            camp.active = (camp.state == "open")
             camp.slug = unique_slug(Campaign, title, camp.id)
             f = request.files.get("image")
             if f and f.filename:
@@ -6008,7 +6106,8 @@ def admin_campaign_form(campaign_id=None):
             flash("Collection saved.", "ok")
             return redirect(url_for("admin_campaigns"))
 
-    return render_template("admin/campaign_form.html", camp=camp)
+    return render_template("admin/campaign_form.html", camp=camp,
+                           campaign_states=CAMPAIGN_STATES)
 
 
 @app.route("/admin/campaigns/<int:campaign_id>/delete", methods=["POST"])
@@ -6018,8 +6117,10 @@ def admin_campaign_delete(campaign_id):
     # Payments are financial records — never orphan or delete them.
     if Payment.query.filter_by(campaign_id=camp.id).count():
         flash("This collection has payments recorded against it, so it "
-              "can't be deleted. Untick 'active' to take it off the "
-              "website instead.", "error")
+              "can't be deleted. Set it to “Closed” to keep it on the "
+              "site as a record, or “Hidden” to take it off the website "
+              "— either way the contributor list and Gift Aid records "
+              "stay here.", "error")
         return redirect(url_for("admin_campaigns"))
     gone, title = ("Campaign", camp.id), camp.title
     delete_upload(camp.image)

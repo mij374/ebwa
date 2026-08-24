@@ -40,14 +40,37 @@
       everything we do.</p>
     {% endif %}
 
+    {#- Completed collections are a RECORD, not a leftover. They used to
+        be a bare list of titles with no link, which is why closing one
+        felt like deleting it — the page it had, the photograph and the
+        story of what the money did were all gone. They are cards now,
+        and each one still has its page. -#}
     {% if closed %}
-    <h2 style="margin-top:56px">Finished</h2>
-    <p class="lede">Thank you to everyone who gave to these.</p>
-    <ul class="collection-closed">
+    <h2 style="margin-top:56px">Completed</h2>
+    <p class="lede">Finished collections, and what they raised. Thank you
+      to everyone who gave.</p>
+    <div class="event-cards">
       {% for camp in closed %}
-      <li><b>{{ camp.title }}</b> — {{ camp.raised_pence|pounds }} raised</li>
+      <a class="event-card is-complete" href="{{ url_for('collection_detail', slug=camp.slug) }}">
+        {% if camp.image %}<img src="{{ thumb_url(camp.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">Completed</span>
+          <h2>{{ camp.title }}</h2>
+          {% if camp.description %}
+          <p>{{ camp.description.split('
+')[0] }}</p>
+          {% endif %}
+          {% if camp.target_pence %}
+          <p class="collection-raised">
+            <b>{{ camp.raised_pence|pounds }}</b> raised of a {{ camp.target_pence|pounds }} target
+          </p>
+          {% else %}
+          <p class="collection-raised"><b>{{ camp.raised_pence|pounds }}</b> raised</p>
+          {% endif %}
+        </div>
+      </a>
       {% endfor %}
-    </ul>
+    </div>
     {% endif %}
 
     <p class="faq-foot" style="margin-top:44px">Would you rather give to

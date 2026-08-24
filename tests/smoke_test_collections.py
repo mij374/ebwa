@@ -56,11 +56,11 @@ client.post("/admin/login", data={"email": "test@example.com",
 r = client.post("/admin/campaigns/new", data={
     "title": "Summer Seaside Trip", "description": "A day at the seaside.\n\n"
     "Coach, beach and fish and chips.", "fee": "15", "target": "500",
-    "active": "on"})
+    "state": "open"})
 check("create campaign -> 302", r.status_code == 302, str(r.status_code))
 client.post("/admin/campaigns/new", data={
     "title": "Winter Coat Fund", "description": "Coats for elders.",
-    "target": "250"})   # no fee, INACTIVE (checkbox absent)
+    "target": "250", "state": "hidden"})       # no fee, off the website
 with app.app_context():
     camp = Campaign.query.filter_by(slug="summer-seaside-trip").first()
     check("campaign created with slug", camp is not None)
@@ -69,10 +69,13 @@ with app.app_context():
     camp_id = camp.id
     inactive = Campaign.query.filter_by(slug="winter-coat-fund").first()
     inactive_id = inactive.id
+    check("state stored", camp.state == "open" and inactive.state == "hidden")
+    check("the legacy active column is kept in step",
+          camp.active is True and inactive.active is False)
 
 # ---- public page
 r = client.get("/collections/summer-seaside-trip")
-check("active collection page -> 200", r.status_code == 200,
+check("open collection page -> 200", r.status_code == 200,
       str(r.status_code))
 check("fee shown", "£15".encode() in r.data)
 check("explicit Gift Aid note shown",
@@ -80,11 +83,11 @@ check("explicit Gift Aid note shown",
 check("HMRC wording present", b"responsibility to pay any difference"
       in r.data)
 r = client.get("/collections/winter-coat-fund")
-check("inactive collection -> 404", r.status_code == 404, str(r.status_code))
+check("hidden collection -> 404", r.status_code == 404, str(r.status_code))
 r = client.get("/collections/nope")
 check("unknown slug -> 404", r.status_code == 404, str(r.status_code))
 r = client.get("/sitemap.xml")
-check("active collection in sitemap, inactive absent",
+check("open collection in sitemap, hidden absent",
       b"/collections/summer-seaside-trip" in r.data
       and b"winter-coat-fund" not in r.data)
 
@@ -221,7 +224,7 @@ check("contributor CSV shows UK local date at the BST boundary",
 # ---- campaign edit keeps slug; delete rules
 client.post("/admin/campaigns/%d/edit" % camp_id, data={
     "title": "Summer Seaside Trip", "description": "Updated.",
-    "fee": "15", "target": "600", "active": "on"})
+    "fee": "15", "target": "600", "state": "open"})
 with app.app_context():
     camp = db.session.get(Campaign, camp_id)
     check("edit round-trip", camp.target_pence == 60000
@@ -232,7 +235,8 @@ r = client.post("/admin/campaigns/%d/delete" % camp_id,
 with app.app_context():
     check("delete refused while payments exist",
           db.session.get(Campaign, camp_id) is not None)
-check("refusal explains deactivating instead", b"active" in r.data)
+check("refusal points at Closed and Hidden instead",
+      b"Closed" in r.data and b"Hidden" in r.data)
 r = client.post("/admin/campaigns/%d/delete" % inactive_id)
 with app.app_context():
     check("delete works for campaign without payments",
