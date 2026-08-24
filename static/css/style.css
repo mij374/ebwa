@@ -13,18 +13,31 @@
      palette, and the colour it produces is nobody's decision. 4.87:1. */
   --ink-muted:#68746E;
   /* WCAG's "large text" threshold: at 14pt BOLD (18.6667px) or 18pt
-     regular, the AA contrast requirement drops from 4.5:1 to 3:1. The
-     brand red is 4.21:1 on white — under the small-text bar, over the
-     large-text one — so everything painted in it as text is set at this
-     size and weight 700 rather than the red being changed. 18.7 not
-     18.6667: a rounding that lands below the line is a failure. */
+     regular, the AA contrast requirement drops from 4.5:1 to 3:1. 18.7
+     and not 18.6667, because a rounding that lands below the line is a
+     failure. ONE thing uses it: the dashboard's launch blocker, where
+     being loud is the point of the sentence. It is not the general
+     answer to the brand red — see --red-ink. */
   --large-text:18.7px;
-  /* The brand red, darkened, for the one place it has to carry SMALL
-     text: the photo count on an album card, which is a quiet 13px
-     label. Setting that at --large-text would make the count bigger
-     than the album's description and nearly as big as its name — the
-     size rule fixes buttons, not captions. --red itself is untouched;
-     this is a second token, not a redefinition. 5.64:1 on white. */
+  /* The brand red, darkened until white on it is 5.64:1 and it on white
+     is 5.64:1 — comfortably past AA at any size. This is what carries
+     every RED SURFACE and every red word on the site: both Donate
+     buttons, Subscribe, the admin Delete links, the album photo count.
+     Growing type to reach the 3:1 large-text bar was tried first and
+     was the wrong lever — it changed the design to fix a colour, and
+     every element it touched came out louder than it was drawn to be.
+     --red itself is untouched and still the flag red: it is the eyebrow
+     dot, the focus ring, the alert borders and the launch-blocker text,
+     none of which is small white-on-red.
+     On whether this reads as a second colour, measured rather than
+     guessed: THE BRAND MARK ITSELF IS PAINTED #C82028. --red-ink is
+     0.77 dE2000 from it, which is below the distance at which anyone
+     can tell two samples apart; --red was 8.46 from it. So in the
+     header, where the pill sits beside the mark, this change makes the
+     two AGREE where they used to differ — the pill was the odd one out
+     and now it is not. Against --red itself the difference is 8.1
+     dE2000 and almost all of it lightness (L* 51.7 to 43.7), hue and
+     chroma barely moving: the same red, darker, not another red. */
   --red-ink:#C9202B;
   --line:#DCE3DD;
   --white:#FFFFFF;
@@ -80,13 +93,11 @@ h1,h2{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:16px}
 .btn:focus-visible{outline:3px solid var(--red);outline-offset:3px}
 .btn-green{background:var(--green);color:#fff;box-shadow:0 6px 18px rgba(0,86,63,.28)}
 .btn-ghost{border:2px solid var(--green);color:var(--green);background:transparent}
-/* Larger and bolder than .btn-green, which is 8.74:1 and needs nothing.
-   White on the brand red is 4.21:1, so it has to clear the large-text
-   threshold to meet AA. */
-.btn-red{
-  background:var(--red);color:#fff;box-shadow:0 6px 18px rgba(232,51,63,.26);
-  font-size:var(--large-text);font-weight:700;
-}
+/* Same size and weight as .btn-green — it is the same kind of button and
+   should read as one. White on --red is 4.21:1 and fails at this size,
+   so the SURFACE is --red-ink (5.64:1) rather than the type being grown
+   to meet the bar. */
+.btn-red{background:var(--red-ink);color:#fff;box-shadow:0 6px 18px rgba(201,32,43,.26)}
 
 /* ---------- Skip to content ----------
    Off-screen until focused, rather than display:none — a hidden element
@@ -201,10 +212,9 @@ header{
    weight as .btn-green, without the button padding that would push the
    nav onto a second line. */
 .nav-links a.nav-donate{
-  background:var(--red);color:#fff;border-radius:999px;padding:8px 16px;
+  background:var(--red-ink);color:#fff;border-radius:999px;padding:8px 18px;
   font-family:var(--font-display);font-weight:700;border-bottom:none;
-  font-size:var(--large-text);
-  box-shadow:0 4px 14px rgba(232,51,63,.28);
+  box-shadow:0 4px 14px rgba(201,32,43,.28);
 }
 .nav-links a.nav-donate:hover{color:#fff;border-color:transparent;filter:brightness(1.06)}
 
@@ -923,13 +933,10 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   background:none;border:none;color:var(--green);font-weight:600;font-size:14px;
   cursor:pointer;text-decoration:none;margin-right:10px;font-family:inherit;padding:0;
 }
-/* The darker red, NOT --large-text. Every other element painted in the
-   brand red is a button or an alert, where growing to the large-text
-   threshold is fine or an improvement. This one is a link in a table
-   cell beside View and Edit: at 18.7px bold it became the loudest thing
-   in every admin row, so the DESTRUCTIVE action read as the primary
-   one. Contrast is the point, not size — --red-ink is 5.64:1 at the
-   size it already was, and --red is untouched. */
+/* This was the first place the darker red was used, and the reason it
+   exists: at 18.7px bold Delete became the loudest thing in every admin
+   row, so the DESTRUCTIVE action read as the primary one. Contrast is
+   the point, not size. The public buttons followed it here later. */
 .table-link.danger{color:var(--red-ink)}
 .pill{border-radius:999px;padding:3px 12px;font-size:13px;font-weight:700}
 .pill-green{background:var(--green-tint);color:var(--green)}
@@ -1146,11 +1153,6 @@ body.menu-open .cookie-notice{display:none}
   }
   .nav-links.open .nav-drop a{padding:8px 0;font-size:16px}
   .nav-links.open a{font-size:16px}
-  /* ...but not the Donate pill: the 16px above outranks the pill's own
-     rule (same specificity, later in the file), which put it back under
-     the large-text threshold in the one place most phone visitors ever
-     see it. */
-  .nav-links.open a.nav-donate{font-size:var(--large-text)}
   .nav-phone-item a{color:var(--green);font-weight:700}
 }
 
@@ -1521,9 +1523,12 @@ input.money{-moz-appearance:textfield;appearance:textfield}
 /* ---------- Footer newsletter ---------- */
 /* STACKED, not side by side: the address goes on its own line and the
    button underneath it. Sharing one line meant the input gave up
-   whatever the button needed — and the button is 18.7px bold, for
-   contrast — so in a 282px footer column the field was down to about
-   140px, which shows perhaps a dozen characters of an email address. */
+   whatever the button needed, and in a 282px footer column that left
+   the field at 133px at 1440 and 106px at 1024 — about eight characters
+   of an email address, with the placeholder itself cut to "Your email
+   ad". The button has since gone back to 14px, which would hand a few
+   of those pixels back; not enough to make one line workable, and the
+   field wanting the whole column was always the real reason. */
 .foot-subscribe{display:flex;flex-direction:column;gap:10px}
 /* Same height and font as every other input; the colours differ because
    it sits on the dark footer, and the pill shape to match the button
@@ -1544,8 +1549,8 @@ input.money{-moz-appearance:textfield;appearance:textfield}
    over, which is also a left-aligned pill under a paragraph. */
 .foot-subscribe button{
   align-self:flex-start;
-  border:none;border-radius:999px;padding:10px 22px;font-family:var(--font-display);
-  font-weight:700;font-size:var(--large-text);background:var(--red);color:#fff;
+  border:none;border-radius:999px;padding:10px 18px;font-family:var(--font-display);
+  font-weight:600;font-size:14px;background:var(--red-ink);color:#fff;
   cursor:pointer;
 }
 .foot-subscribe button:hover{filter:brightness(1.08)}

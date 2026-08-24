@@ -937,21 +937,35 @@ Built and maintained by Netbus IT Support.
     on the dashboard.
 - Colour and contrast, all of it decided once and none of it per element:
   - **`--red` (#E8333F) is the flag red and does not move.** It is
-    4.21:1 on white — under AA for small text, over the 3:1 bar for
-    LARGE text — so anything painted in it as text either grows or uses
-    the darker token, never a tweaked brand colour.
+    4.21:1 on white — under AA for small text — so it is kept for the
+    places that are not small white-on-red or small red-on-white: the
+    eyebrow dot, focus rings, alert borders, the launch-blocker text.
+  - **`--red-ink` (#C9202B, 5.64:1) is the red that carries text**, and
+    it is the DEFAULT answer, not the exception: both Donate buttons,
+    Subscribe, the admin Delete links, the album photo count. It clears
+    AA at any size, so nothing has to grow to meet a bar.
+    - Growing type to 18.7px bold was tried first, across all of these,
+      and reverted. It changes the DESIGN to fix a COLOUR, and every
+      element it touched came out louder than it was drawn to be —
+      Delete became the loudest thing in every admin row, so the
+      destructive action read as the primary one. Reach for the darker
+      surface first; the size lever is for something that should be
+      loud anyway.
+    - **The brand mark is itself painted #C82028**, which is 0.77
+      ΔE2000 from `--red-ink` and 8.46 from `--red`. So in the header,
+      where the Donate pill sits beside the mark, the pill agrees with
+      the logo now and used to be the odd one out. Against `--red` the
+      difference is 8.1 ΔE2000 and almost all of it lightness (L* 51.7
+      → 43.7), hue and chroma barely moving: the same red, darker, not
+      a second colour. Measure before assuming a token is off-brand —
+      this one is closer to the artwork than the variable named after
+      it.
   - `--large-text` (18.7px) is WCAG's large-text threshold, and only
     means anything **with `font-weight:700` beside it**: 14pt bold or
     18pt regular. 18.7 and not 18.6667 because a rounding that lands
-    below the line is a failure. It carries the Donate pill (header and
-    footer), the newsletter Subscribe button and the dashboard's launch
-    blocker.
-  - `--red-ink` (#C9202B, 5.64:1) is for the places the red has to stay
-    SMALL. Two so far: the photo count on an album card, and the admin
-    Delete links. Growing those was tried and was worse — at 18.7px
-    bold, Delete became the loudest thing in every admin row, so the
-    destructive action read as the primary one. Contrast is the point,
-    not size.
+    below the line is a failure. **Exactly one thing uses it** — the
+    dashboard's launch blocker, where being loud is the point of the
+    sentence.
   - `--ink-muted` (#68746E, 4.87:1) is the quiet line under an admin
     figure. It replaced `--ink-soft` at `opacity:.8`, which computes to
     #6e7b75 and fails AA by 0.09. **Do not dim a token at the point of
