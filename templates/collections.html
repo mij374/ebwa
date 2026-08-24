@@ -5,7 +5,7 @@
 <section>
   <div class="wrap">
     <p class="eyebrow">Support a collection <span class="bn">· সহযোগিতা করুন</span></p>
-    <h2>Collections you can support</h2>
+    <h1>Collections you can support</h1>
     <p class="lede">Each collection pays for one thing — a trip, a piece of
       equipment, a project — and shows what has been raised towards it.
       You can pay for a place, add a donation on top, or simply give.</p>
@@ -19,7 +19,7 @@
           {% if camp.fee_pence %}
           <span class="event-date">{{ camp.fee_pence|pounds }} a place</span>
           {% endif %}
-          <h3>{{ camp.title }}</h3>
+          <h2>{{ camp.title }}</h2>
           {% if camp.description %}
           <p>{{ camp.description.split('\n')[0] }}</p>
           {% endif %}

@@ -926,15 +926,76 @@ Built and maintained by Netbus IT Support.
   - `tests/check_accessibility.py` proves all three (first Tab stop,
     visible when focused, focus lands on `#main`) on a public page and
     on the dashboard.
+- Colour and contrast, all of it decided once and none of it per element:
+  - **`--red` (#E8333F) is the flag red and does not move.** It is
+    4.21:1 on white — under AA for small text, over the 3:1 bar for
+    LARGE text — so anything painted in it as text either grows or uses
+    the darker token, never a tweaked brand colour.
+  - `--large-text` (18.7px) is WCAG's large-text threshold, and only
+    means anything **with `font-weight:700` beside it**: 14pt bold or
+    18pt regular. 18.7 and not 18.6667 because a rounding that lands
+    below the line is a failure. It carries the Donate pill (header and
+    footer), the newsletter Subscribe button and the dashboard's launch
+    blocker.
+  - `--red-ink` (#C9202B, 5.64:1) is for the places the red has to stay
+    SMALL. Two so far: the photo count on an album card, and the admin
+    Delete links. Growing those was tried and was worse — at 18.7px
+    bold, Delete became the loudest thing in every admin row, so the
+    destructive action read as the primary one. Contrast is the point,
+    not size.
+  - `--ink-muted` (#68746E, 4.87:1) is the quiet line under an admin
+    figure. It replaced `--ink-soft` at `opacity:.8`, which computes to
+    #6e7b75 and fails AA by 0.09. **Do not dim a token at the point of
+    use to make a lighter colour**: the result is invisible to anyone
+    reading the palette, nobody chose it, and opacity dims an element's
+    TEXT AND ITS BACKGROUND TOGETHER — which is exactly how the footer
+    Donate button ended up at 3.98:1, the worst contrast on the public
+    site, from `.foot-grid a{opacity:.85}` reaching a button it was
+    never meant for. Add a token.
+- Heading levels: **every public page's title is an `<h1>`**, and `h1`
+  and `h2` deliberately share the page-title size, so promoting a title
+  changed the outline and nothing else. Section headings are `h2`, cards
+  and entries `h3` — except on the three LISTING pages (events, news,
+  collections), where the cards sit directly under the h1 and are `h2`.
+  `.event-card h2,.event-card h3` styles both, because the same card is
+  an h3 on the homepage (under a section h2) and an h2 on a listing.
+  - The footer's four column headings are `h2`, not `h4`. As `h4` after
+    an `h2` they skipped a level on 17 pages; they are the top-level
+    headings of the contentinfo landmark, which is what an `h2` says.
+  - `.hero h1`, `.admin-h1` and `.login-card h1` override the shared
+    size; the login card also zeroes the margin, its shell being a grid
+    with its own gap.
+- `.visually-hidden` is read aloud and never painted — the clip-rect
+  pattern, NOT `display:none` or `visibility:hidden`, both of which
+  remove an element from the accessibility tree as well as the page,
+  which is the opposite of the point. It names the actions column in
+  every admin list, where a visible "Actions" would be furniture above a
+  column of two links.
+- A `.table-scroll` box that holds **nothing focusable** carries
+  `tabindex="0"` plus `role="region"` and an `aria-label`: a div with
+  `overflow-x` can be reached with a mouse, a trackpad and a finger and
+  by nothing else, so its right-hand end is simply unreachable on a
+  narrow screen. Three of the four have it. The feature-toggle table
+  does NOT, and that is deliberate — every row has a button, so tabbing
+  already scrolls the box, and a stop of its own would be a redundant
+  pause. Any new one needs the same judgement, and a focus ring
+  (`.table-scroll:focus-visible`) either way.
+- A checkbox whose `<label>` wraps only an image and the input HAS NO
+  ACCESSIBLE NAME. The gallery's bulk-move ticks were read as "checkbox,
+  unchecked" once per photograph with nothing to tell them apart, which
+  made the feature unusable non-visually. They carry an `aria-label`
+  naming the caption, or — where there is none — the album and the
+  upload date. A row number would be a name that names nothing, and the
+  filename is a UUID.
 - `tests/check_accessibility.py` runs axe-core over the public pages and
   the admin at 1280x800 and 390x740, and reports violations by severity
   with public and admin separated. Run it after any markup or colour
   change: `python tests/check_accessibility.py [--strict] [--json FILE]`.
   - It REPORTS and exits 0 by default; `--strict` turns it into a gate
-    that fails on critical or serious violations on PUBLIC pages. Leave
-    it reporting until the public pages are clean, then switch the gate
-    on — a check that fails on its own first run is one people learn to
-    ignore.
+    that fails on critical or serious violations on PUBLIC pages.
+  - **Both areas are at ZERO violations, public and admin.** That is the
+    baseline to defend: run it after any markup or colour change, and if
+    something appears, it appeared in that change.
   - axe-core is fetched on demand into `tests/vendor/` (gitignored):
     half a megabyte of third-party minified JavaScript does not belong
     in a repository with no npm and no build step. It is injected with

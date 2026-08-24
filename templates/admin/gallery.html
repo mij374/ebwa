@@ -61,8 +61,17 @@
   <div class="admin-gallery-grid">
     {% for img in images %}
     <div class="admin-gallery-item">
+      {# The label wraps the checkbox and the thumbnail and so holds no
+         TEXT, which means it gives the checkbox no accessible name: a
+         screen reader read "checkbox, unchecked" once per photograph
+         with nothing to tell them apart, and bulk move was unusable.
+         The name is the caption where there is one. Where there is not,
+         it is the album and the upload date — a row number would be an
+         accessible name that names nothing, and the filename is a UUID.
+         #}
       <label class="admin-pick">
-        <input type="checkbox" name="photo_ids" value="{{ img.id }}">
+        <input type="checkbox" name="photo_ids" value="{{ img.id }}"
+               aria-label="Select {% if img.caption %}{{ img.caption }}{% else %}untitled photo in {{ img.album.title if img.album else 'Unfiled' }}, uploaded {{ img.created_at|uk_date }}{% endif %}">
         <img src="{{ thumb_url(img.filename) }}" alt="">
       </label>
       {% if img.caption %}<span>{{ img.caption }}</span>{% endif %}

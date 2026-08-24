@@ -35,7 +35,14 @@
 
 {% if recent %}
 <h2 class="admin-stats-head">Recent activity</h2>
-<div class="table-scroll">
+{#- tabindex="0" so the box can be SCROLLED BY KEYBOARD. A div with
+    overflow-x is reachable with a mouse, a trackpad and a finger and
+    by no other means: nothing inside this one is focusable, so
+    without a tab stop of its own the right-hand end of the table is
+    simply unreachable on a narrow screen. role+aria-label give the
+    stop a name, so it is not an unexplained pause in the tab order. -#}
+<div class="table-scroll" tabindex="0" role="region"
+     aria-label="Recent activity, scrollable">
 <table class="admin-table activity-table">
   <tr><th>When</th><th class="activity-who">Who</th><th>What</th></tr>
   {% for r in recent %}

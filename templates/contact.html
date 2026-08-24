@@ -4,11 +4,11 @@
 <section>
   <div class="wrap">
     <p class="eyebrow">{{ c.get('contact_eyebrow','') }} <span class="bn">· যোগাযোগ</span></p>
-    <h2>{{ c.get('contact_heading','') }}</h2>
+    <h1>{{ c.get('contact_heading','') }}</h1>
     <p class="lede">{{ c.get('contact_intro','') }}</p>
     <div class="contact-grid">
       <div class="contact-card">
-        <h3>{{ c.get('contact_card_title','') }}</h3>
+        <h2>{{ c.get('contact_card_title','') }}</h2>
         <div class="contact-row">
           <span class="ico">📍</span>
           <div><b>{{ c.get('contact_label_address','') }}</b>{{ site.get('site_address','') }}</div>
@@ -29,7 +29,7 @@
 
       {% if form_on %}
       <form class="contact-form" method="post" novalidate>
-        <h3>Send us a message</h3>
+        <h2>Send us a message</h2>
         <input type="hidden" name="started" value="{{ started }}">
         <div class="field-row">
           <div class="field">

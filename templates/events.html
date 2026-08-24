@@ -4,7 +4,7 @@
 <section>
   <div class="wrap">
     <p class="eyebrow">Events <span class="bn">· অনুষ্ঠানসমূহ</span></p>
-    <h2>Upcoming events</h2>
+    <h1>Upcoming events</h1>
     {% if upcoming %}
     <div class="event-cards">
       {% for ev in upcoming %}
@@ -12,7 +12,7 @@
         {% if ev.image %}<img src="{{ thumb_url(ev.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}{% if ev.start_time %} · {{ ev.start_time }}{% endif %}</span>
-          <h3>{{ ev.title }}</h3>
+          <h2>{{ ev.title }}</h2>
           {% if ev.summary %}<p>{{ ev.summary }}</p>{% endif %}
         </div>
       </a>
@@ -30,7 +30,7 @@
         {% if ev.image %}<img src="{{ thumb_url(ev.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}</span>
-          <h3>{{ ev.title }}</h3>
+          <h2>{{ ev.title }}</h2>
         </div>
       </a>
       {% endfor %}

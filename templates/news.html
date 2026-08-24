@@ -4,7 +4,7 @@
 <section>
   <div class="wrap">
     <p class="eyebrow">News &amp; projects <span class="bn">· সাম্প্রতিক খবর</span></p>
-    <h2>Latest from EBWA</h2>
+    <h1>Latest from EBWA</h1>
     {% if posts %}
     <div class="event-cards">
       {% for post in posts %}
@@ -12,7 +12,7 @@
         {% if post.image %}<img src="{{ thumb_url(post.image) }}" alt="">{% endif %}
         <div class="event-card-body">
           <span class="event-date">{{ post.published_date.strftime('%a %d %b %Y') }}</span>
-          <h3>{{ post.title }}</h3>
+          <h2>{{ post.title }}</h2>
           {% if post.summary %}<p>{{ post.summary }}</p>{% endif %}
         </div>
       </a>

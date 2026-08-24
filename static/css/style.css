@@ -6,6 +6,26 @@
   --paper:#F6F5EF;
   --ink:#17251F;
   --ink-soft:#4A5A52;
+  /* The quiet secondary line under an admin figure. It used to be
+     --ink-soft at opacity:.8, which computes to #6e7b75 — 4.41:1 on
+     white, failing AA by 0.09. A real token rather than a token dimmed
+     at the point of use: an opacity is invisible to anyone reading the
+     palette, and the colour it produces is nobody's decision. 4.87:1. */
+  --ink-muted:#68746E;
+  /* WCAG's "large text" threshold: at 14pt BOLD (18.6667px) or 18pt
+     regular, the AA contrast requirement drops from 4.5:1 to 3:1. The
+     brand red is 4.21:1 on white — under the small-text bar, over the
+     large-text one — so everything painted in it as text is set at this
+     size and weight 700 rather than the red being changed. 18.7 not
+     18.6667: a rounding that lands below the line is a failure. */
+  --large-text:18.7px;
+  /* The brand red, darkened, for the one place it has to carry SMALL
+     text: the photo count on an album card, which is a quiet 13px
+     label. Setting that at --large-text would make the count bigger
+     than the album's description and nearly as big as its name — the
+     size rule fixes buttons, not captions. --red itself is untouched;
+     this is a second token, not a redefinition. 5.64:1 on white. */
+  --red-ink:#C9202B;
   --line:#DCE3DD;
   --white:#FFFFFF;
   --radius:14px;
@@ -33,7 +53,11 @@ section.tinted{background:var(--green-tint)}
 
 /* ---------- Type ---------- */
 h1,h2,h3{font-family:var(--font-display);line-height:1.12;letter-spacing:-.01em}
-h2{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:16px}
+/* h1 and h2 share the page-title size deliberately. Every public page
+   below the homepage titles itself with an h1 now, and it should look
+   exactly as the h2 it replaced did — the change is to the OUTLINE, not
+   to the design. The hero and the two card shells override below. */
+h1,h2{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:16px}
 .lede{color:var(--ink-soft);max-width:62ch}
 .eyebrow{
   display:flex;align-items:center;gap:10px;
@@ -56,7 +80,13 @@ h2{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:16px}
 .btn:focus-visible{outline:3px solid var(--red);outline-offset:3px}
 .btn-green{background:var(--green);color:#fff;box-shadow:0 6px 18px rgba(0,86,63,.28)}
 .btn-ghost{border:2px solid var(--green);color:var(--green);background:transparent}
-.btn-red{background:var(--red);color:#fff;box-shadow:0 6px 18px rgba(232,51,63,.26)}
+/* Larger and bolder than .btn-green, which is 8.74:1 and needs nothing.
+   White on the brand red is 4.21:1, so it has to clear the large-text
+   threshold to meet AA. */
+.btn-red{
+  background:var(--red);color:#fff;box-shadow:0 6px 18px rgba(232,51,63,.26);
+  font-size:var(--large-text);font-weight:700;
+}
 
 /* ---------- Skip to content ----------
    Off-screen until focused, rather than display:none — a hidden element
@@ -171,8 +201,9 @@ header{
    weight as .btn-green, without the button padding that would push the
    nav onto a second line. */
 .nav-links a.nav-donate{
-  background:var(--red);color:#fff;border-radius:999px;padding:8px 18px;
+  background:var(--red);color:#fff;border-radius:999px;padding:8px 16px;
   font-family:var(--font-display);font-weight:700;border-bottom:none;
+  font-size:var(--large-text);
   box-shadow:0 4px 14px rgba(232,51,63,.28);
 }
 .nav-links a.nav-donate:hover{color:#fff;border-color:transparent;filter:brightness(1.06)}
@@ -433,7 +464,7 @@ header{
 }
 .health-card b{display:block;font-family:var(--font-display);font-size:30px;color:var(--green);line-height:1.1}
 .health-card span{display:block;font-size:14px;color:var(--ink-soft);margin-top:4px}
-.health-card em{display:block;font-style:normal;font-size:12.5px;color:var(--ink-soft);opacity:.85;margin-top:8px}
+.health-card em{display:block;font-style:normal;font-size:12.5px;color:var(--ink-muted);margin-top:8px}
 .health-card.is-green{border-left-color:var(--green)}
 .health-card.is-amber{border-left-color:#C98A16}
 .health-card.is-amber b{color:#9A6A10}
@@ -484,7 +515,10 @@ header{
 .event-card:hover{transform:translateY(-5px);box-shadow:0 18px 40px rgba(2,56,42,.12)}
 .event-card img{aspect-ratio:16/9;object-fit:cover;width:100%}
 .event-card-body{padding:22px 24px}
-.event-card h3{font-size:19px;font-weight:700;margin:6px 0 8px}
+/* Either level: a card title is an h3 on the homepage, where it sits
+   under a section h2, and an h2 on the listing pages, where the page
+   title above it is the h1. The card looks the same in both. */
+.event-card h2,.event-card h3{font-size:19px;font-weight:700;margin:6px 0 8px}
 .event-card p{font-size:14.5px;color:var(--ink-soft)}
 .event-date{
   font-size:13px;font-weight:700;color:var(--green);letter-spacing:.05em;text-transform:uppercase;
@@ -534,7 +568,7 @@ a.album-card:hover{transform:translateY(-3px);box-shadow:0 14px 32px rgba(2,56,4
 .album-card-body{padding:18px 20px;display:grid;gap:6px}
 .album-card-body b{font-family:var(--font-display);font-size:19px;color:var(--green)}
 .album-card-body span{font-size:14px;color:var(--ink-soft);line-height:1.5}
-.album-card-body em{font-style:normal;font-size:13px;font-weight:700;color:var(--red)}
+.album-card-body em{font-style:normal;font-size:13px;font-weight:700;color:var(--red-ink)}
 
 .photo-masonry{columns:3;column-gap:18px;margin-top:36px}
 .photo-item{break-inside:avoid;margin:0 0 18px}
@@ -595,7 +629,7 @@ body.lightbox-open .cookie-notice{display:none}
 /* ---------- Contact ---------- */
 .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:44px;margin-top:36px}
 .contact-card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:34px}
-.contact-card h3{font-size:20px;margin-bottom:18px}
+.contact-card h2{font-size:20px;margin-bottom:18px}
 .contact-row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:15.5px}
 .contact-row:last-of-type{border-bottom:none}
 .contact-row .ico{flex:none;width:38px;height:38px;border-radius:50%;background:var(--green-tint);display:grid;place-items:center;font-size:17px}
@@ -605,7 +639,7 @@ body.lightbox-open .cookie-notice{display:none}
   grid-column:1 / -1;background:var(--white);border:1px solid var(--line);
   border-radius:var(--radius);padding:34px;
 }
-.contact-form h3{font-size:20px;margin-bottom:20px}
+.contact-form h2{font-size:20px;margin-bottom:20px}
 .contact-form .field{margin-bottom:18px}
 .contact-form label{display:block;font-weight:700;font-size:14px;margin-bottom:6px}
 .form-privacy{
@@ -631,10 +665,14 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
   grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr)
                         minmax(0,.8fr) minmax(0,1fr);
 }
-.foot-grid h4{font-family:var(--font-display);color:#fff;font-size:16px;margin-bottom:14px}
+.foot-grid h2{font-family:var(--font-display);color:#fff;font-size:16px;margin-bottom:14px}
 .foot-grid ul{list-style:none;display:grid;gap:9px}
-.foot-grid a{text-decoration:none;font-size:14.5px;opacity:.85}
-.foot-grid a:hover{opacity:1}
+/* The .85 is for the quiet run of links. It must not reach the Donate
+   button: opacity dims an element AND its text together, so the button
+   came out at 3.98:1 — the only thing on the public site under 4:1, and
+   worse than the red it is painted in. The :not() keeps it off. */
+.foot-grid a:not(.foot-donate){text-decoration:none;font-size:14.5px;opacity:.85}
+.foot-grid a:not(.foot-donate):hover{opacity:1}
 .foot-about{font-size:14.5px;max-width:38ch}
 /* The footer's Donate button. On a phone the header pill is inside the
    collapsed menu, so this is the call to action most visitors actually
@@ -642,7 +680,7 @@ footer{background:var(--green-deep);color:rgba(255,255,255,.82);padding:56px 0 3
    the run of links. Colours come straight from .btn-red; only the
    spacing and the focus ring are its own, the global ring being a red
    that disappears against a red button on dark green. */
-.foot-donate{margin-top:16px}
+.foot-donate{margin-top:16px;text-decoration:none}
 .foot-donate:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .foot-bar{border-top:1px solid rgba(255,255,255,.16);padding-top:22px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13.5px;opacity:.7}
 .foot-admin{text-decoration:none}
@@ -707,7 +745,7 @@ a.admin-stat:hover{border-color:var(--green);box-shadow:0 6px 18px rgba(0,86,63,
 a.admin-stat:focus-visible{outline:3px solid var(--green);outline-offset:2px}
 .admin-stat b{display:block;font-family:var(--font-display);font-size:34px;color:var(--green);line-height:1.15}
 .admin-stat span{font-size:14px;color:var(--ink-soft);font-weight:600}
-.admin-stat em{font-style:normal;font-size:12.5px;color:var(--ink-soft);opacity:.8;margin-top:6px}
+.admin-stat em{font-style:normal;font-size:12.5px;color:var(--ink-muted);margin-top:6px}
 /* Something is actually waiting on the admin — the only card that shouts. */
 .admin-stat-alert{border-color:var(--red);background:#FFF7F7}
 .admin-stat-alert b{color:var(--red)}
@@ -716,7 +754,7 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 
 /* ---------- Dashboard: needs attention + recent activity ---------- */
 /* Unpublished work is the one thing on a card worth colouring in. */
-.admin-stat em.stat-draft{color:var(--red);font-weight:700;opacity:1}
+.admin-stat em.stat-draft{color:var(--red);font-weight:700}
 .admin-attention{
   background:var(--white);border:1px solid var(--line);border-left:4px solid var(--red);
   border-radius:var(--radius);padding:22px 24px;margin-bottom:30px;
@@ -732,10 +770,14 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 }
 .attention-item:last-child{padding-bottom:0;border-bottom:none}
 .attention-item a{color:var(--green);font-weight:700;text-decoration:none;white-space:nowrap}
-.attention-item.is-blocker span{color:var(--red);font-weight:600}
+.attention-item.is-blocker span{color:var(--red);font-weight:700;font-size:var(--large-text)}
 /* Long summaries and email addresses wrap; the table scrolls inside its
    own box rather than taking the page sideways on a phone. */
 .table-scroll{overflow-x:auto}
+/* Three of these are tab stops (see the templates): a stop with no
+   visible focus ring is a WCAG 2.4.7 failure, and an unexplained pause
+   in the tab order for everyone else. */
+.table-scroll:focus-visible{outline:3px solid var(--green);outline-offset:2px;border-radius:8px}
 .activity-table td{overflow-wrap:anywhere}
 /* Recent activity: the three column widths are settled here rather than
    left to the table algorithm. The email column has to hold a REAL
@@ -879,7 +921,14 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   background:none;border:none;color:var(--green);font-weight:600;font-size:14px;
   cursor:pointer;text-decoration:none;margin-right:10px;font-family:inherit;padding:0;
 }
-.table-link.danger{color:var(--red)}
+/* The darker red, NOT --large-text. Every other element painted in the
+   brand red is a button or an alert, where growing to the large-text
+   threshold is fine or an improvement. This one is a link in a table
+   cell beside View and Edit: at 18.7px bold it became the loudest thing
+   in every admin row, so the DESTRUCTIVE action read as the primary
+   one. Contrast is the point, not size — --red-ink is 5.64:1 at the
+   size it already was, and --red is untouched. */
+.table-link.danger{color:var(--red-ink)}
 .pill{border-radius:999px;padding:3px 12px;font-size:13px;font-weight:700}
 .pill-green{background:var(--green-tint);color:var(--green)}
 .pill-grey{background:#ECEEEC;color:var(--ink-soft)}
@@ -935,6 +984,16 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   font:inherit;font-size:16px;background:var(--paper);
 }
 .is-hidden{display:none}
+/* Read aloud, never painted. NOT display:none or visibility:hidden —
+   both remove the element from the accessibility tree as well as from
+   the page, which is the opposite of what this is for. Used for the
+   actions column heading in every admin list, where a visible "Actions"
+   would be a word of furniture above a column of two links. */
+.visually-hidden{
+  position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;
+  border:0;
+}
 
 /* ---------- Login ---------- */
 .login-body{display:grid;place-items:center;min-height:100vh;background:var(--green-deep)}
@@ -943,7 +1002,9 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
   display:grid;gap:16px;text-align:center;
 }
 .login-card .brand-mark{justify-content:center}
-.login-card h1{font-size:24px}
+/* The card is a grid with its own gap, so the shared h1/h2 margin would
+   be a second gap under this heading alone. */
+.login-card h1{font-size:24px;margin-bottom:0}
 .login-card label{text-align:left;font-weight:700;font-size:14px;display:grid;gap:6px}
 .login-note{font-size:14px;color:var(--ink-soft);line-height:1.5;margin:0}
 .login-back{font-size:14px;color:var(--ink-soft);text-decoration:none}
@@ -1083,6 +1144,11 @@ body.menu-open .cookie-notice{display:none}
   }
   .nav-links.open .nav-drop a{padding:8px 0;font-size:16px}
   .nav-links.open a{font-size:16px}
+  /* ...but not the Donate pill: the 16px above outranks the pill's own
+     rule (same specificity, later in the file), which put it back under
+     the large-text threshold in the one place most phone visitors ever
+     see it. */
+  .nav-links.open a.nav-donate{font-size:var(--large-text)}
   .nav-phone-item a{color:var(--green);font-weight:700}
 }
 
@@ -1465,7 +1531,8 @@ input.money{-moz-appearance:textfield;appearance:textfield}
 .foot-subscribe input:focus{outline:none;border-color:rgba(255,255,255,.6)}
 .foot-subscribe button{
   border:none;border-radius:999px;padding:10px 18px;font-family:var(--font-display);
-  font-weight:600;font-size:14px;background:var(--red);color:#fff;cursor:pointer;
+  font-weight:700;font-size:var(--large-text);background:var(--red);color:#fff;
+  cursor:pointer;
 }
 .foot-subscribe button:hover{filter:brightness(1.08)}
 

@@ -52,14 +52,19 @@
     </div>
   </aside>
 
-  <div class="admin-main" id="main" tabindex="-1">
+  {#- A real <main>, matching the public shell. As a div it was no
+      landmark at all, so every admin page reported "no main landmark"
+      and every element on it "not contained by a landmark" — 894 of
+      them. Every rule that touches this styles the CLASS, so the tag
+      carries no layout with it. -#}
+  <main class="admin-main" id="main" tabindex="-1">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}
       <div class="flash flash-{{ cat }}">{{ msg }}</div>
       {% endfor %}
     {% endwith %}
     {% block content %}{% endblock %}
-  </div>
+  </main>
 </div>
 
 {% block scripts %}{% endblock %}

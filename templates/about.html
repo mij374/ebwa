@@ -5,7 +5,7 @@
 <section>
   <div class="wrap">
     <p class="eyebrow">About us <span class="bn">· আমাদের সম্পর্কে</span></p>
-    <h2>{{ c.get('about_title','About EBWA') }}</h2>
+    <h1>{{ c.get('about_title','About EBWA') }}</h1>
     {{ rich_content(paragraphs, images, layout,
                 placeholder='Upload a photo in Admin → Content → about',
                 video=video_of({'video_url': c.get('about_video_url',''),

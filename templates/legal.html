@@ -3,7 +3,7 @@
 {% block content %}
 <section>
   <div class="wrap legal-page">
-    <h2>{{ page_title }}</h2>
+    <h1>{{ page_title }}</h1>
     {% for para in page_body.split('\n') if para.strip() %}
     <p>{{ para }}</p>
     {% endfor %}

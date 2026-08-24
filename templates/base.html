@@ -108,7 +108,7 @@
     <div class="foot-grid">
       <div>
         <span class="foot-logo"><img src="{{ url_for('static', filename='img/ebwa-logo.png') }}" alt="EBWA logo"></span>
-        <h4>EBWA</h4>
+        <h2>EBWA</h2>
         <p class="foot-about">A community-driven organisation dedicated to enhancing the quality of life of Bangladeshi people and the wider Enfield community.</p>
         {#- The invitation, after the sentence that says who is asking.
             On a phone the header's Donate pill is inside the collapsed
@@ -121,7 +121,7 @@
         {% endif %}
       </div>
       <div>
-        <h4>Newsletter</h4>
+        <h2>Newsletter</h2>
         <p class="foot-about" style="margin-bottom:12px">Monthly updates on our programmes and events.</p>
         <form class="foot-subscribe" method="post" action="{{ url_for('subscribe') }}">
           <input type="email" name="email" placeholder="Your email address" required aria-label="Email address">
@@ -129,7 +129,7 @@
         </form>
       </div>
       <div>
-        <h4>Quick links</h4>
+        <h2>Quick links</h2>
         <ul>
           {#- Same order as the menu: about us, what's on, get involved.
               Two lists in different orders is two things to keep in
@@ -147,7 +147,7 @@
         </ul>
       </div>
       <div>
-        <h4>Get in touch</h4>
+        <h2>Get in touch</h2>
         <ul>
           <li><a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">{{ site.get('site_phone','') }}</a></li>
           <li>{{ site.get('site_address','') }}</li>

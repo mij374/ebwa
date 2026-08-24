@@ -186,7 +186,12 @@
 
 <h2 class="admin-stats-head">Backups</h2>
 <div class="admin-form" style="margin-bottom:22px">
-  <div class="table-scroll">
+  {#- Keyboard-scrollable, for the reason spelled out on the dashboard's
+      activity table: nothing in this box is focusable, so with no tab
+      stop of its own its right-hand end cannot be reached at all on a
+      narrow screen. -#}
+  <div class="table-scroll" tabindex="0" role="region"
+       aria-label="Backup status, scrollable">
   <table class="admin-table">
     <tbody>
       <tr>
@@ -241,7 +246,8 @@
     database, so a stolen archive does not open the machine it was sent
     to.</p>
 
-  <div class="table-scroll">
+  <div class="table-scroll" tabindex="0" role="region"
+       aria-label="Offsite transfer status, scrollable">
   <table class="admin-table" style="margin-top:18px">
     <tbody>
       <tr>
@@ -547,10 +553,14 @@
 <h2 class="admin-stats-head">Optional modules</h2>
 {# Scrolls in its own box on a phone: the descriptions are long and the
    action column cannot wrap, and a table has no business dragging the
-   whole admin sideways. #}
+   whole admin sideways.
+   No tabindex here, unlike the three other .table-scroll boxes: every
+   row carries a Switch on/off button, so tabbing through them scrolls
+   the box to each in turn. A tab stop of its own would be a second,
+   redundant pause in front of a region already reachable. #}
 <div class="table-scroll">
 <table class="admin-table">
-  <thead><tr><th>Feature</th><th>What it covers</th><th>Status</th><th></th></tr></thead>
+  <thead><tr><th>Feature</th><th>What it covers</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
     {% for name, label, description, default in rows %}
     <tr>
