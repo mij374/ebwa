@@ -1,0 +1,23 @@
+<section class="{{ band }}">
+  <div class="wrap">
+    <p class="eyebrow">Support a collection <span class="bn">· সহযোগিতা করুন</span></p>
+    <h2>Help us get there</h2>
+    <div class="event-cards">
+      {% for camp in campaigns %}
+      <a class="event-card" href="{{ url_for('collection_detail', slug=camp.slug) }}">
+        {% if camp.image %}<img src="{{ thumb_url(camp.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <h3>{{ camp.title }}</h3>
+          {% if camp.description %}<p>{{ camp.description|truncate(120) }}</p>{% endif %}
+          {% if camp.target_pence %}
+          <span class="event-date">{{ camp.raised_pence|pounds }} raised of {{ camp.target_pence|pounds }}</span>
+          <div class="progress"><b style="width:{{ camp.target_percent }}%"></b></div>
+          {% elif camp.raised_pence %}
+          <span class="event-date">{{ camp.raised_pence|pounds }} raised so far</span>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>

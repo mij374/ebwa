@@ -733,11 +733,44 @@ Built and maintained by Netbus IT Support.
   arrangements, one of which was right. Hide a section and the two
   either side come out the same colour, so the page has a seam in it
   where a band silently doubles in height.
-  - **The list in `index.html` is the order the page emits them in.**
-    Adding a section means adding it there too. Miss it and that section
-    renders plain — wrong next to another plain one, and visibly so,
-    rather than quietly shifting every band after it. That failure mode
-    is the reason an unlisted name returns `""` instead of raising.
+  - **The order and the per-section switches are SETTINGS**, two Blocks
+    in `HIDDEN_BLOCK_KEYS` (`home_section_order`, `home_sections_hidden`)
+    edited on the Settings page, super admins only — arranging the front
+    page is a design decision, not day-to-day content work. `HOME_SECTIONS`
+    in app.py is the registry: key, the name an admin sees, what it
+    holds. Each key is also its partial, `templates/home/_<key>.html`,
+    and `home_layout()` returns keys from that tuple and nothing else,
+    because the include path is built from them — a template path
+    assembled from anything a request could influence is not a thing to
+    have on a site that takes card payments.
+    - **ADDING A SECTION**: an entry in `HOME_SECTIONS`, a partial, and
+      the content in `home()`. It appears at the END for anyone who has
+      already saved an order, and is shown by default.
+    - Both fallbacks exist to stop the same thing — A SECTION MUST NOT
+      DISAPPEAR BECAUSE SOMEBODY EDITED A LIST. An unknown key in the
+      setting is ignored; a section missing from the setting is
+      APPENDED, never dropped. And the hidden list stores the sections
+      that are OFF, not the ones that are on: storing "on" would make a
+      section added in a later deploy invisible on every site that had
+      ever saved this setting, looking like a bug in the new feature.
+    - A missing Block is treated exactly as an empty one, so **a deploy
+      that skips `init-db` still renders the right front page** —
+      pinned by a test, because a homepage that can lose its content to
+      a forgotten command is the failure this feature must not add.
+    - Hiding a section here is NOT a feature flag, and the panel says so
+      in as many words: this takes a section off the FRONT PAGE, the
+      flag removes the module from the whole site. Two controls that
+      look alike and do very different things need the difference
+      written down where somebody is about to press one.
+    - Positions are read as numbers and SORTED, not trusted: duplicates
+      and gaps are an arrangement somebody meant, and ties keep the
+      order already on screen so nudging one number does not shuffle the
+      rest. Visibility is read from `HOME_SECTIONS`, never from the
+      form's own keys — an unticked checkbox posts nothing, so a
+      form-shaped loop cannot tell "unticked" from "not submitted".
+    - The reset restores the CONSTANT, never the last saved value, and
+      is audit-logged even when it changes nothing — the same rule as
+      the marquee speed reset.
   - Server-side rather than CSS, and the CSS option is worth knowing
     about before someone proposes it again: `:nth-of-type` counts by
     ELEMENT TYPE and ignores class, so it would work only while every

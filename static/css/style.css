@@ -862,6 +862,11 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 
 .admin-form{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:30px;max-width:680px}
 .field{margin-bottom:20px}
+/* ...but not inside a table cell, where the row supplies the spacing and
+   a bottom margin only makes the row taller than its neighbours. The
+   users page has done this locally for its password fields since it was
+   written; this is the same rule, said once. */
+.admin-table .field{margin-bottom:0}
 .field label{display:block;font-weight:700;font-size:14px;margin-bottom:6px}
 /* ---------- Form controls: ONE definition for the whole site ----------
    Public forms and admin forms both use .field inside .admin-form, and

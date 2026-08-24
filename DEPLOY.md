@@ -136,6 +136,41 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-25 — Homepage section order and switches
+
+**Two new Blocks, no schema change.** `init-db` is idempotent and
+inserts only missing keys, so this is one command and it is safe to
+re-run:
+
+```bash
+flask --app app init-db
+flask --app app check-schema     # still clean; no table or column moved
+sudo systemctl restart ebwa
+```
+
+The two keys are `home_section_order` (seeded with the order the site
+already had) and `home_sections_hidden` (seeded empty). Both are in
+`HIDDEN_BLOCK_KEYS`, so neither appears in the ordinary content editor —
+arranging the front page is a design decision made on Settings.
+
+**Nothing changes appearance until a super admin moves something.** The
+seeded order is the one that was hardcoded in the template, and nothing
+is hidden.
+
+**If the deploy skips `init-db`, the site is still correct.** Both
+helpers treat a missing Block exactly as an empty one: the order falls
+back to `HOME_SECTIONS` and nothing is hidden. The only cost is that the
+Settings panel saves into Blocks it creates itself the first time
+somebody presses Save. This is deliberate — a front page that depends
+on a seed step having run is a front page that can lose its content to a
+forgotten command.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-24 — Collections: three states instead of Active
 
 **ONE NEW COLUMN, AND A DATA MIGRATION THAT MUST RUN WITH IT.** The

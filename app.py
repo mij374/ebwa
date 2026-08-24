@@ -1048,6 +1048,107 @@ def asset_version(filename):
 # gets is a property of WHERE IT LANDS, not of which section it is.
 BAND_TINTED = "tinted"
 
+# THE HOMEPAGE SECTIONS: key, the name an admin sees, and what it holds.
+# The key is also the partial's filename (templates/home/_<key>.html) and
+# the only thing the include path is ever built from — which is why every
+# helper below filters against THIS tuple and returns nothing that is not
+# in it. A template path assembled from anything a request could
+# influence is not a thing to have on a site that takes card payments.
+#
+# ADDING A SECTION: an entry here, a partial in templates/home/, and the
+# content behind it in home(). Nothing else. It appears at the END of
+# the order for anyone who had already saved one, and is shown by
+# default — see the two helpers for why round that way.
+HOME_SECTIONS = (
+    ("services", "What we do",
+     "The cards describing EBWA's work."),
+    ("events", "Upcoming events",
+     "The next three published events."),
+    ("news", "Latest news",
+     "The three most recent news posts."),
+    ("collections", "Collections",
+     "Collections that are open and taking payments."),
+    ("testimonials", "What our community says",
+     "The quote row."),
+    ("partners", "Our partners",
+     "The partner logo row."),
+)
+HOME_SECTION_KEYS = tuple(k for k, _n, _d in HOME_SECTIONS)
+HOME_SECTION_NAMES = {k: n for k, n, _d in HOME_SECTIONS}
+HOME_ORDER_KEY = "home_section_order"
+HOME_HIDDEN_KEY = "home_sections_hidden"
+HOME_ORDER_DEFAULT = ",".join(HOME_SECTION_KEYS)
+# The default order in plain language, for the reset button's caption:
+# the keys are for the code, and nobody arranging a front page should be
+# reading "collections,testimonials".
+HOME_ORDER_DEFAULT_NAMES = [n for _k, n, _d in HOME_SECTIONS]
+
+
+def _block_list(key):
+    """A stored comma-separated setting, as a list of trimmed strings."""
+    block = Block.query.filter_by(key=key).first()
+    raw = (block.value if block else "") or ""
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def home_section_order():
+    """The section keys in the order the homepage should emit them.
+
+    Two fallbacks, and both are about the same failure: A SECTION MUST
+    NOT DISAPPEAR BECAUSE SOMEBODY EDITED A LIST.
+
+      * a key in the setting that is no longer a section is IGNORED, so
+        removing a section from the code does not leave the page trying
+        to include a partial that is not there;
+      * a section that exists but is missing from the setting is
+        APPENDED, so it still renders. The alternative — showing only
+        what the setting names — means a typo, a half-saved form or a
+        new section added in a deploy silently takes content off the
+        front page, and nobody would connect the two.
+
+    An empty or absent setting therefore gives exactly HOME_SECTIONS in
+    its own order, which is what the site shipped with.
+    """
+    seen, order = set(), []
+    for key in _block_list(HOME_ORDER_KEY):
+        if key in HOME_SECTION_KEYS and key not in seen:
+            seen.add(key)
+            order.append(key)
+    order += [k for k in HOME_SECTION_KEYS if k not in seen]
+    return order
+
+
+def home_hidden_sections():
+    """Section keys switched off FOR THE HOMEPAGE ONLY.
+
+    Stored as the hidden ones rather than the shown ones, deliberately.
+    Storing "shown" would mean a section added in a later deploy is
+    absent from every site that had ever saved this setting — invisible
+    on the front page from the moment it shipped, and looking like a bug
+    in the new feature rather than in this list.
+
+    This is NOT a feature flag. The flag removes a module from the whole
+    site — its page, its nav link, its sitemap entry. This takes one
+    section off the front page and leaves everything else exactly where
+    it was.
+    """
+    return {k for k in _block_list(HOME_HIDDEN_KEY) if k in HOME_SECTION_KEYS}
+
+
+def home_layout(present):
+    """[(key, band class)] for the sections that will actually render.
+
+    `present` maps a section key to whether it has anything to show. A
+    section renders when it has content AND has not been switched off
+    for the homepage; the bands then alternate across whatever is left,
+    in whatever order Settings puts them in.
+    """
+    hidden = home_hidden_sections()
+    visible = [(key, bool(present.get(key)) and key not in hidden)
+               for key in home_section_order()]
+    bands = alternating_bands(visible)
+    return [(key, bands[key]) for key, on in visible if on]
+
 
 @app.template_global("alternating_bands")
 def alternating_bands(sections):
@@ -1204,6 +1305,7 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
                      "sftp_schedule", "sftp_keep",
                      PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
                      PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY,
+                     HOME_ORDER_KEY, HOME_HIDDEN_KEY,
                      ) + tuple(
     MOTION_ROWS["testimonials"][k]
     for k in ("mode_key", "step_key", "glide_key", "drift_key"))
@@ -3518,7 +3620,15 @@ def home():
                 .order_by(Partner.sort, Partner.name, Partner.id).all())
     services = (Service.query.filter_by(published=True)
                 .order_by(Service.sort, Service.id).all())
+    # Which sections render, in which order, with which band — resolved
+    # in one place from the Settings order, the per-section switches and
+    # what there is to show. The template just loops over the answer.
+    home_bands = home_layout({"services": services, "events": upcoming,
+                              "news": latest_news, "collections": campaigns,
+                              "testimonials": testimonials,
+                              "partners": partners})
     return render_template("index.html", c=content, upcoming=upcoming,
+                           home_bands=home_bands,
                            latest_news=latest_news, campaigns=campaigns,
                            testimonials=testimonials, partners=partners,
                            motion=partner_motion(),
@@ -6605,6 +6715,9 @@ def admin_features():
         modes=SECURITY_MODES, mail_ready=mail_configured(),
         password_set=password_is_set(), password_setting=mail_password_setting(),
         fernet_key_present=fernet() is not None,
+        home_sections=HOME_SECTIONS, home_order=home_section_order(),
+        home_hidden=home_hidden_sections(),
+        home_order_default=HOME_ORDER_DEFAULT_NAMES,
         health=server_health(), backup_limit=BACKUP_MANUAL_PER_HOUR,
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
@@ -6994,6 +7107,101 @@ def admin_health_json():
     return jsonify(health)
 
 
+# ---- Settings: how the homepage is arranged
+def _set_block(key, value, group="home", label=""):
+    """Write a settings Block, creating it on a database that predates it."""
+    block = Block.query.filter_by(key=key).first()
+    if block is None:
+        block = Block(group=group, key=key, label=label or key, kind="text")
+        db.session.add(block)
+    changed = (block.value or "") != value
+    block.value = value
+    return changed
+
+
+@app.route("/admin/home-sections", methods=["POST"])
+@super_admin_required
+def admin_home_sections_save():
+    """Save the homepage's section order and which of them are shown.
+
+    The positions arrive as one number per section. They are SORTED
+    rather than trusted: two sections given the same number, or numbers
+    with gaps in them, are an arrangement somebody meant, not an error
+    worth refusing a whole form over. Ties keep the order the sections
+    are already in, so nudging one number does not shuffle the rest.
+
+    Visibility is read from HOME_SECTIONS, never from the form's own
+    keys: an unticked checkbox posts nothing at all, so a form-shaped
+    loop would read "unticked" and "not submitted" as the same thing.
+    Iterating the server's own list of sections is what makes an absent
+    key mean "switched off" safely.
+    """
+    back = redirect(url_for("admin_features") + "#homeSections")
+    current = home_section_order()
+    positions = []
+    for index, key in enumerate(current):
+        raw = (request.form.get("pos_%s" % key) or "").strip()
+        try:
+            pos = int(raw)
+        except ValueError:
+            flash("Each position must be a whole number.", "error")
+            return back
+        if not 1 <= pos <= len(HOME_SECTIONS):
+            flash("Positions must be between 1 and %d." % len(HOME_SECTIONS),
+                  "error")
+            return back
+        positions.append((pos, index, key))
+    order = [key for _pos, _i, key in sorted(positions)]
+    hidden = [k for k in order if request.form.get("show_%s" % k) != "on"]
+
+    was_hidden = home_hidden_sections()
+    changed = []
+    if order != current:
+        changed.append("order")
+    if set(hidden) != was_hidden:
+        changed.append("which sections are shown")
+    _set_block(HOME_ORDER_KEY, ",".join(order))
+    _set_block(HOME_HIDDEN_KEY, ",".join(hidden))
+    db.session.commit()
+    # The summary names the ARRANGEMENT, which is the whole content of
+    # this setting — there is no personal data here, and "the order
+    # changed" without saying to what would send somebody to the
+    # database to find out what they had just done.
+    log_action("edit", entity=("Block", 0),
+               summary="Changed the homepage sections (%s). Order: %s. "
+                       "Hidden: %s."
+                       % (" and ".join(changed) if changed
+                          else "nothing changed",
+                          " → ".join(HOME_SECTION_NAMES[k] for k in order),
+                          ", ".join(HOME_SECTION_NAMES[k] for k in hidden)
+                          or "none"))
+    flash("Homepage sections saved.", "ok")
+    return back
+
+
+@app.route("/admin/home-sections/reset", methods=["POST"])
+@super_admin_required
+def admin_home_sections_reset():
+    """Back to the order the site ships with, and everything shown.
+
+    To the CONSTANT, never to whatever was saved last — the same rule as
+    the marquee speed reset. A button that restores the previous
+    arrangement only takes somebody back to their last experiment.
+    """
+    moved = _set_block(HOME_ORDER_KEY, HOME_ORDER_DEFAULT)
+    shown = _set_block(HOME_HIDDEN_KEY, "")
+    db.session.commit()
+    # Logged even when it changed nothing: "somebody pressed reset" is
+    # exactly what you want to see when asking why the front page looks
+    # different from how a trustee remembers leaving it.
+    log_action("edit", entity=("Block", 0),
+               summary="Reset the homepage sections to the default order, "
+                       "with every section shown%s."
+                       % ("" if (moved or shown) else " (nothing changed)"))
+    flash("Homepage sections put back to the default order.", "ok")
+    return redirect(url_for("admin_features") + "#homeSections")
+
+
 @app.route("/admin/features/<name>/toggle", methods=["POST"])
 @super_admin_required
 def admin_feature_toggle(name):
@@ -7062,6 +7270,15 @@ DEFAULT_BLOCKS = [
     ("home", "home_stat_2", "Stat 2 (women trained)", "text", "24"),
     ("home", "home_stat_3", "Stat 3 (cricket project)", "text", "25"),
     ("home", "home_stat_4", "Stat 4 (first aid trained)", "text", "20"),
+    # Both HIDDEN from the content editor: arranging the front page is a
+    # design decision made on Settings, not day-to-day content work, and
+    # a comma-separated list of keys is not something to hand somebody
+    # in a text box beside "Hero headline". Seeded with the order the
+    # site shipped with, and with nothing hidden, so neither changes
+    # anything until a super admin moves something.
+    ("home", HOME_ORDER_KEY, "Homepage section order", "text",
+     HOME_ORDER_DEFAULT),
+    ("home", HOME_HIDDEN_KEY, "Homepage sections switched off", "text", ""),
     # How the partner row moves. Set on the partners admin page, not in
     # the text editor, so both are hidden below.
     ("partners", PARTNER_MOTION_KEY, "Partner row movement", "text",

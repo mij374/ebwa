@@ -1,0 +1,19 @@
+<section class="{{ band }}">
+  <div class="wrap">
+    <p class="eyebrow">Latest news <span class="bn">· সাম্প্রতিক খবর</span></p>
+    <h2>News &amp; projects</h2>
+    <div class="event-cards">
+      {% for post in latest_news %}
+      <a class="event-card" href="{{ url_for('news_detail', slug=post.slug) }}">
+        {% if post.image %}<img src="{{ thumb_url(post.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ post.published_date.strftime('%a %d %b %Y') }}</span>
+          <h3>{{ post.title }}</h3>
+          {% if post.summary %}<p>{{ post.summary }}</p>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    <p style="margin-top:28px"><a class="btn btn-ghost" href="{{ url_for('news') }}">All news</a></p>
+  </div>
+</section>

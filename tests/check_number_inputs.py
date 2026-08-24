@@ -411,6 +411,36 @@ with sync_playwright() as pw:
         check("%s: keeps its spinner" % label,
               spinner(page, sel)["appearance"] == SPUN)
 
+    # ---- the homepage section positions
+    # A position among a fixed set of six, not a sort weight — so unlike
+    # the sort fields elsewhere it DOES carry a min: there is no first
+    # place before the first, and a negative would be a value the route
+    # only has to reject because the field let somebody reach it.
+    for sel, label in (("#pos_services", "position of What we do"),
+                       ("#pos_partners", "position of Our partners")):
+        s = state(page, sel)
+        check("%s: is a number field" % label, s["type"] == "number", str(s))
+        check("%s: steps by 1 — one place at a time" % label,
+              s["step"] == "1", str(s["step"]))
+        check("%s: 1 to 6, mirroring the route" % label,
+              s["min"] == "1" and s["max"] == "6", str(s))
+        # The up arrow moves one place — except on the section already in
+        # LAST place, where the browser refuses to go past the max. That
+        # refusal is the better check of the two: it proves the ceiling
+        # is enforced by the control and not only written in an
+        # attribute.
+        at_ceiling = state(page, sel)["value"] == s["max"]
+        check("%s: %s" % (label, "the up arrow will not go past the last "
+                          "place" if at_ceiling
+                          else "one arrow press moves one place"),
+              arrow_moves(page, sel) == (0 if at_ceiling else 1))
+        check("%s: there is no position 0" % label,
+              not would_accept(page, sel, "0")["valid"])
+        check("%s: nor a seventh place among six" % label,
+              not would_accept(page, sel, "7")["valid"])
+        check("%s: keeps its spinner — a press is a place" % label,
+              spinner(page, sel)["appearance"] == SPUN)
+
     # ---- and the validation messages are sentences, not codes
     page.goto(BASE + "/donate", wait_until="load")
     msg = would_accept(page, "#amount", "0")["message"]

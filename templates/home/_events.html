@@ -1,0 +1,19 @@
+<section class="{{ band }}">
+  <div class="wrap">
+    <p class="eyebrow">Coming up <span class="bn">· আসন্ন অনুষ্ঠান</span></p>
+    <h2>Upcoming events</h2>
+    <div class="event-cards">
+      {% for ev in upcoming %}
+      <a class="event-card" href="{{ url_for('event_detail', slug=ev.slug) }}">
+        {% if ev.image %}<img src="{{ thumb_url(ev.image) }}" alt="">{% endif %}
+        <div class="event-card-body">
+          <span class="event-date">{{ ev.event_date.strftime('%a %d %b %Y') }}{% if ev.start_time %} · {{ ev.start_time }}{% endif %}</span>
+          <h3>{{ ev.title }}</h3>
+          {% if ev.summary %}<p>{{ ev.summary }}</p>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    <p style="margin-top:28px"><a class="btn btn-ghost" href="{{ url_for('events') }}">All events</a></p>
+  </div>
+</section>

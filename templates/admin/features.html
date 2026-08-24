@@ -550,6 +550,81 @@
 <p class="admin-sub" id="healthChecked">Read {{ health.checked_at|uk_datetime }}.
   <label class="health-auto"><input type="checkbox" id="healthAuto"> Refresh every 30 seconds</label></p>
 
+<h2 class="admin-stats-head" id="homeSections">Homepage sections</h2>
+<div class="admin-form" style="margin-bottom:22px">
+  <p class="admin-sub">The order the sections appear down the front page,
+    and whether each one appears at all. The hero, the numbers strip and
+    the footer are fixed and are not listed here.</p>
+  {#- Said plainly, because the two controls look alike and do very
+      different things. Somebody switching a section off here to tidy the
+      front page would be alarmed to find they had also taken the page,
+      the menu link and the sitemap entry with it. -#}
+  <p class="admin-sub"><b>This is not the same as switching a module
+    off.</b> Hiding a section here takes it off the HOMEPAGE ONLY —
+    its own page, its menu link and everything else stay exactly where
+    they are. Switching a module off under <b>Optional modules</b> below
+    removes it from the whole site.</p>
+  <form method="post" action="{{ url_for('admin_home_sections_save') }}">
+    <div class="table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr><th>Position</th><th>Section</th><th>What it shows</th>
+            <th>On the homepage</th></tr>
+      </thead>
+      <tbody>
+        {#- Rendered in the CURRENT order, so the numbers read 1, 2,
+            3 ... down the page and moving one is a matter of typing the
+            place you want it in. Ties are resolved in favour of the
+            order already on screen, so nudging one number does not
+            shuffle everything else. -#}
+        {% for key in home_order %}
+        {% set name = home_sections | selectattr('0', 'equalto', key) | first %}
+        <tr>
+          <td class="nowrap">
+            {#- A .field, like every other control on the site — the
+                shared rule styles by CONTAINER, so an input outside one
+                comes out as the browser's default box beside a page of
+                rounded ones. The same wrapping users.html uses for its
+                in-table password fields. -#}
+            <div class="field">
+              <label class="visually-hidden" for="pos_{{ key }}">Position of {{ name[1] }}</label>
+              <input type="number" id="pos_{{ key }}" name="pos_{{ key }}"
+                     min="1" max="{{ home_sections|length }}" step="1"
+                     value="{{ loop.index }}">
+            </div>
+          </td>
+          <td><b>{{ name[1] }}</b></td>
+          <td>{{ name[2] }}</td>
+          <td class="nowrap">
+            {#- Rendered from the CURRENT state, never inside an {% if %}:
+                a box that is not there submits nothing, which the route
+                cannot tell from unticked. The route reads its own list
+                of sections rather than the form's keys for the same
+                reason. -#}
+            <label>
+              <input type="checkbox" name="show_{{ key }}"
+                     {{ 'checked' if key not in home_hidden }}>
+              Show
+            </label>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="form-actions" style="margin-top:18px">
+      <button class="btn btn-green" type="submit">Save section order</button>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('admin_home_sections_reset') }}"
+        onsubmit="return confirm('Put the homepage sections back to the default order, with every section shown?');">
+    <button class="btn btn-ghost" type="submit">Reset to the default order</button>
+    <p class="admin-sub" style="margin-top:8px">Back to
+      {{ home_order_default | join(' → ') }},
+      with every section shown.</p>
+  </form>
+</div>
+
 <h2 class="admin-stats-head">Optional modules</h2>
 {# Scrolls in its own box on a phone: the descriptions are long and the
    action column cannot wrap, and a table has no business dragging the

@@ -1,0 +1,63 @@
+<section class="{{ band }}">
+  <div class="wrap">
+    <p class="eyebrow">Testimonials <span class="bn">· প্রশংসাপত্র</span></p>
+    <h2>What our community says</h2>
+    {#- One card, used by the static grid and by the scroller. The copy
+        set passes duplicate=true: it exists only to make the loop
+        endless, so it is hidden from screen readers and taken out of the
+        tab order, or the quotes are read twice. -#}
+    {% macro quote_card(t, duplicate=false) %}
+      <figure class="quote-card"{% if duplicate %} aria-hidden="true"{% endif %}>
+        <blockquote>{{ t.quote }}</blockquote>
+        <figcaption><b>{{ t.name }}</b>{% if t.role %}<span>{{ t.role }}</span>{% endif %}</figcaption>
+      </figure>
+    {% endmacro %}
+    {% if testimonials|length >= quote_min %}
+    {#- Four or more quotes will not sit in a row, so the row scrolls.
+        A quote card is far wider than a logo tile, which is why this
+        threshold is lower than the partners' one — see ROW_SCROLLER_MIN.
+        The same marquee drives both rows; only the card is different. -#}
+    <div class="marquee-row" data-row="testimonials" data-motion="{{ quote_motion.mode }}"
+         data-step-seconds="{{ quote_motion.step_seconds }}"
+         data-glide-ms="{{ quote_motion.glide_ms }}"
+         data-drift-speed="{{ quote_motion.drift_speed }}">
+      <button type="button" class="marquee-arrow marquee-arrow-prev"
+              aria-label="Previous testimonials" aria-controls="quoteRow">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+      {#- tabindex so a keyboard can reach the row at all: a quote card
+          holds no link, so unlike the partner row there is nothing
+          inside it to Tab to. A focusable scroll container is scrolled
+          by the arrow keys natively, and focusing it also pauses the
+          motion like any other focus in the row. -#}
+      <div class="marquee" id="quoteRow" tabindex="0" role="region"
+           aria-label="Testimonials, scrollable">
+        <div class="marquee-track">
+          <div class="marquee-set">
+            {% for t in testimonials %}{{ quote_card(t) }}{% endfor %}
+          </div>
+          <div class="marquee-set" aria-hidden="true">
+            {% for t in testimonials %}{{ quote_card(t, duplicate=true) }}{% endfor %}
+          </div>
+        </div>
+      </div>
+      <button type="button" class="marquee-arrow marquee-arrow-next"
+              aria-label="Next testimonials" aria-controls="quoteRow">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 5 L16 12 L9 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    {% else %}
+    <div class="quote-grid">
+      {% for t in testimonials %}{{ quote_card(t) }}{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>

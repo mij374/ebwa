@@ -1,0 +1,77 @@
+<section class="{{ band }}">
+  <div class="wrap">
+    <p class="eyebrow">Our partners <span class="bn">· সহযোগী সংস্থা</span></p>
+    <h2>Working together for Enfield</h2>
+    {#- One card, used by both the static row and the scroller. The copy
+        set passes duplicate=true: it is decoration, so it is hidden from
+        screen readers and taken out of the tab order.
+        These logos are deliberately NOT loading="lazy": inside the
+        scroller they are moved into view by a transform, which does not
+        reliably wake a lazy image, and a partner wall with blank tiles
+        scrolling through it is worse than fetching a few 200x100
+        thumbnails. The box is reserved by width/height either way. -#}
+    {% macro partner_card(pt, duplicate=false) %}
+      {% set body %}
+        {% if pt.shows_logo %}<img class="partner-logo" src="{{ thumb_url(pt.logo) }}" alt="{{ '' if duplicate else pt.name }}" width="200" height="100">{% endif %}
+        {% if pt.shows_text %}<b>{{ pt.name }}</b>{% if pt.blurb %}<span>{{ pt.blurb }}</span>{% endif %}{% endif %}
+      {% endset %}
+      {% if pt.url %}<a class="partner-card" href="{{ pt.url }}" target="_blank" rel="noopener"{% if duplicate %} tabindex="-1"{% endif %}>{{ body }}</a>
+      {% else %}<div class="partner-card">{{ body }}</div>{% endif %}
+    {% endmacro %}
+    {% if partners|length >= partner_min %}
+    {#- More than four: a scroller rather than a wrapping grid. Which
+        movement it makes is a site setting (admin → Partners); every
+        mode is off under prefers-reduced-motion, the continuous one by
+        the global rule at the top of the stylesheet and the stepping one
+        because the script checks. Either way the row can still be
+        scrolled, dragged, swiped and tabbed through.
+        The duplicate set below is decoration for the loop and is hidden
+        by the stylesheet unless the row is genuinely animating, so this
+        renders as the real partners and nothing else in every browser
+        that does not get as far as moving it. -#}
+    <div class="marquee-row" data-row="partners" data-motion="{{ motion.mode }}"
+         data-step-seconds="{{ motion.step_seconds }}"
+         data-glide-ms="{{ motion.glide_ms }}"
+         data-drift-speed="{{ motion.drift_speed }}">
+      {#- The arrows are HERE BY DEFAULT and the script hides them once it
+          takes the row over — while it is drifting or stepping, or if
+          there turns out to be nowhere to scroll to. The other way round
+          (hidden until the script shows them) meant that the one state
+          most in need of them — the script blocked, erroring or not run
+          at all — was the state with no arrows and no way to move the
+          row but the scrollbar. The scrollbar is still there in exactly
+          that case, since hiding it is on a class only the script adds. -#}
+      <button type="button" class="marquee-arrow marquee-arrow-prev"
+              aria-label="Previous partners" aria-controls="partnerRow">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M15 5 L8 12 L15 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="marquee" id="partnerRow">
+        <div class="marquee-track">
+          <div class="marquee-set">
+            {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
+          </div>
+          <div class="marquee-set" aria-hidden="true">
+            {% for pt in partners %}{{ partner_card(pt, duplicate=true) }}{% endfor %}
+          </div>
+        </div>
+      </div>
+      <button type="button" class="marquee-arrow marquee-arrow-next"
+              aria-label="Next partners" aria-controls="partnerRow">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 5 L16 12 L9 19" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    {% else %}
+    <div class="partner-grid">
+      {% for pt in partners %}{{ partner_card(pt) }}{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>

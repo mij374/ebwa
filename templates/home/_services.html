@@ -1,0 +1,11 @@
+<section class="{{ band }}">
+  <div class="wrap">
+    <p class="eyebrow">What we do <span class="bn">· আমাদের কাজ</span></p>
+    <h2>Support for every generation</h2>
+    <div class="cards">
+      {% for s in services %}
+      <div class="card"><div class="card-icon">{{ s.icon }}</div><h3>{{ s.title }}</h3><p>{{ s.description }}</p></div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
