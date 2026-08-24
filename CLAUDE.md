@@ -1597,9 +1597,12 @@ directly with python); seed_demo.py fills a fresh db with demo content.
 Two are not modules: `smoke_test_asset_version.py` holds the
 static-asset cache busting, and `smoke_test_ordering.py` holds the
 order every list comes out in, ties included.
-Phase 1 is code-complete but NOT yet deployed: deploy needs init-db
-(new tables), pip install (stripe), Stripe env vars + webhook
-registration (see README).
+Phase 1 is code-complete. THE DEMO VPS (demo.netbus.co.uk) IS RUNNING
+IT; production has never been deployed and has no host yet. Which
+entries are confirmed applied on the demo, and which could not be
+checked, is recorded at the top of DEPLOY.md — that file is the record,
+not this paragraph. Production still needs init-db (new tables), pip
+install (stripe), Stripe env vars + webhook registration (see README).
 
 Phase 2 (separately quoted — DO NOT build under Phase 1): Board
 Transparency Hub (board-member tier as a third `User.role` value — the

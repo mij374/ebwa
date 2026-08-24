@@ -53,9 +53,86 @@ the whole site.
 - **Demo VPS** — the client-facing preview
 - **Production** — `/opt/ebwa` on the live server
 
+**A TICK MEANS VERIFIED APPLIED, NOT INTENDED.** Tick a box only when
+you have seen evidence that this entry's own steps ran in that
+environment - `check-schema` clean, the statement executed, the page
+working - and never because the deploy was planned, scheduled or
+believed to have happened. An unticked box is not a claim that the step
+is missing; it means nobody has checked. Where a step cannot be checked
+from where you are, say so beside the entry rather than ticking it
+hopefully.
+
 Local was verified on 10 Aug 2026 by reading the schema out of
-`instance/ebwa.db`. Demo and production are unticked because Phase 1 has
-not been deployed yet — tick them as you go.
+`instance/ebwa.db`, and again on 23 Aug for the audit_log indexes.
+Demo VPS ticks were established on 24 Aug — see the verification record
+below for exactly how, and for what is still unchecked there.
+**Production has never been deployed**: it has no host yet.
+
+---
+
+## Verification of the demo VPS - 24 Aug 2026
+
+Every entry in this file had been ticked Local only, which was wrong:
+demo.netbus.co.uk has been running the site for some time. This is what
+was checked that day, how, and what could NOT be established - so that
+the next person reads ticks rather than guesses.
+
+**Method: anonymous HTTPS requests to the public pages, nothing else.**
+No shell on the box, no admin login, no POSTs. That bounds what can be
+proven, and the bound is the point of the notes below.
+
+**What that proved:**
+
+- The deployed stylesheet is byte-identical to this repository's
+  (`?v=d650ab11` matches the local sha256), and the homepage carries
+  every marker of the newest front-end work - `setupMarquee`,
+  `fitWholeCards`, `data-row="testimonials"`, `foot-donate`,
+  `menu-open`, `nav-group-last`, versioned asset URLs. **The demo is
+  running code at or after the whole-card fitting commit (7f38b04,
+  23 Aug).**
+- `/news/<slug>`, `/events/<slug>`, `/collections/<slug>`,
+  `/our-journey` and `/about` all return 200. Every one of those loads
+  rows carrying `video_url` / `video_thumb`, so **the eight video
+  ALTER TABLEs have been applied** - a missing column would 500 the
+  page rather than degrade.
+- Rich-content markup renders on About and on a news post; partner
+  logos, thumbnails (`-thumb`), the cookie notice, the Donate pill and
+  the testimonial scroller are all live; `/faq`, `/resources`,
+  `/membership`, `/donate`, `/gallery/all`, `/privacy`, `/terms`,
+  `/sitemap.xml` and `/healthz` all answer 200.
+
+**What could NOT be established this way, and is therefore NOT ticked:**
+
+1. **The exact deployed commit.** CSS identity places it at or after
+   7f38b04; the three commits after that (aadfa0e, 4e69c7c, a8fdd96)
+   change templates, tests and the CLI only, and none of them alters
+   any publicly visible output. Settle it with
+   `git -C /opt/ebwa rev-parse --short HEAD`.
+2. **The two `audit_log` indexes.** An index is invisible over HTTP by
+   definition - it changes speed, not behaviour. Nothing on the public
+   site can tell you whether they exist.
+3. **Everything admin-only**: the audit log table, `user.role`,
+   `user.created_at`, the TOTP columns, the membership eligibility
+   columns, `backup_run` and its five SFTP columns, the contact
+   messages table, the SMTP and NAS settings. All are reached only
+   behind a login or a POST, and neither was used.
+4. **Block seeds.** A missing Block does not break a page - it falls
+   back to a default - so no seeded setting can be confirmed from
+   outside. `flask --app app init-db` is idempotent and inserts only
+   missing keys, so running it once settles every one of these at no
+   cost.
+
+**Two commands close all four gaps**, and both are read-only apart from
+the second's idempotent seeding:
+
+```bash
+git -C /opt/ebwa rev-parse --short HEAD
+cd /opt/ebwa && ./venv/bin/flask --app app check-schema
+```
+
+`check-schema` now reports missing INDEXES as well as columns, so its
+output alone settles points 2 and 3. Paste the result here and the
+remaining boxes can be ticked on evidence.
 
 ---
 
@@ -138,7 +215,7 @@ Nothing appears on the public site until somebody adds a video link, so
 this deploy changes no existing page.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -290,7 +367,7 @@ only from the homepage strip. It follows the `donations` flag: with that
 off the page 404s and both links disappear, as before.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -549,7 +626,7 @@ and footer links appear as soon as the flag is on, whether or not there
 are questions yet, so add a few before the deploy is announced.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -572,7 +649,7 @@ hidden album, and the gallery index links to it. Until someone creates
 an album, the public gallery shows that one "All photos" card.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -598,7 +675,7 @@ files as they do today.
 place, so the pre-optimisation files only exist in your backup.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -616,7 +693,7 @@ the `image` column keeps its value. Nothing on the public page changes
 for a milestone nobody edits.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -650,7 +727,7 @@ manager on it, at which point that image becomes the lead attachment and
 the `image` column keeps its value for the listing cards.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -677,7 +754,7 @@ it migrates into `content_image` the first time someone uses the image
 manager. Nothing changes on the public site until then.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -695,7 +772,7 @@ Existing partners come out as `display_mode = 'text'` with no logo, which
 renders exactly as they did before.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -713,7 +790,7 @@ Afterwards: **EBWA must replace the placeholder privacy notice and terms
 before launch.** Both say PLACEHOLDER on the page until they do.
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -833,7 +910,7 @@ are harmless and are deliberately left alone — this project never drops
 tables or deletes data.
 
 - [x] Local (orphan `funding_record` table present, as expected)
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -847,7 +924,7 @@ flask --app app init-db
 ```
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -861,7 +938,7 @@ you are bringing a database forward from before 18 Jul 2026, skip
 straight past this entry to eae8402.
 
 - [x] Local (applied at the time; now an orphan, see e209fa3)
-- [ ] Demo VPS — skip
+- [x] Demo VPS — skip
 - [ ] Production — skip
 
 ---
@@ -905,7 +982,7 @@ Also needed before donations work: `STRIPE_SECRET_KEY` and
 registered in the Stripe dashboard (see README).
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production
 
 ---
@@ -922,5 +999,5 @@ flask --app app create-admin
 ```
 
 - [x] Local
-- [ ] Demo VPS
+- [x] Demo VPS
 - [ ] Production

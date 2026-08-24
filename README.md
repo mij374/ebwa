@@ -498,7 +498,10 @@ question is lost because of a mail problem.
 
 Netbus can change where enquiries are emailed under **Settings** — useful
 when EBWA moves to its own @ebwa.org.uk address. The mail server password
-is not editable through the website, by anyone.
+can be set there too (Settings → Email): it is encrypted at rest with
+`FERNET_KEY`, never rendered back, and an empty box keeps the current
+one. An earlier version of this file said the password was not editable
+through the website; that stopped being true in 59a07cc.
 
 *Not built yet, worth considering:* an automatic "thanks, we've got your
 message" reply to the sender. Ask Netbus if you would like it.
@@ -736,6 +739,22 @@ front, the hop counts in `app.py` must go up to match.
 **[DEPLOY.md](DEPLOY.md) is the checklist** — every schema change, newest
 first, with the exact statements and a tick-box per environment. Work
 upwards from the oldest unticked entry, then:
+
+> **A tick means VERIFIED APPLIED, not intended.** Tick a box only once
+> you have seen that entry's own steps run in that environment —
+> `check-schema` clean, the statement executed, the page working. Never
+> tick because a deploy was planned, scheduled, or believed to have
+> happened: the whole value of the file is that an unticked box makes
+> somebody go and look. Equally, an unticked box is not a claim that the
+> step is missing — it means nobody has checked yet. If you cannot check
+> from where you are, write what you could and could not establish beside
+> the entry instead of ticking it hopefully.
+>
+> This is not hypothetical. Every entry sat ticked Local-only while the
+> demo VPS had been serving the site for weeks, so the file said nothing
+> useful about either environment. See the verification record at the top
+> of DEPLOY.md for what that took to untangle, and for the two commands
+> that settle the parts a browser cannot see.
 
 ```bash
 cd /opt/ebwa
