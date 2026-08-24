@@ -9,6 +9,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Year</th><th>Title</th><th>Funder</th><th>Amount</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -36,6 +37,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No milestones yet. Create your first one.</p>
 {% endif %}

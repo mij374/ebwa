@@ -994,15 +994,52 @@ Built and maintained by Netbus IT Support.
   which is the opposite of the point. It names the actions column in
   every admin list, where a visible "Actions" would be furniture above a
   column of two links.
-- A `.table-scroll` box that holds **nothing focusable** carries
-  `tabindex="0"` plus `role="region"` and an `aria-label`: a div with
-  `overflow-x` can be reached with a mouse, a trackpad and a finger and
-  by nothing else, so its right-hand end is simply unreachable on a
-  narrow screen. Three of the four have it. The feature-toggle table
-  does NOT, and that is deliberate — every row has a button, so tabbing
-  already scrolls the box, and a stop of its own would be a redundant
-  pause. Any new one needs the same judgement, and a focus ring
-  (`.table-scroll:focus-visible`) either way.
+- **EVERY wide admin table lives in a `.table-scroll` box.** An admin
+  table is wide by nature — a date, a title, a venue, a status and four
+  actions — and without the box it drags the whole page sideways on a
+  phone: measured at up to 663px past a 390px screen, on nineteen of the
+  twenty admin tables. The box scrolls; the page does not.
+  - It is `position:relative`, and that is load-bearing rather than
+    tidiness. An absolutely positioned descendant is laid out against
+    the nearest POSITIONED ancestor, so in a `position:static` box it is
+    not clipped by the overflow — it escapes and pushes the document.
+    The actions column's `.visually-hidden` "Actions" span is exactly
+    that: 1px wide, invisible, sitting at the far right of a 635px
+    table, dragging the page 111px past a 390px phone while the table
+    itself sat clipped and innocent. Every admin list had it, and no
+    amount of wrapping fixed it until the box became a containing block.
+  - A box that holds **nothing focusable** also carries `tabindex="0"`
+    plus `role="region"` and an `aria-label`: a div with `overflow-x`
+    can be reached with a mouse, a trackpad and a finger and by nothing
+    else, so its right-hand end is otherwise unreachable by keyboard.
+    Seven have it — the dashboard's activity table, the two Settings
+    status tables, the audit log, the contributor list and the two Gift
+    Aid tables. The rest do NOT, deliberately: every row has a link or a
+    button, so tabbing already scrolls the box and a stop of its own
+    would be a redundant pause. Any new table needs the same judgement,
+    and the focus ring (`.table-scroll:focus-visible`) either way.
+- `tests/check_admin_widths.py` walks EVERY admin page at 390 and 360
+  and asserts no sideways scroll. Nothing covered the admin at phone
+  widths before it — `check_header_layout.py` tests `/admin/login` and
+  stops there — which is how nineteen tables came to be doing it at
+  once. Run it after touching an admin template or the admin CSS:
+  `python tests/check_admin_widths.py [--shots DIR]`.
+  - It **logs in ONCE and resizes**, never once per viewport: several
+    logins in quick succession trip the `login` rate limiter, and a
+    rate-limited context lands on the login page — where there is no
+    table, nothing overflows, and the check passes while looking at the
+    wrong page. That is not hypothetical; it is how an earlier version
+    of this measurement reported two phone widths clean.
+  - Every page is paired with a SELECTOR proving that page is on screen,
+    asserted before anything is measured. "Nothing overflowed" and
+    "there was nothing to overflow" are the same number and completely
+    different facts. It earned its place immediately: /admin/faq and
+    /admin/resources render their table only `{% if rows %}`, and
+    `seed_demo` seeds neither, so both were being measured empty.
+  - When something does overflow it names the widest offending element,
+    **skipping anything inside a scroll container** — a table in a
+    `.table-scroll` box is wider than the viewport by design, and
+    reporting it named the innocent party while hiding the real one.
 - A checkbox whose `<label>` wraps only an image and the input HAS NO
   ACCESSIBLE NAME. The gallery's bulk-move ticks were read as "checkbox,
   unchecked" once per photograph with nothing to tell them apart, which

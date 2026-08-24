@@ -9,6 +9,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Title</th><th>Place fee</th><th>Raised</th><th>Target</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -47,6 +48,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No collections yet. Create your first one.</p>
 {% endif %}

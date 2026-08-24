@@ -9,6 +9,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Category</th><th>Question</th><th>Sort</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -35,6 +36,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 <p class="admin-sub" style="margin-top:18px">Lower sort numbers come first
   within a category. Questions with no category appear at the top of the page.</p>
 {% else %}

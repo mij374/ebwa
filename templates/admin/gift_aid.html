@@ -33,6 +33,11 @@
 <p style="margin:14px 0">
   <a class="btn btn-green" href="{{ url_for('admin_gift_aid_csv') }}?from={{ date_from.isoformat() if date_from else '' }}&to={{ date_to.isoformat() if date_to else '' }}">Download HMRC schedule CSV</a>
 </p>
+{#- Keyboard-scrollable: nothing in this table is focusable, so
+    without a tab stop of its own its right-hand end cannot be
+    reached at all on a narrow screen. -#}
+<div class="table-scroll" tabindex="0" role="region"
+     aria-label="Gift Aid claim, scrollable">
 <table class="admin-table">
   <thead>
     <tr><th>Date</th><th>Declaration name</th><th>House</th><th>Postcode</th><th>Source</th><th>Claimable amount</th></tr>
@@ -50,6 +55,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No claimable donations in this period.</p>
 {% endif %}

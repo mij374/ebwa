@@ -31,6 +31,7 @@
 {% endif %}
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead><tr><th>Name</th><th>Quote</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
@@ -53,6 +54,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No testimonials yet — the section is hidden from the
   homepage until you add one.</p>

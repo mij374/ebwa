@@ -14,6 +14,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Received</th><th>From</th><th>Message</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -50,6 +51,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 {# Forms live outside the table: one per action, so a status change can
    never be confused with a delete. #}

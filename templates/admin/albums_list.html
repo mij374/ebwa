@@ -12,6 +12,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Album</th><th>Photos</th><th>Sort</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -42,6 +43,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 <p class="admin-sub" style="margin-top:18px">Deleting an album never deletes
   photographs. They go back to being unfiled, and you can put them in
   another album at any time.</p>

@@ -9,6 +9,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Applied</th><th>Name</th><th>Contact</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -46,6 +47,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No applications yet.</p>
 {% endif %}

@@ -10,6 +10,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead><tr><th>Name</th><th>Shows</th><th>Link</th><th>Description</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
@@ -38,6 +39,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No partners yet — the section is hidden from the
   homepage until you add one.</p>

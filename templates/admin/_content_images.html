@@ -102,6 +102,7 @@
 </form>
 
 {% if images %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead><tr><th>Photo</th><th>Alt text and caption</th><th>Sort</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
@@ -139,6 +140,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No photos yet. The page shows its single existing
   image until you add some here.</p>

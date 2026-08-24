@@ -32,6 +32,7 @@
   <button class="btn btn-green" type="submit">Create account</button>
 </form>
 
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Email</th><th>Role</th><th>Two-factor</th><th>Created</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -102,6 +103,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 <p class="admin-sub" style="margin-top:24px">The last super admin can't be
   deleted or demoted, and you can't delete or demote yourself — otherwise

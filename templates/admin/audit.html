@@ -45,6 +45,11 @@
   total %} — showing page {{ page }} of {{ pages }}{% endif %}.</p>
 
 {% if rows %}
+{#- Keyboard-scrollable: nothing in this table is focusable, so
+    without a tab stop of its own its right-hand end cannot be
+    reached at all on a narrow screen. -#}
+<div class="table-scroll" tabindex="0" role="region"
+     aria-label="Audit log, scrollable">
 <table class="admin-table">
   <thead>
     <tr><th>When</th><th>Who</th><th>Action</th><th>Details</th><th>IP</th></tr>
@@ -66,6 +71,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 {% if pages > 1 %}
 <p class="audit-pager">

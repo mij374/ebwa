@@ -9,6 +9,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead><tr><th>Email</th><th>Subscribed on</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
   <tbody>
@@ -26,6 +27,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No subscribers yet — the signup form is in the website footer.</p>
 {% endif %}

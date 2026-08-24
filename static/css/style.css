@@ -800,7 +800,16 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .attention-item.is-blocker span{color:var(--red);font-weight:700;font-size:var(--large-text)}
 /* Long summaries and email addresses wrap; the table scrolls inside its
    own box rather than taking the page sideways on a phone. */
-.table-scroll{overflow-x:auto}
+/* position:relative so this box is the CONTAINING BLOCK for anything
+   absolutely positioned inside it. Without it, an absolutely positioned
+   descendant is laid out against the initial containing block instead
+   and is NOT clipped by the overflow here — it escapes the box and
+   pushes the whole document sideways. The actions column's
+   .visually-hidden "Actions" span is exactly that: 1px wide, invisible,
+   and sitting at the far right of a 635px table, so it dragged the page
+   111px past a 390px phone while the table itself sat clipped and
+   innocent. Every admin list had it. */
+.table-scroll{overflow-x:auto;position:relative}
 /* Three of these are tab stops (see the templates): a stop with no
    visible focus ring is a WCAG 2.4.7 failure, and an unexplained pause
    in the tab order for everyone else. */

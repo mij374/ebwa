@@ -15,6 +15,11 @@
 <h1 class="print-only">{{ camp.title }} — contributors</h1>
 
 {% if rows %}
+{#- Keyboard-scrollable: nothing in this table is focusable, so
+    without a tab stop of its own its right-hand end cannot be
+    reached at all on a narrow screen. -#}
+<div class="table-scroll" tabindex="0" role="region"
+     aria-label="Contributor list, scrollable">
 <table class="admin-table">
   <thead>
     <tr><th>Date</th><th>Name</th><th>Email</th><th>Place fee</th><th>Donation</th><th>Gift Aid</th><th>Total</th><th>Status</th></tr>
@@ -37,6 +42,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No contributions yet.</p>
 {% endif %}

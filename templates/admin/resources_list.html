@@ -9,6 +9,7 @@
 </div>
 
 {% if rows %}
+<div class="table-scroll">
 <table class="admin-table">
   <thead>
     <tr><th>Category</th><th>Name</th><th>Phone</th><th><span class="visually-hidden">Actions</span></th></tr>
@@ -30,6 +31,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="admin-sub">No resources yet. Create your first one.</p>
 {% endif %}
