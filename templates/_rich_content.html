@@ -25,12 +25,30 @@
   so nothing jumps around as the page loads.
 #}
 
+{#- A figure whose FILE IS MISSING never reaches a visitor: the list is
+    filtered before it gets here (present_images), so the layout simply
+    closes up. Signed-in admins get it back with this panel instead,
+    because an empty box with alt text in it reads as a broken website,
+    while "the file is missing" reads as one photograph to re-upload —
+    and only the second tells the person who can fix it what to do. -#}
 {% macro _figure(img, ratio, thumbs=false) %}
+{% if img.file_missing is defined and img.file_missing %}
+<figure class="rc-figure rc-missing" style="--rc-ratio: {{ ratio }}">
+  <div class="rc-missing-note">
+    <b>Photograph missing</b>
+    <span>The file <code>{{ img.filename }}</code> is not on the server, so
+      visitors see nothing here. Upload it again on this page's photo
+      manager, or remove the entry.</span>
+    <span class="rc-missing-you">Only signed-in admins see this notice.</span>
+  </div>
+</figure>
+{% else %}
 <figure class="rc-figure" style="--rc-ratio: {{ ratio }}">
   <img src="{{ thumb_url(img.filename) if thumbs else upload_url(img.filename) }}"
        alt="{{ img.alt_text }}" loading="lazy" decoding="async">
   {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
 </figure>
+{% endif %}
 {% endmacro %}
 
 

@@ -22,6 +22,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_DB = os.path.join(HERE, "test_ebwa_content.db")
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+
+import fake_uploads  # noqa: E402
 
 from app import (app, db, Block, CONTENT_LAYOUTS, ContentImage,  # noqa: E402
                  DEFAULT_BLOCKS, FEATURES, FeatureFlag, NewsPost, UPLOAD_DIR,
@@ -54,7 +57,23 @@ def check(name, cond, detail=""):
         failures.append(name)
 
 
+
+# Every fixture image is made REAL before a page is fetched. The site
+# skips a content image whose file is not on disk (it renders an empty
+# panel with alt text otherwise, which reads as a broken site), so a
+# fixture that inserts a row and no file is testing a broken attachment
+# rather than the layout it means to test. fill_dangling() writes one
+# for every reference in the database, whatever the fixtures called
+# them, and teardown takes them away again.
+_fixture_files = []
+
+
+def _materialise():
+    with app.app_context():
+        _fixture_files.extend(fake_uploads.fill_dangling())
+
 def about():
+    _materialise()
     return client.get("/about").data.decode("utf-8")
 
 
@@ -345,6 +364,10 @@ for suffix in ("", "-wal", "-shm"):
     f = TEST_DB + suffix
     if os.path.isfile(f):
         os.remove(f)
+fake_uploads.remove(_fixture_files)
+check("fixture image files cleaned up",
+      not any(os.path.isfile(p) for p in _fixture_files),
+      "%d left" % sum(os.path.isfile(p) for p in _fixture_files))
 check("test db deleted", not os.path.exists(TEST_DB))
 
 print()

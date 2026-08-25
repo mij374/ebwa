@@ -266,6 +266,18 @@ header{
 .rc-text p:last-child{margin-bottom:0}
 .rc-text p:first-child{font-size:19px;color:var(--ink)}
 
+/* A content image whose file is not on the server. Admins only — a
+   visitor never gets one, the list is filtered before the macro runs.
+   Deliberately unmistakable: this is a fault notice, not a design. */
+.rc-missing{
+  display:grid;place-items:center;background:#FFF7F7;
+  border:2px dashed var(--red-ink);border-radius:12px;padding:20px;
+}
+.rc-missing-note{max-width:44ch;text-align:center;font-size:14px;line-height:1.55}
+.rc-missing-note b{display:block;color:var(--red-ink);margin-bottom:6px;font-size:15px}
+.rc-missing-note span{display:block;color:var(--ink-soft)}
+.rc-missing-note code{font-size:13px;word-break:break-all}
+.rc-missing-you{margin-top:8px;font-style:italic;font-size:13px}
 .rc-figure{margin:0}
 .rc-figure img{
   width:100%;aspect-ratio:var(--rc-ratio, 4 / 3);object-fit:cover;

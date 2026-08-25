@@ -69,6 +69,28 @@ Built and maintained by Netbus IT Support.
     flag-off view.
   - **Every owner's delete route must call `delete_images_for()`** or
     attachments and files are orphaned.
+  - **A row and the file it names are two different things, and they
+    can part company.** A content image whose file is not on disk is
+    NOT rendered to a visitor: `present_images()` drops it and the
+    layout closes up. Signed-in admins get an `.rc-missing` panel in
+    its place naming the file, because they are the ones who can put
+    the photograph back. What it used to do was render an empty box
+    with the alt text in it, which reads as a broken WEBSITE rather
+    than as one missing photograph — found live on the demo, one
+    ContentImage on /about 404ing.
+  - `flask --app app check-uploads` names every database row pointing
+    at a file that is not there, across every column that holds one
+    (`UPLOAD_REFERENCES` — add to it when a new column holds an upload).
+    Read-only, exits 1 when it finds any, and reads the uploads
+    directory ONCE rather than stat-ing per row. Run it after moving,
+    restoring or syncing `static/uploads/`, the same habit as
+    `check-schema` before a restart. It deletes nothing: a file missing
+    today may be one somebody is about to restore from a backup.
+  - Test fixtures that insert an image row must WRITE A FILE for it —
+    `tests/fake_uploads.py`, whose `fill_dangling()` materialises every
+    reference in the test database whatever the fixtures called them.
+    Four test files were asserting on rows that could never have
+    rendered on a real site.
   - Alt text is REQUIRED on upload and cannot be emptied by an edit. An
     image nobody can describe is one a screen reader user simply loses.
     Images are lazy-loaded and every figure carries an aspect-ratio, so

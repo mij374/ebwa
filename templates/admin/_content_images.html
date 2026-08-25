@@ -81,6 +81,23 @@
     <div class="field">
       <label for="image">Photo *</label>
       <input type="file" id="image" name="image" accept="image/*" required>
+      {#- One photo may end up in any of the three presets, and they crop
+          to different shapes, so the advice has to suit all of them:
+          1600px wide covers the largest box on a 2x screen, and keeping
+          the subject central survives every crop. Measured slot widths
+          are in the CLAUDE.md notes. -#}
+      <small><b>Recommended: about 1600px wide, landscape, subject near
+        the middle.</b> Straight off a phone is fine — photos are turned
+        the right way up, stripped of location data and resized
+        automatically.
+        <br>Photos are <b>cropped to fit</b>, never squashed, and the
+        shape depends on where they land: roughly landscape in the
+        alternating and classic layouts, square in the small strip
+        beneath a classic lead, and a mix of portrait and square in the
+        gallery layout. A very wide photo loses its left and right
+        edges; a very tall one loses its top and bottom. Anything
+        important at the very edge of the frame may not survive, so
+        leave a little room around it.</small>
     </div>
     <div class="field">
       <label for="sort">Sort order</label>

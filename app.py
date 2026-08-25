@@ -1531,6 +1531,39 @@ def migrate_legacy_lead_image(owner_type, owner_id=0):
     return img
 
 
+def upload_on_disk(filename):
+    """Is this uploads filename actually a file?
+
+    One stat, the same cost thumb_url() already pays per image. Kept
+    deliberately simple: no cache, because the answer changing is the
+    whole point — an admin who re-uploads the missing photograph must
+    see the page mend on the next request, not when a worker recycles.
+    """
+    if not filename:
+        return False
+    return os.path.isfile(os.path.join(UPLOAD_DIR, secure_filename(filename)))
+
+
+def present_images(images):
+    """(kept, missing) — images whose file is on disk, and the rest.
+
+    A ContentImage row and the file it names are two different things,
+    and they can part company: a file deleted from disk by hand, an
+    uploads folder restored from an incomplete copy, a rsync that missed
+    one. What the visitor then saw was an empty panel with alt text
+    sitting in it, which reads as a broken website rather than as a
+    missing photograph — and nothing anywhere said so.
+
+    The caller decides what to do with `missing`: the public page drops
+    them and lets the layout close up, the admin sees them named. Both
+    beat rendering a hole.
+    """
+    kept, missing = [], []
+    for img in images:
+        (kept if upload_on_disk(img.filename) else missing).append(img)
+    return kept, missing
+
+
 def rich_content_for(owner_type, owner_id=0):
     """Everything a detail page needs: (layout, images).
 
@@ -1546,6 +1579,14 @@ def rich_content_for(owner_type, owner_id=0):
         filename, alt_text = legacy_lead_image(owner_type, owner_id)
         if filename:
             images = [LegacyLeadImage(filename, alt_text or "Photograph")]
+    # A row whose file is gone is not rendered as a hole. Signed-in
+    # admins get them back, marked, because they are the ones who can
+    # put the photograph back — see the macro.
+    images, missing = present_images(images)
+    if missing and current_user.is_authenticated:
+        for img in missing:
+            img.file_missing = True
+        images = images + missing
     return layout, images
 
 
@@ -1576,6 +1617,11 @@ def rich_content_for_many(owner_type, objs):
             # Same fallback as rich_content_for: the old single image
             # keeps working until someone opens the manager on this row.
             images = [LegacyLeadImage(obj.image, obj.title or "Photograph")]
+        images, missing = present_images(images)
+        if missing and current_user.is_authenticated:
+            for img in missing:
+                img.file_missing = True
+            images = images + missing
         out[obj.id] = (layout if layout in CONTENT_LAYOUTS else "classic",
                        images)
     return out
@@ -7461,6 +7507,92 @@ def _suggested_index(table_name, index):
     return "CREATE %sINDEX IF NOT EXISTS %s ON %s (%s);" % (
         "UNIQUE " if index.unique else "", index.name, table_name,
         ", ".join(columns))
+
+
+# Everything in the database that names a file in static/uploads. One
+# entry per (model, column); adding a column that holds an upload means
+# adding it here, or the file it points at goes unchecked.
+UPLOAD_REFERENCES = (
+    ("ContentImage", "content_image", "filename", "id"),
+    ("Event", "event", "image", "title"),
+    ("Event", "event", "video_thumb", "title"),
+    ("NewsPost", "news_post", "image", "title"),
+    ("NewsPost", "news_post", "video_thumb", "title"),
+    ("Milestone", "milestone", "image", "title"),
+    ("Milestone", "milestone", "video_thumb", "title"),
+    ("Campaign", "campaign", "image", "title"),
+    ("Campaign", "campaign", "video_thumb", "title"),
+    ("GalleryImage", "gallery_image", "filename", "caption"),
+    ("GalleryAlbum", "gallery_album", "cover_image", "title"),
+    ("Partner", "partner", "logo", "name"),
+    ("Block", "block", "value", "key"),
+)
+
+
+def dangling_uploads():
+    """[(model, column, id, label, filename)] for files that are not there.
+
+    A row and the file it names are two different things and they can
+    part company — a file deleted by hand, an uploads folder restored
+    from an incomplete copy, an rsync that missed one. The page then
+    renders an empty panel with alt text in it, which reads as a broken
+    site, and nothing anywhere says so. This is what says so.
+
+    Reads the uploads directory ONCE and compares in memory rather than
+    stat-ing per row: a gallery of two thousand photographs is one
+    listing, not two thousand syscalls.
+    """
+    try:
+        on_disk = set(os.listdir(UPLOAD_DIR))
+    except OSError:
+        on_disk = set()
+    out = []
+    for model, table, column, label_col in UPLOAD_REFERENCES:
+        try:
+            rows = db.session.execute(db.text(
+                "SELECT id, %s, %s FROM %s WHERE %s IS NOT NULL AND %s != ''"
+                % (column, label_col, table, column, column))).fetchall()
+        except Exception:
+            continue                      # a table this database has not got
+        for row_id, filename, label in rows:
+            # The Block table holds every kind of setting; only the ones
+            # that look like an upload are ours to worry about.
+            if table == "block" and not re.match(r"^[0-9a-f]{32}\.[a-z0-9]+$",
+                                                 filename or ""):
+                continue
+            if filename not in on_disk:
+                out.append((model, column, row_id, label or "", filename))
+    return out
+
+
+@app.cli.command("check-uploads")
+def check_uploads():
+    """Name every database row pointing at a file that is not on disk.
+
+    Read-only. Run it after moving, restoring or syncing
+    static/uploads/, and after anything that deletes files — the same
+    habit as check-schema before a restart.
+    """
+    missing = dangling_uploads()
+    if not missing:
+        print("Every image reference has a file: nothing dangling.")
+        return
+    print("DANGLING IMAGE REFERENCES (%d):" % len(missing))
+    for model, column, row_id, label, filename in missing:
+        print("  - %s #%s %s.%s -> %s"
+              % (model, row_id, model.lower(), column, filename))
+        if label:
+            print("      %s" % label[:70])
+    print()
+    print("  The site does NOT render these to visitors — a content image")
+    print("  with no file is skipped and the layout closes up. Signed-in")
+    print("  admins see a notice in its place saying which file is missing.")
+    print()
+    print("  Fix by uploading the photograph again on the item's own page,")
+    print("  or by removing the entry. Nothing here is deleted for you:")
+    print("  a file that is missing today may be one somebody is about to")
+    print("  restore from a backup.")
+    raise SystemExit(1)
 
 
 @app.cli.command("check-schema")

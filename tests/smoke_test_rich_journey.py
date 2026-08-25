@@ -28,6 +28,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEST_DB = os.path.join(HERE, "test_ebwa_rich_journey.db")
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+
+import fake_uploads  # noqa: E402
 
 from sqlalchemy import event as sa_event                        # noqa: E402
 
@@ -60,7 +63,27 @@ def check(name, cond, detail=""):
         failures.append(name)
 
 
-def get(path="/our-journey"):
+
+# Every fixture image is made REAL before a page is fetched. The site
+# skips a content image whose file is not on disk (it renders an empty
+# panel with alt text otherwise, which reads as a broken site), so a
+# fixture that inserts a row and no file is testing a broken attachment
+# rather than the layout it means to test. fill_dangling() writes one
+# for every reference in the database, whatever the fixtures called
+# them, and teardown takes them away again.
+_fixture_files = []
+
+
+def _materialise():
+    with app.app_context():
+        _fixture_files.extend(fake_uploads.fill_dangling())
+
+def get(path="/our-journey", materialise=True):
+    # materialise=False for the query-count section below: writing the
+    # fixture files runs its own SELECTs, and counting those as the
+    # page's would measure the test harness rather than the page.
+    if materialise:
+        _materialise()
     return client.get(path).data.decode("utf-8")
 
 
@@ -220,8 +243,9 @@ def _record(conn, cursor, stmt, params, context, executemany):
 with app.app_context():
     sa_event.listen(db.engine, "before_cursor_execute", _record)
 try:
+    _materialise()                      # outside the count, on purpose
     statements[:] = []
-    get()
+    get(materialise=False)
     small = len(statements)
     with app.app_context():
         for i in range(25):
@@ -231,8 +255,9 @@ try:
                 owner_type="milestone", owner_id=oid,
                 filename="bulk%d.png" % i, alt_text="Bulk %d" % i, sort=0))
         db.session.commit()
+    _materialise()
     statements[:] = []
-    get()
+    get(materialise=False)
     large = len(statements)
 finally:
     with app.app_context():
@@ -354,6 +379,10 @@ for suffix in ("", "-wal", "-shm"):
     f = TEST_DB + suffix
     if os.path.isfile(f):
         os.remove(f)
+fake_uploads.remove(_fixture_files)
+check("fixture image files cleaned up",
+      not any(os.path.isfile(p) for p in _fixture_files),
+      "%d left" % sum(os.path.isfile(p) for p in _fixture_files))
 check("test db deleted", not os.path.exists(TEST_DB))
 
 print()

@@ -36,6 +36,9 @@ for _suffix in ("", "-wal", "-shm"):
         os.remove(TEST_DB + _suffix)
 os.environ["DATABASE_URL"] = "sqlite:///" + TEST_DB.replace("\\", "/")
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+
+import fake_uploads  # noqa: E402
 
 from werkzeug.security import generate_password_hash  # noqa: E402
 
@@ -96,7 +99,23 @@ client.post("/admin/login", data={"email": "netbus@example.com",
                                   "password": "pw123456"})
 
 
+
+# Every fixture image is made REAL before a page is fetched. The site
+# skips a content image whose file is not on disk (it renders an empty
+# panel with alt text otherwise, which reads as a broken site), so a
+# fixture that inserts a row and no file is testing a broken attachment
+# rather than the layout it means to test. fill_dangling() writes one
+# for every reference in the database, whatever the fixtures called
+# them, and teardown takes them away again.
+_fixture_files = []
+
+
+def _materialise():
+    with app.app_context():
+        _fixture_files.extend(fake_uploads.fill_dangling())
+
 def page(path):
+    _materialise()
     return client.get(path).data.decode("utf-8")
 
 
@@ -539,6 +558,10 @@ with app.app_context():
 for suffix in ("", "-wal", "-shm"):
     if os.path.isfile(TEST_DB + suffix):
         os.remove(TEST_DB + suffix)
+fake_uploads.remove(_fixture_files)
+check("fixture image files cleaned up",
+      not any(os.path.isfile(p) for p in _fixture_files),
+      "%d left" % sum(os.path.isfile(p) for p in _fixture_files))
 check("test db deleted", not os.path.isfile(TEST_DB))
 
 print()
