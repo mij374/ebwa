@@ -37,7 +37,10 @@ import app as appmod  # noqa: E402
 from app import (app, db, AuditLog, Block, Campaign, CSP,  # noqa: E402
                  DEFAULT_BLOCKS, Event, FEATURES, FeatureFlag, Milestone,
                  NewsPost, User, body_embed_problem, parse_video_url,
-                 video_embed_url, video_watch_url)
+                 video_embed_url, video_watch_url, VIDEO_POSITIONS,
+                 VIDEO_POSITION_DEFAULT, VIDEO_POSITION_KEYS,
+                 clean_video_position, video_of, video_position_for,
+                 ContentImage)
 
 app.config["TESTING"] = True
 PW = "video-test-password"
@@ -439,6 +442,123 @@ r = anon.post("/admin/news_post/%d/video" % POST_ID,
 check("anon POST video -> login redirect",
       r.status_code == 302 and "/admin/login" in r.headers.get("Location", ""),
       str(r.status_code))
+
+# ---- WHERE the video sits ---------------------------------------------
+# Three fixed positions, defaulting to the top so nothing moved for
+# content that already had a video. An arbitrary order would mean making
+# a video another attachment on ContentImage — a much larger change, and
+# the note in CLAUDE.md says when that becomes the right one.
+print()
+print("---- video position")
+check("three positions, the top one first and default",
+      [k for k, _l, _d in VIDEO_POSITIONS]
+      == ["lead", "after_text", "end"]
+      and VIDEO_POSITION_DEFAULT == "lead",
+      str(VIDEO_POSITION_KEYS))
+check("every position has a label and an explanation",
+      all(len(p) == 3 and all(p) for p in VIDEO_POSITIONS))
+for junk in ("", "top", "LEAD", "middle", None):
+    check("an unrecognised position %r falls back to the top" % junk,
+          clean_video_position(junk) == "lead")
+
+with app.app_context():
+    post = NewsPost.query.first()
+    check("a post that has never been touched is at the top",
+          video_position_for("news_post", post.id) == "lead",
+          video_position_for("news_post", post.id))
+    check("...and video_of says so, which is what the macro reads",
+          (video_of(post) or {}).get("position") == "lead")
+    post.video_position = "end"
+    db.session.commit()
+    check("the column is what video_of reports",
+          (video_of(post) or {}).get("position") == "end")
+    post.video_position = "nonsense"      # a hand-edited row
+    db.session.commit()
+    check("a nonsense value in the database renders at the top, not blank",
+          (video_of(post) or {}).get("position") == "lead")
+    post.video_position = "lead"
+    db.session.commit()
+
+# The rendered page: the player must move, and no photograph may be lost
+# doing it. Three positions against the classic preset, which is the one
+# where the lead slot changes hands.
+with app.app_context():
+    pos_post = NewsPost(title="Positioned", slug="positioned",
+                        body="First paragraph." + chr(10) * 2
+                             + "Second paragraph.",
+                        published=True, published_date=date.today(),
+                        layout="classic", video_url="https://www.youtube.com/watch?v=%s" % YT,
+                        video_thumb="poster-fixture.png")
+    db.session.add(pos_post)
+    db.session.commit()
+    for i in range(2):
+        db.session.add(ContentImage(owner_type="news_post",
+                                    owner_id=pos_post.id,
+                                    filename="photo%d.png" % i,
+                                    alt_text="Photo %d" % i, sort=i))
+    db.session.commit()
+    pos_id = pos_post.id
+
+seen = {}
+for position in VIDEO_POSITION_KEYS:
+    with app.app_context():
+        db.session.get(NewsPost, pos_id).video_position = position
+        db.session.commit()
+    html = client.get("/news/positioned").data.decode("utf-8")
+    main = html.split("<main", 1)[1].split("</main>", 1)[0]
+    seen[position] = main
+    check("%s: exactly one player" % position,
+          main.count('class="video-play"') == 1,
+          str(main.count('class="video-play"')))
+    check("%s: BOTH photographs are still on the page" % position,
+          main.count("photo0.png") >= 1 and main.count("photo1.png") >= 1,
+          "a video must never cost a photograph its place")
+
+def at(html, needle):
+    return html.index(needle)
+
+check("lead: the player comes before the photographs",
+      at(seen["lead"], "video-play") < at(seen["lead"], "photo0.png"))
+check("end: the player comes after every photograph",
+      at(seen["end"], "video-play") > at(seen["end"], "photo1.png"))
+check("after_text: between the two",
+      at(seen["lead"], "video-play")
+      < at(seen["after_text"], "video-play")
+      < at(seen["end"], "video-play"))
+check("moving it changes the page",
+      seen["lead"] != seen["after_text"] != seen["end"])
+
+# The admin form offers it, and saving it sticks.
+client.post("/admin/login", data={"email": "netbus@example.com", "password": PW})
+form = client.get("/admin/news/%d/edit" % pos_id).data.decode("utf-8")
+check("the admin form offers the position",
+      'name="video_position"' in form
+      and all(label in form for _k, label, _d in VIDEO_POSITIONS))
+# The owner_type in the URL is the one CONTENT_OWNERS uses — news_post,
+# not news. Posting to the wrong one 404s, which an assertion that only
+# looks at the stored value cannot tell from a save that did nothing.
+SAVE = "/admin/news_post/%d/video" % pos_id
+r = client.post(SAVE, data={"video_url": "https://www.youtube.com/watch?v=%s" % YT,
+                            "video_position": "after_text"},
+                follow_redirects=False)
+check("the save route accepts the form", r.status_code == 302,
+      str(r.status_code))
+with app.app_context():
+    check("saving the form stores it",
+          video_position_for("news_post", pos_id) == "after_text",
+          video_position_for("news_post", pos_id))
+r = client.post(SAVE, data={"video_url": "https://www.youtube.com/watch?v=%s" % YT,
+                            "video_position": "made up"},
+                follow_redirects=True)
+with app.app_context():
+    check("a position nobody offered goes to the top rather than sticking",
+          video_position_for("news_post", pos_id) == "lead",
+          video_position_for("news_post", pos_id))
+with app.app_context():
+    last = AuditLog.query.order_by(AuditLog.id.desc()).first()
+    check("moving the video is audit-logged, naming where it went",
+          "video" in (last.summary or "").lower()
+          and "position" in (last.summary or "").lower(), last.summary)
 
 # ---- teardown
 with app.app_context():

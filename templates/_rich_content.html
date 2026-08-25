@@ -15,7 +15,9 @@
   thumbs      — render the 600px variants instead of the full-size
                 files. For a page carrying MANY owners at entry scale
                 (Our Journey); a detail page wants the full size.
-  video       — video_of(owner), or none. A video takes the LEAD slot,
+  video       — video_of(owner), or none. WHERE it sits is video.position
+                (VIDEO_POSITIONS: lead / after_text / end). A LEAD video
+                takes the lead slot,
                 where the first image would otherwise sit, rather than
                 being appended after the words: it is the thing somebody
                 came to watch. The images all keep their places, so
@@ -100,23 +102,32 @@
 {#- ------------------------------------------------------- gallery -#}
 {% if layout == 'gallery' and (images or video) %}
 <div class="rc rc-gallery">
-  {% if video %}<div class="rc-lead-video">{{ video_player(video) }}</div>{% endif %}
+  {% if video and video.position == 'lead' %}
+  <div class="rc-lead-video">{{ video_player(video) }}</div>{% endif %}
   <div class="rc-text">
     {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
   </div>
+  {% if video and video.position == 'after_text' %}
+  <div class="rc-lead-video">{{ video_player(video) }}</div>{% endif %}
   <div class="rc-masonry">
     {% for img in images %}{{ _figure(img, '4 / 3', thumbs, link) }}{% endfor %}
   </div>
+  {% if video and video.position == 'end' %}
+  <div class="rc-lead-video rc-video-end">{{ video_player(video) }}</div>{% endif %}
 </div>
 
 {#- --------------------------------------------------- alternating -#}
 {% elif layout == 'alternating' and (images or video) %}
 <div class="rc rc-alt">
-  {% if video %}
+  {% if video and video.position == 'lead' %}
   <div class="rc-alt-row is-mediaonly">
     <div class="rc-alt-media">{{ video_player(video) }}</div>
   </div>
   {% endif %}
+  {#- "After the text" in a preset that INTERLEAVES text and photographs
+      means after the first text row — the point past which the words
+      have been introduced. Not after every paragraph, which would be
+      the end. -#}
   {% for row in interleave_content(paragraphs, images) %}
   {#- A row with no words left to pair becomes a full-width band, rather
       than an image marooned beside an empty column.
@@ -134,7 +145,17 @@
     <div class="rc-alt-media">{{ _figure(row.image, '5 / 4', thumbs, link) }}</div>
     {% endif %}
   </div>
+  {% if video and video.position == 'after_text' and loop.first %}
+  <div class="rc-alt-row is-mediaonly">
+    <div class="rc-alt-media">{{ video_player(video) }}</div>
+  </div>
+  {% endif %}
   {% endfor %}
+  {% if video and video.position == 'end' %}
+  <div class="rc-alt-row is-mediaonly">
+    <div class="rc-alt-media">{{ video_player(video) }}</div>
+  </div>
+  {% endif %}
 </div>
 
 {#- ------------------------------------------------------- classic -#}
@@ -144,31 +165,45 @@
       the full reading width: an empty column beside it is worse than no
       column, and only About wants a "put a photo here" box on the live
       page. -#}
-  {#- With a video, the lead slot is the video and EVERY image goes to
-      the strip below, so adding one never costs a photograph its place.
-      Except the one that is doing duty as the video's POSTER — that
-      happens when no still could be fetched from the provider, and
-      showing it again in the strip is the same picture twice. -#}
-  {% set strip = images | rejectattr('filename', 'equalto', video.poster)
-                        | list if video else images[1:] %}
-  <div class="rc-classic-top{{ ' is-textonly' if not images and not video and not placeholder }}">
+  {#- The photographs, minus the one doing duty as the video's POSTER.
+      That happens when no still could be fetched from the provider, and
+      showing it again on the same page is the same picture twice. The
+      exclusion applies wherever the video sits, which is why it is done
+      once here rather than inside a position branch. -#}
+  {% set photos = images | rejectattr('filename', 'equalto', video.poster)
+                         | list if video else images %}
+  {#- Only a LEAD video takes the lead slot. Moved anywhere else, the
+      slot goes back to the first photograph — a video that has been sent
+      down the page must not also leave a hole at the top of it. -#}
+  {% set video_leads = video and video.position == 'lead' %}
+  <div class="rc-classic-top{{ ' is-textonly' if not photos and not video and not placeholder }}">
     <div class="rc-text">
       {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
     </div>
-    {% if video %}
+    {% if video_leads %}
     <div class="rc-lead">{{ video_player(video) }}</div>
-    {% elif images %}
-    <div class="rc-lead">{{ _figure(images[0], '4 / 3.4', thumbs, link) }}</div>
+    {% elif photos %}
+    <div class="rc-lead">{{ _figure(photos[0], '4 / 3.4', thumbs, link) }}</div>
     {% elif placeholder %}
     <div class="rc-lead">
       <div class="img-placeholder">{{ placeholder }}</div>
     </div>
     {% endif %}
   </div>
+  {#- A LEAD video sends every photograph to the strip, so adding one
+      never costs a photograph its place. Otherwise the first is in the
+      lead slot above and the rest follow. -#}
+  {% set strip = photos if video_leads else photos[1:] %}
+  {% if video and video.position == 'after_text' %}
+  <div class="rc-video-block">{{ video_player(video) }}</div>
+  {% endif %}
   {% if strip %}
   <div class="rc-strip">
     {% for img in strip %}{{ _figure(img, '1 / 1', thumbs, link) }}{% endfor %}
   </div>
+  {% endif %}
+  {% if video and video.position == 'end' %}
+  <div class="rc-video-block rc-video-end">{{ video_player(video) }}</div>
   {% endif %}
 </div>
 {% endif %}

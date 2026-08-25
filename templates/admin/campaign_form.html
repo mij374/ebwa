@@ -54,6 +54,26 @@
       <b>Do not paste embed code</b> — the ordinary address is what this
       box wants. Leave it empty for no video.</small>
   </div>
+  {#- WHERE it goes. Three fixed places rather than a free order: one
+      video has three sensible answers, and an arbitrary position needs
+      a video to be an ordered attachment like a photograph, which is a
+      different and much larger change. Defaults to the top, which is
+      what every video has done until now. -#}
+  <div class="field">
+    <label for="video_position">Where the video sits</label>
+    <select id="video_position" name="video_position">
+      {% for value, label, _desc in video_positions %}
+      <option value="{{ value }}"
+        {{ 'selected' if video_position == value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <small>
+      {% for value, label, desc in video_positions %}
+      <b>{{ label }}</b> — {{ desc }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </small>
+  </div>
+
   {% endif %}
 
   {#- Three states, not a tick-box, because being ON THE WEBSITE and

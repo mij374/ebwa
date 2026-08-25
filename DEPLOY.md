@@ -136,6 +136,43 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-25 — Where the video sits
+
+**FOUR NEW COLUMNS AND ONE NEW BLOCK.** The columns all default to
+`'lead'`, which is what every video has done until now, so nothing moves
+on any existing page.
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+ALTER TABLE campaign  ADD COLUMN video_position VARCHAR(20) NOT NULL DEFAULT 'lead';
+ALTER TABLE event     ADD COLUMN video_position VARCHAR(20) NOT NULL DEFAULT 'lead';
+ALTER TABLE milestone ADD COLUMN video_position VARCHAR(20) NOT NULL DEFAULT 'lead';
+ALTER TABLE news_post ADD COLUMN video_position VARCHAR(20) NOT NULL DEFAULT 'lead';
+SQL
+flask --app app init-db          # the About page's Block
+flask --app app check-schema     # must be clean
+sudo systemctl restart ebwa
+```
+
+No data migration this time: the default IS the migration. Every video
+that exists is in the lead slot, `'lead'` means the lead slot, and the
+column default says so for rows already on disk.
+
+The Block is `about_video_position`, seeded `lead` and listed in
+`HIDDEN_BLOCK_KEYS` — About's video settings are edited on the About tab,
+not typed into the content editor, exactly like `about_video_url`.
+
+A value the code does not recognise — a hand-edited row, or a form from
+an older deploy — renders at the top rather than blank
+(`clean_video_position`), so a half-applied deploy cannot make a video
+disappear from a page.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-25 — Homepage section order and switches
 
 **Two new Blocks, no schema change.** `init-db` is idempotent and

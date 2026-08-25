@@ -253,6 +253,40 @@ CONTENT_LAYOUT_LABELS = (
 )
 
 
+ABOUT_VIDEO_POSITION_KEY = "about_video_position"
+
+# WHERE THE VIDEO SITS in an item's content. Three fixed places, not an
+# arbitrary order: EBWA has one video and asked where it goes, and one
+# video has three sensible answers. If somebody ever wants TWO, or a
+# video BETWEEN two photographs, this is the wrong shape and the right
+# answer is to make a video another ordered attachment on ContentImage —
+# see the note in CLAUDE.md before reaching for a fourth position here.
+#
+# 'lead' is first and is the default, so nothing moves for content that
+# already has a video.
+VIDEO_POSITIONS = (
+    ("lead", "At the top",
+     "Before the words. What a video has always done."),
+    ("after_text", "After the text",
+     "Below the words, above any photographs."),
+    ("end", "At the end",
+     "After everything, including the photographs."),
+)
+VIDEO_POSITION_KEYS = tuple(k for k, _l, _d in VIDEO_POSITIONS)
+VIDEO_POSITION_DEFAULT = VIDEO_POSITIONS[0][0]
+
+
+def clean_video_position(value):
+    """A stored or submitted position, or the default.
+
+    Anything unrecognised falls back to 'lead' rather than raising: a
+    hand-edited row or a form from an older deploy should put the video
+    where it has always been, not break the page.
+    """
+    return (value if value in VIDEO_POSITION_KEYS
+            else VIDEO_POSITION_DEFAULT)
+
+
 class ContentImage(db.Model):
     """An image attached to a piece of content, by owner_type + owner_id.
 
@@ -304,6 +338,12 @@ class Event(db.Model):
     # See parse_video_url() and fetch_video_poster().
     video_url = db.Column(db.String(300), default="")
     video_thumb = db.Column(db.String(255), default="")   # uploads filename
+    # Where the video sits in this item: see VIDEO_POSITIONS.
+    # server_default matches the Python one — every existing
+    # video was in the lead slot, which is what 'lead' means.
+    video_position = db.Column(db.String(20), nullable=False,
+                               default=VIDEO_POSITION_DEFAULT,
+                               server_default="lead")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
     @property
@@ -327,6 +367,12 @@ class NewsPost(db.Model):
     # See parse_video_url() and fetch_video_poster().
     video_url = db.Column(db.String(300), default="")
     video_thumb = db.Column(db.String(255), default="")   # uploads filename
+    # Where the video sits in this item: see VIDEO_POSITIONS.
+    # server_default matches the Python one — every existing
+    # video was in the lead slot, which is what 'lead' means.
+    video_position = db.Column(db.String(20), nullable=False,
+                               default=VIDEO_POSITION_DEFAULT,
+                               server_default="lead")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
@@ -582,6 +628,12 @@ class Milestone(db.Model):
     # See parse_video_url() and fetch_video_poster().
     video_url = db.Column(db.String(300), default="")
     video_thumb = db.Column(db.String(255), default="")   # uploads filename
+    # Where the video sits in this item: see VIDEO_POSITIONS.
+    # server_default matches the Python one — every existing
+    # video was in the lead slot, which is what 'lead' means.
+    video_position = db.Column(db.String(20), nullable=False,
+                               default=VIDEO_POSITION_DEFAULT,
+                               server_default="lead")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
 
@@ -679,6 +731,12 @@ class Campaign(db.Model):
     # See parse_video_url() and fetch_video_poster().
     video_url = db.Column(db.String(300), default="")
     video_thumb = db.Column(db.String(255), default="")   # uploads filename
+    # Where the video sits in this item: see VIDEO_POSITIONS.
+    # server_default matches the Python one — every existing
+    # video was in the lead slot, which is what 'lead' means.
+    video_position = db.Column(db.String(20), nullable=False,
+                               default=VIDEO_POSITION_DEFAULT,
+                               server_default="lead")
     # VISIBILITY AND TRADING ARE TWO QUESTIONS, and `active` answered both
     # at once: closing a collection took it off the website, so the trip
     # that was paid for and ran vanished the moment it stopped selling
@@ -1296,7 +1354,7 @@ CONTENT_OWNERS = {
 ABOUT_LAYOUT_KEY = "about_layout"
 # Blocks the plain content editor must not show as a text box
 HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
-                     "about_video_thumb", "site_mail_to", "smtp_host",
+                     "about_video_thumb", ABOUT_VIDEO_POSITION_KEY, "site_mail_to", "smtp_host",
                      "smtp_port", "smtp_user", "smtp_security", "smtp_from",
                      "smtp_password_enc",
                      "security_alert_email", "site_security_alert_to",
@@ -1401,7 +1459,6 @@ def layout_for(owner_type, owner_id=0):
 
 ABOUT_VIDEO_KEYS = ("about_video_url", "about_video_thumb")
 
-
 def video_settings_for(owner_type, owner_id=0):
     """This owner's stored (url, thumb) — a row's columns, or About's
     Blocks, exactly as layout_for does it for the layout."""
@@ -1415,6 +1472,39 @@ def video_settings_for(owner_type, owner_id=0):
     if not obj:
         return ("", "")
     return (obj.video_url or "", obj.video_thumb or "")
+
+
+def video_position_for(owner_type, owner_id=0):
+    """This owner's stored position, exactly as video_settings_for does
+    the url and the poster."""
+    if owner_type == "about":
+        block = Block.query.filter_by(key=ABOUT_VIDEO_POSITION_KEY).first()
+        return clean_video_position(block.value if block else "")
+    model = CONTENT_OWNERS.get(owner_type)
+    obj = db.session.get(model, owner_id) if model else None
+    return clean_video_position(getattr(obj, "video_position", "")
+                                if obj else "")
+
+
+def set_video_position(owner_type, owner_id, position):
+    """Store it. Returns True when it actually moved."""
+    position = clean_video_position(position)
+    if owner_type == "about":
+        block = Block.query.filter_by(key=ABOUT_VIDEO_POSITION_KEY).first()
+        if block is None:
+            block = Block(group="about", key=ABOUT_VIDEO_POSITION_KEY,
+                          label="Video position", kind="text")
+            db.session.add(block)
+        changed = clean_video_position(block.value or "") != position
+        block.value = position
+        return changed
+    model = CONTENT_OWNERS.get(owner_type)
+    obj = db.session.get(model, owner_id) if model else None
+    if not obj:
+        return False
+    changed = clean_video_position(obj.video_position or "") != position
+    obj.video_position = position
+    return changed
 
 
 def set_video_settings(owner_type, owner_id, url, thumb):
@@ -1969,11 +2059,14 @@ def video_of(owner, fallback_image=""):
     if not parsed:
         return None
     poster = thumb or fallback_image or ""
+    position = (owner.get("video_position") if isinstance(owner, dict)
+                else getattr(owner, "video_position", "")) or ""
     return {"provider": parsed["provider"],
             "label": VIDEO_LABELS[parsed["provider"]],
             "embed": video_embed_url(parsed["provider"], parsed["id"]),
             "watch": video_watch_url(parsed["provider"], parsed["id"]),
-            "poster": poster}
+            "poster": poster,
+            "position": clean_video_position(position)}
 
 
 # ------------------------------------------------------- feature flags
@@ -4948,7 +5041,9 @@ def admin_content():
                            layout=layout_for("about"),
                            images=images_for("about"),
                            video_url=video_settings_for("about")[0],
-                           video_thumb=video_settings_for("about")[1])
+                           video_thumb=video_settings_for("about")[1],
+                           video_positions=VIDEO_POSITIONS,
+                           video_position=video_position_for("about"))
 
 
 # ---------------------------------------------------------------- admin: content images
@@ -4980,14 +5075,18 @@ def rich_admin_context(owner_type, obj):
                 "rich_hint": obj is None and feature_enabled("rich_layouts"),
                 "owner_type": owner_type, "owner_id": 0,
                 "layouts": CONTENT_LAYOUT_LABELS, "layout": "classic",
-                "images": [], "video_url": "", "video_thumb": ""}
+                "images": [], "video_url": "", "video_thumb": "",
+                "video_positions": VIDEO_POSITIONS,
+                "video_position": VIDEO_POSITION_DEFAULT}
     url, thumb = video_settings_for(owner_type, obj.id)
     return {"rich": True, "rich_hint": False,
             "owner_type": owner_type, "owner_id": obj.id,
             "layouts": CONTENT_LAYOUT_LABELS,
             "layout": layout_for(owner_type, obj.id),
             "images": images_for(owner_type, obj.id),
-            "video_url": url, "video_thumb": thumb}
+            "video_url": url, "video_thumb": thumb,
+            "video_positions": VIDEO_POSITIONS,
+            "video_position": video_position_for(owner_type, obj.id)}
 
 
 def rich_layouts_available():
@@ -5122,21 +5221,29 @@ def admin_video_save(owner_type, owner_id):
         abort(404)
     changed, problem = store_video(owner_type, owner_id,
                                    request.form.get("video_url", ""))
+    # The position is saved even when the link itself did not move: it is
+    # the same form, and "I changed where it sits" is a change.
+    moved = set_video_position(owner_type, owner_id,
+                               request.form.get("video_position", ""))
     if problem:
         db.session.rollback()
         flash(problem, "error")
         return redirect(owner_admin_url(owner_type, owner_id))
     db.session.commit()
-    if changed:
+    if changed or moved:
         url, thumb = video_settings_for(owner_type, owner_id)
+        where = dict((k, l) for k, l, _d in VIDEO_POSITIONS)[
+            video_position_for(owner_type, owner_id)]
         log_action("edit", entity=("Video", owner_id),
-                   summary="%s the video on the %s page.%s"
+                   summary="%s the video on the %s page.%s%s"
                            % ("Removed" if not url else "Set", owner_type,
                               "" if url and thumb else
                               " The poster image could not be fetched, so "
                               "the page falls back to its own photo."
-                              if url else ""))
-    flash("Video saved." if changed else "No change to the video.", "ok")
+                              if url else "",
+                              " Position: %s." % where.lower() if url else ""))
+    flash("Video saved." if (changed or moved)
+          else "No change to the video.", "ok")
     return redirect(owner_admin_url(owner_type, owner_id))
 
 
@@ -6316,6 +6423,11 @@ def admin_campaign_form(campaign_id=None):
                     camp.image = new_name
                     changed.append("image")
             if feature_enabled("video"):
+                position = clean_video_position(
+                    request.form.get("video_position", ""))
+                if position != clean_video_position(camp.video_position):
+                    camp.video_position = position
+                    changed.append("video_position")
                 canonical = (video_watch_url(video["provider"], video["id"])
                              if video else "")
                 if canonical != (camp.video_url or ""):
@@ -6337,7 +6449,10 @@ def admin_campaign_form(campaign_id=None):
             return redirect(url_for("admin_campaigns"))
 
     return render_template("admin/campaign_form.html", camp=camp,
-                           campaign_states=CAMPAIGN_STATES)
+                           campaign_states=CAMPAIGN_STATES,
+                           video_positions=VIDEO_POSITIONS,
+                           video_position=clean_video_position(
+                               camp.video_position if camp else ""))
 
 
 @app.route("/admin/campaigns/<int:campaign_id>/delete", methods=["POST"])
@@ -7362,6 +7477,11 @@ DEFAULT_BLOCKS = [
     ("home", HOME_ORDER_KEY, "Homepage section order", "text",
      HOME_ORDER_DEFAULT),
     ("home", HOME_HIDDEN_KEY, "Homepage sections switched off", "text", ""),
+    # About's video position, beside its url and poster. Hidden from the
+    # content editor like the other two — it is set on the About tab's
+    # video form, not typed into a text box.
+    ("about", ABOUT_VIDEO_POSITION_KEY, "About video position", "text",
+     VIDEO_POSITION_DEFAULT),
     # How the partner row moves. Set on the partners admin page, not in
     # the text editor, so both are hidden below.
     ("partners", PARTNER_MOTION_KEY, "Partner row movement", "text",

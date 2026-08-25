@@ -1011,6 +1011,33 @@ Built and maintained by Netbus IT Support.
     Our Journey and About all get it from one place and one route
     (`admin_video_save`), exactly as the layout picker does. Campaigns
     are not rich owners and carry their own field.
+  - **WHERE a video sits is a setting** (`VIDEO_POSITIONS`): at the top
+    (`lead`, the default and what every video did before), after the
+    text, or at the end after any photographs. Stored as
+    `video_position` on each owner, and as the `about_video_position`
+    Block for About — the same split `video_url` already uses. It
+    reaches the macro on the `video` dict from `video_of()`.
+    - An unrecognised value renders at the TOP, never blank
+      (`clean_video_position`). A hand-edited row or a form from an
+      older deploy must put the video where it has always been, not
+      take it off the page.
+    - **THREE FIXED POSITIONS, NOT AN ORDER.** If somebody wants two
+      videos, or a video BETWEEN two photographs, this is the wrong
+      shape and a fourth position is the wrong answer: the right one is
+      to make a video another ordered attachment on `ContentImage`
+      (a `kind` column plus the video fields, position becoming `sort`).
+      That refactor touches every consumer of `images_for()` — the
+      macro's lead/strip split, `interleave_content()`,
+      `present_images()`, the lightbox links, `delete_images_for()` —
+      each of which carries rules learned from bugs, and it needs a data
+      migration that must not lose the video EBWA has. It was
+      deliberately not done for a positioning question. **A request for
+      a SECOND video is the trigger**; `video_position` is then an input
+      to that migration rather than wasted work, since it records where
+      each video was meant to go.
+    - Only a LEAD video takes the classic preset's lead slot. Moved
+      anywhere else the slot goes back to the first photograph — a
+      video sent down the page must not leave a hole at the top of it.
   - **A video LEADS; it never DISPLACES.** It takes the lead slot in
     the macro, where the first image would sit, and every image moves
     down a place rather than being dropped — adding a video never costs

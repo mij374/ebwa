@@ -1623,6 +1623,11 @@ input.money{-moz-appearance:textfield;appearance:textfield}
    frame, so the video simply fills it. */
 .rc-alt-media .rc-video{height:100%}
 .rc-lead-video{margin-bottom:26px}
+/* A video sent down the page rather than into the lead slot. It is a
+   band of its own at reading width — it is not paired with anything, so
+   it should not pretend to be. */
+.rc-video-block{margin:30px 0;max-width:760px}
+.rc-video-end{margin-bottom:0;margin-top:34px}
 
 /* ---------- Footer newsletter ---------- */
 /* STACKED, not side by side: the address goes on its own line and the
