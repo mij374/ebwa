@@ -325,6 +325,22 @@ header{
 .rc-alt-row.is-mediaonly{grid-template-columns:1fr}
 .rc-alt-row.is-mediaonly .rc-figure img{aspect-ratio:16 / 7}
 .rc-alt-row.is-mediaonly .rc-alt-media::before{display:none}
+/* ...and so does a row whose WORDS are too short to hold up a column.
+   The line goes above the photograph rather than beside it: centred in
+   a column next to a 406px image it had 373px of nothing split above
+   and below it, which reads as marooned rather than as paired.
+   The row is a normal band with one row of text on top, so it needs no
+   geometry of its own — only the ordering, since .is-flipped would
+   otherwise put the words underneath on every other row and the
+   rhythm of a caption above its picture is worth more here than the
+   left-right alternation, which the full-width band has already
+   given up. */
+.rc-alt-row.is-shorttext{gap:18px}
+.rc-alt-row.is-shorttext .rc-text,
+.rc-alt-row.is-flipped.is-shorttext .rc-text{order:0}
+.rc-alt-row.is-shorttext .rc-alt-media,
+.rc-alt-row.is-flipped.is-shorttext .rc-alt-media{order:1}
+.rc-alt-row.is-shorttext .rc-text{max-width:68ch}
 .rc-alt-media{position:relative}
 /* A tinted panel behind every other image, so the rhythm is visible even
    before the photographs arrive */
@@ -344,6 +360,14 @@ header{
   .rc-gallery .rc-masonry{columns:2}
   .rc-alt{gap:52px}
   .rc-alt-row,.rc-alt-row.is-textonly{grid-template-columns:1fr;gap:28px}
+  /* BELOW HERE A SHORT-TEXT ROW IS NOTHING SPECIAL. The row is already
+     one column at this width, so there was no empty half to fix and
+     nothing should change — and .is-mediaonly's 16/7 band would change
+     it, cropping the photograph to less than half the height it had
+     (274px to 150px at 390). A row with genuinely NO words keeps the
+     band, as it always has; this is only the short-text case. */
+  .rc-alt-row.is-shorttext .rc-figure img{aspect-ratio:5 / 4}
+  .rc-alt-row.is-shorttext{gap:28px}
   .rc-alt-row.is-flipped .rc-text{order:0}
   .rc-alt-row.is-flipped .rc-alt-media{order:0}
 }

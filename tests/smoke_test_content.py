@@ -26,7 +26,8 @@ sys.path.insert(0, HERE)
 
 import fake_uploads  # noqa: E402
 
-from app import (app, db, Block, CONTENT_LAYOUTS, ContentImage,  # noqa: E402
+from app import (ALT_MIN_TEXT_CHARS, app, db, Block,  # noqa: E402
+                 CONTENT_LAYOUTS, ContentImage,
                  DEFAULT_BLOCKS, FEATURES, FeatureFlag, NewsPost, UPLOAD_DIR,
                  User, images_for, interleave_content, layout_for)
 
@@ -188,8 +189,44 @@ check("interleave keeps every paragraph",
       == ["a", "b", "c", "d", "e"], str(rows))
 check("interleave keeps every image",
       [r["image"] for r in rows if r["image"]] == ["i1", "i2"], str(rows))
+no_images = interleave_content(["a"], [])
 check("interleave copes with no images",
-      interleave_content(["a"], []) == [{"paragraphs": ["a"], "image": None}])
+      len(no_images) == 1 and no_images[0]["paragraphs"] == ["a"]
+      and no_images[0]["image"] is None, str(no_images))
+check("...and that row is not marked wide — it has no image to widen",
+      no_images[0]["wide"] is False, str(no_images))
+
+# ---- a row whose words are too short to hold up a column
+# Two columns is a pairing, and a pairing needs two things of roughly
+# comparable weight. Below the threshold the row becomes the same
+# full-width band a spare image already gets, with the line above the
+# photograph rather than centred in 373px of nothing beside it.
+short, ok_len = "Two words.", "x" * (ALT_MIN_TEXT_CHARS + 50)
+rows = interleave_content([short, ok_len], ["i1", "i2"])
+check("a short paragraph makes its row wide", rows[0]["wide"] is True,
+      str(rows[0]))
+check("a long enough one does not", rows[1]["wide"] is False, str(rows[1]))
+
+# The threshold is on the ROW's total text, not one paragraph: two short
+# paragraphs together fill the column perfectly well.
+half = "y" * (ALT_MIN_TEXT_CHARS // 2 + 10)
+pair = interleave_content([half, half], ["i1"])
+check("two paragraphs that together clear the threshold stay paired",
+      pair[0]["wide"] is False, str(pair[0]))
+
+# Either side of the boundary, exactly.
+for chars, expected in ((ALT_MIN_TEXT_CHARS - 1, True),
+                        (ALT_MIN_TEXT_CHARS, False),
+                        (ALT_MIN_TEXT_CHARS + 1, False)):
+    r = interleave_content(["z" * chars], ["i1"])
+    check("%d characters -> wide=%s" % (chars, expected),
+          r[0]["wide"] is expected, str(r[0]["wide"]))
+
+# An image with NO words is a band already, and must not also be told it
+# is a short-text row — the two produce different markup.
+spare = interleave_content([], ["i1"])
+check("an image with no words at all is not a short-text row",
+      spare[0]["wide"] is False, str(spare[0]))
 with app.app_context():
     ContentImage.query.delete()
     db.session.commit()

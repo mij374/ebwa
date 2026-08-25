@@ -109,8 +109,12 @@
   {% endif %}
   {% for row in interleave_content(paragraphs, images) %}
   {#- A row with no words left to pair becomes a full-width band, rather
-      than an image marooned beside an empty column. -#}
-  <div class="rc-alt-row{{ ' is-flipped' if loop.index is divisibleby 2 }}{{ ' is-textonly' if not row.image }}{{ ' is-mediaonly' if row.image and not row.paragraphs }}">
+      than an image marooned beside an empty column.
+      A row whose words are TOO SHORT to hold up a column becomes the
+      same band, with the line above the photograph instead of beside
+      it — see ALT_MIN_TEXT_CHARS. Two columns is a pairing, and a
+      pairing needs two things of roughly comparable weight. -#}
+  <div class="rc-alt-row{{ ' is-flipped' if loop.index is divisibleby 2 }}{{ ' is-textonly' if not row.image }}{{ ' is-mediaonly' if row.image and (not row.paragraphs or row.wide) }}{{ ' is-shorttext' if row.wide }}">
     {% if row.paragraphs %}
     <div class="rc-text">
       {% for para in row.paragraphs %}<p>{{ para }}</p>{% endfor %}

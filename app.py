@@ -1632,6 +1632,29 @@ def paragraphs_of(text):
     return [p.strip() for p in (text or "").split("\n") if p.strip()]
 
 
+# Below this many characters, a paragraph is too short to hold up its
+# half of a two-column row. TUNED BY EYE against a 5/4 image, which is
+# 406px tall at 1440 and 368px at 1024, with the text centred beside it:
+#
+#    55 chars   1 line,  33px  — marooned in 373px of nothing. The bug.
+#   105 chars   2 lines, 67px  — thin; the eye reads it as a gap.
+#   150 chars   3 lines, 100px — fine. A short paragraph beside a photo.
+#   204 chars   4 lines, 133px — comfortable.
+#   493 chars   9 lines, 299px — the text is nearly the taller half.
+#
+# So the cut is between two lines and three, not higher. 200 was the
+# first guess and it was too aggressive: it turned ordinary three-line
+# paragraphs into full-width bands, which would have stripped the
+# left-right alternation out of most real content — and the alternation
+# is the entire point of this preset. 130 is about two lines in that
+# column.
+#
+# The threshold is on the ROW's total text, not on one paragraph: two
+# short paragraphs together fill the column perfectly well, and it is the
+# column that has to be filled.
+ALT_MIN_TEXT_CHARS = 130
+
+
 @app.template_global("interleave_content")
 def interleave_content(paragraphs, images):
     """Pair paragraphs with images for the alternating preset.
@@ -1639,9 +1662,17 @@ def interleave_content(paragraphs, images):
     Paragraphs are spread as evenly as the image count allows; anything
     left over becomes a final text-only row, and spare images get rows of
     their own. Never drops either.
+
+    Each row also carries `wide`: a row whose words are too short to sit
+    beside a photograph is rendered as a FULL-WIDTH BAND instead, the
+    same treatment a spare image with no words already gets. Two columns
+    is a pairing, and a pairing needs two things of roughly comparable
+    weight; a two-word line beside a 406px photograph is not that, and
+    centring it — which is what already happens — only puts the emptiness
+    on both sides of it instead of below.
     """
     if not images:
-        return [{"paragraphs": paragraphs, "image": None}]
+        return [{"paragraphs": paragraphs, "image": None, "wide": False}]
     per = max(1, -(-len(paragraphs) // len(images)))     # ceiling division
     rows, taken = [], 0
     for img in images:
@@ -1650,6 +1681,12 @@ def interleave_content(paragraphs, images):
         taken += per
     if taken < len(paragraphs):
         rows.append({"paragraphs": paragraphs[taken:], "image": None})
+    for row in rows:
+        chars = sum(len(p) for p in row["paragraphs"])
+        # A row with no image is already full width, and one with no
+        # words is already a band; `wide` is only about the third case.
+        row["wide"] = bool(row["image"] and row["paragraphs"]
+                           and chars < ALT_MIN_TEXT_CHARS)
     return rows
 
 

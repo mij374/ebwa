@@ -95,6 +95,33 @@ Built and maintained by Netbus IT Support.
     image nobody can describe is one a screen reader user simply loses.
     Images are lazy-loaded and every figure carries an aspect-ratio, so
     the page does not jump as they arrive.
+  - **In the alternating preset, a row whose WORDS are too short to
+    hold up a column becomes a full-width band** — the same
+    `is-mediaonly` treatment a spare image with no words already gets,
+    with the line above the photograph rather than centred beside it.
+    Decided in `interleave_content()` (`row["wide"]`), where the pairing
+    is already worked out, against `ALT_MIN_TEXT_CHARS`.
+    - The threshold is on the ROW's total text, not one paragraph: two
+      short paragraphs together fill the column perfectly well.
+    - **130, tuned by eye and not guessed.** 200 was the first number
+      and it was too aggressive — it turned ordinary three-line
+      paragraphs into bands and would have stripped the left-right
+      alternation out of most real content, which is the entire point
+      of the preset. One line (55 chars) is marooned in 373px of
+      nothing; two (105) reads as a gap; three (150) is a short
+      paragraph beside a photo and perfectly fine. The cut belongs
+      between two lines and three. The measurements are in the comment
+      above the constant.
+    - Vertical centring was NOT the fix and was never missing:
+      `.rc-alt-row` has had `align-items:center` all along, which is
+      what put the emptiness on both sides of a short line instead of
+      below it.
+    - **Below 920px this changes nothing**, and that is enforced: the
+      row is already one column there, so there was no empty half to
+      fix — but `is-mediaonly`'s 16/7 band would have cropped the
+      photograph to 150px where it had been 274px on a phone. The
+      media query puts 5/4 back for `.is-shorttext` only; a row with
+      genuinely no words keeps its band, as it always has.
   - The three presets (`CONTENT_LAYOUTS`) must stay visually distinct —
     that is the point of offering them. Reading width is capped at 68ch
     in all three. Any transition is already covered by the global
