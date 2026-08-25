@@ -1038,6 +1038,18 @@ Built and maintained by Netbus IT Support.
     - Only a LEAD video takes the classic preset's lead slot. Moved
       anywhere else the slot goes back to the first photograph — a
       video sent down the page must not leave a hole at the top of it.
+    - **NO TEMPLATE ASSEMBLES THE DICT `video_of()` READS.** About has
+      no row — its settings are Blocks — so something must build an
+      object-shaped thing for it, and that something is `about_video()`
+      in app.py, next to the accessors the admin writes through. It used
+      to be built in about.html, which meant a template listed another
+      module's field names: when `video_position` was added, every model
+      got it and that one dict did not, so About saved the setting and
+      ignored it. Nothing broke loudly, because an unknown position
+      falls back to the lead slot — the safe default doing its job.
+      `tests/smoke_test_video.py` now renders all three positions on
+      About and asserts the player actually moves, plus a source check
+      that about.html names no video fields.
   - **A video LEADS; it never DISPLACES.** It takes the lead slot in
     the macro, where the first image would sit, and every image moves
     down a place rather than being dropped — adding a video never costs

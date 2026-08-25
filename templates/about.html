@@ -6,11 +6,15 @@
   <div class="wrap">
     <p class="eyebrow">About us <span class="bn">· আমাদের সম্পর্কে</span></p>
     <h1>{{ c.get('about_title','About EBWA') }}</h1>
+    {#- `video` comes from the route (about_video()), not assembled here.
+        It used to be a dict built in this template, which meant this
+        file had to know which fields video_of() reads — and when the
+        position setting was added it was not updated, so About saved
+        the setting and then ignored it. A template listing another
+        module's field names is a place for exactly that to happen. -#}
     {{ rich_content(paragraphs, images, layout,
                 placeholder='Upload a photo in Admin → Content → about',
-                video=video_of({'video_url': c.get('about_video_url',''),
-                                'video_thumb': c.get('about_video_thumb','')},
-                               c.get('about_image',''))) }}
+                video=video) }}
   </div>
 </section>
 {% endblock %}

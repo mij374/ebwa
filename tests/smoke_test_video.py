@@ -560,6 +560,74 @@ with app.app_context():
           "video" in (last.summary or "").lower()
           and "position" in (last.summary or "").lower(), last.summary)
 
+# ---- ABOUT HONOURS THE POSITION TOO ------------------------------------
+# About stores its settings in Blocks rather than columns, so it is a
+# separate path from the four models — and it is the path that broke:
+# the dict video_of() needs was hand-built in about.html, which listed
+# the field names and was not updated when video_position was added. The
+# setting saved correctly and the page ignored it, silently, because the
+# unknown-position fallback is "put it at the top".
+print()
+print("---- About, whose video settings are Blocks")
+
+
+def set_about_block(key, value):
+    with app.app_context():
+        block = Block.query.filter_by(key=key).first()
+        if block is None:
+            block = Block(group="about", key=key, label=key, kind="text")
+            db.session.add(block)
+        block.value = value
+        db.session.commit()
+
+
+set_about_block("about_video_url", "https://www.youtube.com/watch?v=%s" % YT)
+set_about_block("about_video_thumb", "about-poster.png")
+set_about_block("about_layout", "classic")
+set_about_block("about_body", "First para." + chr(10) * 2 + "Second para.")
+with app.app_context():
+    for i in range(2):
+        db.session.add(ContentImage(owner_type="about", owner_id=0,
+                                    filename="aboutphoto%d.png" % i,
+                                    alt_text="About photo %d" % i, sort=i))
+    db.session.commit()
+
+about_seen = {}
+for position in VIDEO_POSITION_KEYS:
+    set_about_block("about_video_position", position)
+    with app.app_context():
+        check("About stores %s" % position,
+              video_position_for("about") == position,
+              video_position_for("about"))
+    main = (client.get("/about").data.decode("utf-8")
+            .split("<main", 1)[1].split("</main>", 1)[0])
+    about_seen[position] = main
+    check("About/%s: exactly one player" % position,
+          main.count('class="video-play"') == 1)
+    check("About/%s: both photographs still there" % position,
+          "aboutphoto0.png" in main and "aboutphoto1.png" in main)
+
+check("ABOUT ACTUALLY MOVES THE VIDEO, it does not just save the setting",
+      about_seen["lead"].index("video-play")
+      < about_seen["after_text"].index("video-play")
+      < about_seen["end"].index("video-play"),
+      "About rendered the video in the same place for every setting")
+check("About/lead: before the photographs",
+      about_seen["lead"].index("video-play")
+      < about_seen["lead"].index("aboutphoto0.png"))
+check("About/end: after every photograph",
+      about_seen["end"].index("video-play")
+      > about_seen["end"].rindex("aboutphoto1.png"))
+
+# The root of it: no template may hand-build the dict video_of() reads.
+# One that does has to know another module's field names, and will be
+# the thing nobody updates.
+about_src = open(os.path.join(os.path.dirname(HERE), "templates",
+                              "about.html"), encoding="utf-8").read()
+check("about.html does not assemble the video dict itself",
+      "video_url" not in about_src and "video_thumb" not in about_src,
+      "about.html is listing video field names again")
+
 # ---- teardown
 with app.app_context():
     db.session.remove()

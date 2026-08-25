@@ -3880,11 +3880,37 @@ def robots():
     return app.response_class(body, mimetype="text/plain")
 
 
+def about_video():
+    """About's video, built HERE rather than in the template.
+
+    Every other owner hands `video_of()` a row and it reads the fields
+    off it. About has no row — its settings are Blocks — so something
+    has to assemble an object-shaped thing, and that something used to
+    be about.html, listing the field names by hand.
+
+    That is how the position setting came to be saved correctly and
+    ignored completely: `video_position` was added to `video_of()` and
+    to every model, and the one hand-built dict in a template was not
+    updated. `video_of()` then read no key, got "", and fell back to
+    the lead slot — the safe default doing its job, which is exactly
+    why nothing broke loudly.
+
+    Built from the same accessors the admin writes through, so the
+    field names live in one place and a future field cannot go missing
+    from About alone.
+    """
+    url, thumb = video_settings_for("about")
+    return video_of({"video_url": url, "video_thumb": thumb,
+                     "video_position": video_position_for("about")},
+                    blocks_for("about").get("about_image", ""))
+
+
 @app.route("/about")
 def about():
     c = blocks_for("about")
     layout, images = rich_content_for("about")
     return render_template("about.html", c=c, layout=layout, images=images,
+                           video=about_video(),
                            paragraphs=paragraphs_of(c.get("about_body", "")))
 
 
