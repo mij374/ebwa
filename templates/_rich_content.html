@@ -31,7 +31,7 @@
     because an empty box with alt text in it reads as a broken website,
     while "the file is missing" reads as one photograph to re-upload —
     and only the second tells the person who can fix it what to do. -#}
-{% macro _figure(img, ratio, thumbs=false) %}
+{% macro _figure(img, ratio, thumbs=false, link=false) %}
 {% if img.file_missing is defined and img.file_missing %}
 <figure class="rc-figure rc-missing" style="--rc-ratio: {{ ratio }}">
   <div class="rc-missing-note">
@@ -44,8 +44,17 @@
 </figure>
 {% else %}
 <figure class="rc-figure" style="--rc-ratio: {{ ratio }}">
+  {#- `link` wraps the photo in a real <a> to the full-size file, which
+      is what the shared lightbox upgrades. A LINK AND NOT A BUTTON on
+      purpose: with the script gone, blocked or broken, clicking still
+      opens the photograph. Only Our Journey asks for it — the pages that
+      show one photo at a time have nothing to page through. -#}
+  {% if link %}<a href="{{ upload_url(img.filename) }}"
+     data-caption="{{ img.caption }}"
+     aria-label="View {{ img.alt_text or 'photograph' }} full size">{% endif %}
   <img src="{{ thumb_url(img.filename) if thumbs else upload_url(img.filename) }}"
        alt="{{ img.alt_text }}" loading="lazy" decoding="async">
+  {% if link %}</a>{% endif %}
   {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
 </figure>
 {% endif %}
@@ -84,7 +93,8 @@
 
 
 {% macro rich_content(paragraphs, images, layout='classic',
-                      placeholder=none, thumbs=false, video=none) %}
+                      placeholder=none, thumbs=false, video=none,
+                      link=false) %}
 {% set images = images or [] %}
 
 {#- ------------------------------------------------------- gallery -#}
@@ -95,7 +105,7 @@
     {% for para in paragraphs %}<p>{{ para }}</p>{% endfor %}
   </div>
   <div class="rc-masonry">
-    {% for img in images %}{{ _figure(img, '4 / 3', thumbs) }}{% endfor %}
+    {% for img in images %}{{ _figure(img, '4 / 3', thumbs, link) }}{% endfor %}
   </div>
 </div>
 
@@ -121,7 +131,7 @@
     </div>
     {% endif %}
     {% if row.image %}
-    <div class="rc-alt-media">{{ _figure(row.image, '5 / 4', thumbs) }}</div>
+    <div class="rc-alt-media">{{ _figure(row.image, '5 / 4', thumbs, link) }}</div>
     {% endif %}
   </div>
   {% endfor %}
@@ -148,7 +158,7 @@
     {% if video %}
     <div class="rc-lead">{{ video_player(video) }}</div>
     {% elif images %}
-    <div class="rc-lead">{{ _figure(images[0], '4 / 3.4', thumbs) }}</div>
+    <div class="rc-lead">{{ _figure(images[0], '4 / 3.4', thumbs, link) }}</div>
     {% elif placeholder %}
     <div class="rc-lead">
       <div class="img-placeholder">{{ placeholder }}</div>
@@ -157,7 +167,7 @@
   </div>
   {% if strip %}
   <div class="rc-strip">
-    {% for img in strip %}{{ _figure(img, '1 / 1', thumbs) }}{% endfor %}
+    {% for img in strip %}{{ _figure(img, '1 / 1', thumbs, link) }}{% endfor %}
   </div>
   {% endif %}
 </div>

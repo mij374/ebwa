@@ -393,31 +393,60 @@ header{
   padding:10px 0 10px;border-bottom:2px solid var(--green);
   background:var(--paper);
 }
-.journey-entry{padding:26px 0 4px}
-.journey-entry + .journey-entry{border-top:1px solid var(--line)}
+/* EACH ENTRY IS A BOUNDED BLOCK, and this is the important one. The
+   separator used to be a 1px line between entries, with 26px of padding
+   above a title and 4px below the last thing in an entry — so a trailing
+   photograph sat 31px above the NEXT entry's funder line and 31px below
+   its own text. At those distances the eye has no way to tell which
+   milestone a photograph belongs to, and on an entry whose preset puts
+   images last it consistently read as belonging to the wrong one.
+   A card settles it: everything inside the box is this milestone. It
+   also gives the photographs a ground to sit on, which the 1px rule
+   never did. */
+.journey-entry{
+  background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:24px 28px 28px;margin-top:20px;
+}
 .journey-entry-title{font-size:clamp(20px,2vw,24px);margin:4px 0 0}
 .journey-entry .event-date{margin-bottom:2px}
 
 /* --- the presets, at entry scale --- */
 .journey-entry .rc{margin-top:16px}
 .journey-entry .rc-figure img{box-shadow:0 8px 20px rgba(2,56,42,.10)}
+/* The photo is a link to the full-size file (the shared lightbox
+   upgrades it). It must not pick up the underline and colour of a text
+   link, and it needs a focus ring of its own — a keyboard user tabbing
+   the page lands on every photograph here. */
+.journey-entry .rc-figure a{display:block;border-bottom:none;line-height:0}
+.journey-entry .rc-figure a:focus-visible{
+  outline:3px solid var(--green);outline-offset:3px;border-radius:12px;
+}
 .journey-entry .rc-figure figcaption{margin-top:8px;font-size:12.5px}
 
 /* Classic — lead beside the words, the rest as thumbnails underneath */
+/* 400px, up from 340. The constraint that matters is that an entry's
+   photograph must not read as a page-width band — at 400px it is 38% of
+   the ~1050px inside a card at 1440, so it is plainly part of an entry
+   and not a section of its own. Below that it was reading as a stamp
+   beside the words rather than as a photograph. */
 .journey-entry .rc-classic-top{
-  grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:34px;
+  grid-template-columns:minmax(0,1fr) minmax(0,400px);gap:34px;
 }
 .journey-entry .rc-lead::after{display:none}       /* page-scale flourish */
 .journey-entry .rc-lead .rc-figure img{aspect-ratio:4 / 3}
+/* The strip was the worst of it: 124px at 1440 and 96px at 360, which
+   is an icon rather than a photograph. 190px puts three or four across
+   the entry instead of eight, at a size where you can see what is in
+   them. */
 .journey-entry .rc-strip{
-  grid-template-columns:repeat(auto-fill,minmax(116px,1fr));
-  gap:12px;margin-top:18px;padding-top:0;border-top:none;
+  grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+  gap:14px;margin-top:18px;padding-top:0;border-top:none;
 }
 
 /* Gallery — a tidy grid of the entry's photos, not a page of masonry */
 .journey-entry .rc-gallery .rc-masonry{
-  columns:auto;display:grid;gap:14px;margin-top:20px;
-  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  columns:auto;display:grid;gap:16px;margin-top:20px;
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
 }
 .journey-entry .rc-masonry .rc-figure{margin-bottom:0}
 /* Beats the staggered nth-child ratios above by order, not !important */
@@ -429,14 +458,14 @@ header{
    rows need the mirrored track order to keep it. */
 .journey-entry .rc-alt{gap:22px}
 .journey-entry .rc-alt-row{
-  grid-template-columns:minmax(0,1fr) minmax(0,320px);
+  grid-template-columns:minmax(0,1fr) minmax(0,380px);
   gap:30px;align-items:start;
 }
 .journey-entry .rc-alt-row.is-flipped{
-  grid-template-columns:minmax(0,320px) minmax(0,1fr);
+  grid-template-columns:minmax(0,380px) minmax(0,1fr);
 }
 .journey-entry .rc-alt-row.is-textonly{grid-template-columns:minmax(0,68ch)}
-.journey-entry .rc-alt-row.is-mediaonly{grid-template-columns:minmax(0,320px)}
+.journey-entry .rc-alt-row.is-mediaonly{grid-template-columns:minmax(0,380px)}
 .journey-entry .rc-alt-media::before{display:none}  /* tinted page panel */
 .journey-entry .rc-alt-media .rc-figure img{aspect-ratio:4 / 3}
 .journey-entry .rc-alt-row.is-mediaonly .rc-figure img{aspect-ratio:4 / 3}
@@ -458,7 +487,13 @@ header{
 }
 @media (max-width: 640px){
   .journey-year-head{position:static}   /* a phone screen is short enough */
-  .journey-entry .rc-strip{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+  /* The card keeps its edges and gives back its inset. At 28px a side it
+     was taking 56px out of a 342px phone column, and the photographs came
+     out SMALLER than they were before the card existed — which is the
+     opposite of the point. 14px still reads as a card and costs the
+     photographs almost nothing. */
+  .journey-entry{padding:18px 14px 20px}
+  .journey-entry .rc-strip{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
   .journey-entry .rc-gallery .rc-masonry{grid-template-columns:1fr 1fr}
 }
 

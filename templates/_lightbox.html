@@ -1,0 +1,31 @@
+{#- THE PHOTO VIEWER, shared by the gallery and Our Journey.
+    Include this once on a page, and give any container of photo links
+    class="js-lightbox". Every photo must be a real <a href> to the
+    full-size file: the script UPGRADES those links, so with JavaScript
+    broken or blocked, clicking a photo still opens the photograph. That
+    fallback is the reason this is a link and not a button, and it is
+    checked by tests/smoke_test_gallery.py and the journey tests.
+
+    Vanilla JS inline, like every other script here — no library, no
+    build step. See CLAUDE.md for the two rules that are easy to undo:
+    no src="" on the image, and closing is decided by WHAT THE CLICK
+    LANDED ON rather than by comparing against the backdrop element. -#}
+{# Built empty and only filled in by script, so there is nothing to see
+   or tab into unless the lightbox is actually working. #}
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+     aria-label="Photo viewer" hidden>
+  <button class="lightbox-close" id="lightboxClose" type="button"
+          aria-label="Close photo viewer">×</button>
+  <button class="lightbox-nav is-prev" id="lightboxPrev" type="button"
+          aria-label="Previous photo">‹</button>
+  <figure class="lightbox-figure">
+    {# No src attribute at all until a photo is chosen: src="" resolves to
+       the page itself, so the browser fetches the HTML document a second
+       time and reports a broken image. #}
+    <img id="lightboxImage" alt="">
+    <figcaption id="lightboxCaption"></figcaption>
+  </figure>
+  <button class="lightbox-nav is-next" id="lightboxNext" type="button"
+          aria-label="Next photo">›</button>
+  <p class="lightbox-count" id="lightboxCount"></p>
+</div>

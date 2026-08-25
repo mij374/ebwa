@@ -1664,6 +1664,39 @@ Built (post-signing variation, Jul 2026):
   keep using the single `image` column, so a post's lead photo is the
   one that appears in a card.
   Deploy: table and columns landed with the About commit (see DEPLOY.md).
+  - **Each Our Journey entry is a BOUNDED CARD**, and that is the fix
+    for a real ambiguity rather than decoration. The separator used to
+    be a 1px rule, with 26px above a title and 4px below the last thing
+    in an entry — so a trailing photograph sat 31px above the NEXT
+    entry's funder line and 31px below its own text, and on any preset
+    that puts images last it read as belonging to the wrong milestone.
+    Everything inside the box is that milestone. Do not go back to a
+    rule between entries.
+  - The entry-scale image sizes are 400px (classic lead), 380px
+    (alternating media), 240px minimum (gallery grid) and 190px minimum
+    (classic strip) — up from 340/320/180/116. The constraint they are
+    under is not "small", it is **must not read as a page-width band**:
+    400px is 38% of the width inside a card at 1440, which is plainly
+    part of an entry. The strip was the worst of it at 124px, an icon
+    rather than a photograph.
+    - On phones the card gives its inset back (14px, not 28px). At 28px
+      a side it took 56px out of a 342px column and the photographs came
+      out SMALLER than before the card existed, which is the opposite of
+      the point.
+  - **The photo viewer is ONE implementation, shared** —
+    `templates/_lightbox.html` (markup) and `_lightbox_script.html`
+    (behaviour), included by the gallery album pages and Our Journey.
+    It keys on `.js-lightbox`, so any container of photo links opts in,
+    and it collects links across the WHOLE page: on Our Journey that
+    means Previous and Next walk every milestone's photographs in
+    document order, which is what a reader expects. A second copy would
+    be a second place to fix the next thing found in it.
+    - Every photo must be a real `<a href>` to the full-size file. The
+      script UPGRADES those links, so with JavaScript gone the click
+      still opens the photograph. That is why `_figure()` takes `link`
+      and why it is a link and not a button.
+    - Only Our Journey passes `link=true`. The pages that show one
+      photograph at a time have nothing to page through.
   - Our Journey is the one page that renders MANY owners at once, so it
     uses `rich_content_for_many()` (one query for every milestone's
     images) rather than `rich_content_for()` per row, and each entry is

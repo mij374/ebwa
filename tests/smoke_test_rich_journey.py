@@ -363,6 +363,52 @@ check("remaining entries fine", client.get("/our-journey").status_code == 200)
 check("year headings survive the deletion",
       "2024" in html and "2023" in html)
 
+# ---- the shared lightbox, reused rather than reimplemented -----------
+# The gallery's viewer, included here too. What matters is that it is the
+# SAME one: a second implementation is a second place to fix the next
+# thing found in it, and the two would drift.
+# Its own milestone: by this point in the file the earlier fixtures have
+# been edited and deleted by the CRUD sections above, and a page with no
+# photographs has nothing to upgrade.
+with app.app_context():
+    box_m = Milestone(year=2031, title="Lightbox milestone",
+                      summary="Words.", published=True)
+    db.session.add(box_m)
+    db.session.commit()
+    db.session.add(ContentImage(owner_type="milestone", owner_id=box_m.id,
+                                filename="lightbox_seed.png",
+                                alt_text="A photograph", caption="A caption",
+                                sort=0))
+    db.session.commit()
+html = get()
+check("journey includes the photo viewer once",
+      html.count('id="lightbox"') == 1, str(html.count('id="lightbox"')))
+check("...the shared one, keyed on a class rather than the gallery's grid",
+      'js-lightbox' in html and 'photoGrid' not in html)
+check("...and its script, once",
+      html.count("var links") == 1, str(html.count("var links")))
+check("every photograph is a real link to the full-size file",
+      html.count('<a href="/static/uploads/') >= 1
+      and 'aria-label="View ' in html)
+check("DEGRADES WITHOUT JS: the link is the photograph itself",
+      '<a href="/static/uploads/' in html
+      and 'data-caption=' in html)
+check("the viewer ships hidden, so there is nothing to tab into "
+      "unless it works", 'aria-label="Photo viewer" hidden' in html)
+check("keyboard and swipe come with it",
+      all(k in html for k in ("ArrowLeft", "ArrowRight", "Escape",
+                              "touchstart", "touchend")))
+check("no library, still", "<script src" not in html)
+
+# The gallery must be unchanged by the extraction — same page, same
+# viewer, same fallback.
+album = client.get("/gallery/all").data.decode("utf-8")
+if 'id="lightbox"' in album:
+    check("the gallery still has exactly one viewer",
+          album.count('id="lightbox"') == 1)
+    check("...and still upgrades plain links",
+          'class="photo-masonry js-lightbox"' in album)
+
 # ---- teardown
 with app.app_context():
     for img in ContentImage.query.all():

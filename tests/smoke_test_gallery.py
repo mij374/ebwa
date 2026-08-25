@@ -318,7 +318,8 @@ check("swipe handling shipped", "touchstart" in album_html
 check("no JS library loaded",
       "<script src" not in album_html and "cdn" not in album_html.lower())
 check("script uses var, per house style",
-      "var grid" in album_html and "const " not in album_html)
+      "var links" in album_html and "const " not in album_html
+      and "let " not in album_html)
 with app.app_context():
     remaining = GalleryImage.query.filter_by(album_id=seaside.id).count()
 check("degrades without JS: every photo is a plain link to the file",
