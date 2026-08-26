@@ -136,6 +136,51 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Visitor statistics
+
+**THREE NEW TABLES AND THREE NEW INDEXES.** No columns move on any
+existing table, so `init-db` is the whole schema step:
+
+```bash
+flask --app app init-db          # page_view, page_view_daily, visitor_salt
+flask --app app check-schema     # must be clean, 6 indexes
+sudo systemctl restart ebwa
+```
+
+`create_all()` makes the indexes along with the tables, so a fresh
+`init-db` needs nothing else. If a database somehow has `page_view`
+WITHOUT them — nothing here would do that, but `create_all()` never adds
+an index to a table that already exists, so it is worth having the
+statements written down:
+
+```sql
+CREATE INDEX IF NOT EXISTS ix_pageview_day ON page_view (day);
+CREATE INDEX IF NOT EXISTS ix_pageview_day_visitor ON page_view (day, visitor);
+CREATE INDEX IF NOT EXISTS ix_pageview_day_path ON page_view (day, path);
+```
+
+`check-schema` reports a missing index by name, so it will tell you.
+
+**ADD THE CRON LINE.** Without it nothing breaks and no figure is wrong
+— the raw table simply keeps growing, one row per page load, for ever:
+
+```
+5 3 * * *  cd /opt/ebwa && ./venv/bin/flask --app app aggregate-pageviews
+```
+
+It folds days older than 62 into `page_view_daily` and deletes the raw
+rows. Safe to run twice; a day already rolled has nothing left to roll.
+
+**No new environment variables, no `pip install`, no new cookie and no
+third-party service.** The privacy and cookie notices need no change —
+see the commit message for why that was checked rather than assumed.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-26 — Collections: where the picture sits
 
 **ONE NEW COLUMN**, defaulting to the top, so nothing moves on any

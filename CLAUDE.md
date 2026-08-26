@@ -1252,6 +1252,59 @@ Built and maintained by Netbus IT Support.
     reader are not answered by any of it.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
+- Visitor statistics (`PageView`, `PageViewDaily`, `VisitorSalt`),
+  super-admin only, on Settings. Counted on this server: **no analytics
+  service, no third-party request, no extra cookie**, and the cookie and
+  privacy notices are unaffected because nothing stored identifies
+  anybody.
+  - **WHY A SALTED DAILY HASH RATHER THAN AN IDENTIFIER.** To say "how
+    many people" rather than "how many page loads" you must tell two
+    loads by one person from two by different people. An IP is personal
+    data under the UK GDPR; an IP plus a user agent is close to a
+    fingerprint; a cookie would be a new cookie the notice does not
+    mention and PECR would want consent for. So:
+    `sha256(salt_for_today + ip + user_agent)`. The IP and the user
+    agent are used in the request and **never written anywhere**.
+    - **The salt is random and is REPLACED every day**, the old one
+      overwritten rather than kept. That is what stops the counts being
+      joined across days: the same visitor gets an unrelated hash
+      tomorrow, and yesterday's hashes cannot be recomputed even with
+      the database in hand. A salt DERIVED from the date would be
+      reproducible for ever, which is the whole failure this avoids.
+    - Said plainly rather than glossed: while today's salt exists,
+      somebody holding the database and a specific IP and user agent
+      could test whether that combination visited TODAY. That is
+      inherent in counting same-day uniqueness at all, and it ends at
+      the next rotation.
+    - It is one row shared through the database, not per worker:
+      gunicorn runs several, and a per-worker salt would count one
+      visitor several times.
+  - **A "visit" is one person on ONE DAY**, and the panel says so. A
+    returning visitor is counted again next week, deliberately — so a
+    month's figure is person-days, not different people. Only the
+    "today" figure is people. Saying the first half without the second
+    would be a half-truth on a page of numbers somebody will quote.
+  - Recorded in `teardown_request`, ONE insert, and **it never raises**
+    — same rule as `send_mail()`: a statistics table must not turn a
+    visit into a 500. `after_request` only stashes the status code,
+    which teardown cannot see.
+  - Excluded: admin, `/static`, `/healthz`, the sitemap and robots,
+    non-GET, non-200, obvious bots by user-agent substring, and
+    **anybody signed in** — staff looking at their own site are not an
+    audience, and the Settings page must not count itself.
+  - `PAGEVIEW_RAW_DAYS` (62) is how long per-page rows live;
+    `aggregate-pageviews` then folds a day into `PageViewDaily` and
+    deletes it, from cron. Both tables are queried and added for any
+    range, or the figures would fall off a cliff at the boundary. The
+    daily totals hold no paths: per-page figures are only ever shown for
+    the current month.
+  - The chart is **inline SVG built in the template** — no charting
+    library, no client-side fetch, nothing new for the CSP. It carries
+    an `aria-label` listing every day and figure, because a bar chart is
+    an image to a screen reader.
+  - The table grows faster than anything else here, so every query is an
+    index seek: `(day)`, `(day, visitor)` for the COUNT(DISTINCT), and
+    `(day, path)` for the most-visited list.
 - Cookies: the site sets exactly two, both first-party and strictly
   necessary — the Flask login session, and `ebwa_notice` recording that
   the footer notice has been read. There is NO analytics, advertising or

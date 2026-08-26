@@ -560,6 +560,27 @@ header{
 .health-auto{display:inline-flex;align-items:center;gap:8px;margin-left:6px;font-size:13.5px}
 .health-auto input{width:auto}
 
+/* ---------- Visitor statistics ---------- */
+.stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:18px 0 8px}
+/* WHITE, like .health-card and .admin-stat, and for the same reason:
+   --ink-muted is 4.87:1 on white and only 4.46:1 on --paper, which is
+   under AA. The palette note in CLAUDE.md says exactly this and it
+   still caught me — the card looked right and the axe run said
+   otherwise. */
+.stat-card{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.stat-card b{display:block;font-family:var(--font-display);font-size:28px;color:var(--green);line-height:1.1}
+.stat-card span{display:block;font-size:13px;color:var(--ink-soft);margin-top:2px}
+.stat-card em{display:block;font-style:normal;font-size:12.5px;color:var(--ink-muted);margin-top:6px}
+.stat-card.is-past b{color:var(--ink-soft)}
+.stats-chart-head{font-size:15px;margin:26px 0 10px;color:var(--ink)}
+/* The chart is inline SVG built server-side — no library, nothing to
+   fetch, and it scales with the box rather than a pixel width. */
+.stats-chart{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px 8px}
+.stats-chart svg{display:block;width:100%;height:auto}
+.stats-bar{fill:var(--green);opacity:.75}
+.stats-bar.is-today{fill:var(--red-ink);opacity:1}
+.stats-tick{fill:var(--ink-soft);font-size:11px;font-family:var(--font-body)}
+
 /* ---------- Collections listing ---------- */
 .collection-raised{margin-top:10px;font-size:14px;color:var(--ink-soft)}
 .collection-raised b{color:var(--green);font-size:16px}

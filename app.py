@@ -242,6 +242,111 @@ class AuditLog(db.Model):
     )
 
 
+# ===================================================================
+# VISITOR STATISTICS
+# ===================================================================
+# Counted here, on this server, with NO third-party analytics and NO
+# extra cookie. The cookie notice and the privacy notice both tell
+# visitors there is no tracking, and that has to stay literally true —
+# so nothing below identifies anybody, and nothing below can be turned
+# back into a person.
+#
+# WHAT IS STORED PER PAGE LOAD: the path, the DAY (not the time), and a
+# one-way hash. That is all.
+#
+# WHY A SALTED DAILY HASH RATHER THAN AN IDENTIFIER. To say "how many
+# people" rather than "how many page loads" you have to be able to tell
+# two loads by the same person apart from two by different people. The
+# obvious ways all store something about the visitor: an IP address is
+# personal data under the UK GDPR, a user agent plus an IP is close to
+# a fingerprint, and a cookie would be a new cookie the notice does not
+# mention and PECR would want consent for. So instead:
+#
+#   sha256(salt_for_today + ip + user_agent) -> 64 hex characters
+#
+# The IP and the user agent are used in the request and never written
+# anywhere. The hash cannot be reversed. THE SALT IS RANDOM AND IS
+# REPLACED EVERY DAY, and the old one is overwritten rather than kept —
+# so the moment the day turns, yesterday's hashes cannot be recomputed
+# even by somebody holding the database and a list of candidate
+# addresses. That is what stops the counts being correlated from one
+# day to the next: the same visitor gets an unrelated hash tomorrow.
+#
+# WHAT THAT DOES NOT CLAIM, said plainly rather than glossed: while
+# today's salt exists, somebody with both the database and a specific IP
+# and user agent in mind could test whether that combination visited
+# today. That is inherent in counting same-day uniqueness at all, it
+# lasts until the next rotation, and it is the reason the salt is
+# generated fresh rather than derived from anything (a salt derived from
+# the date would be reproducible for ever, which is the failure this
+# design exists to avoid).
+VISITOR_HASH_LENGTH = 64          # sha256 hex
+# How long the per-page-load rows are kept before they are folded into
+# daily totals and deleted. 62 days covers "this month" and the whole of
+# last month, which is as far back as the per-page figures are ever
+# shown; the daily totals are what answer "the same month last year".
+PAGEVIEW_RAW_DAYS = 62
+
+
+class PageView(db.Model):
+    """ONE PAGE LOAD. Nothing here identifies a person — see above.
+
+    `day` is a DATE, not a timestamp, and it is the UK local day: the
+    admin figures are read by somebody in Enfield, per the date
+    convention. Storing the hour would make the rows more revealing
+    without making any figure on the page more useful.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    day = db.Column(db.Date, nullable=False)
+    path = db.Column(db.String(255), nullable=False)
+    # sha256(daily salt + ip + user agent). Not an identifier: see the
+    # note above for what it can and cannot be used for.
+    visitor = db.Column(db.String(VISITOR_HASH_LENGTH), nullable=False,
+                        default="")
+
+    # This table grows faster than anything else here — one row per page
+    # load rather than one per admin action — so every query the panel
+    # runs has to be an index seek. (day) answers the daily chart and
+    # the totals, and is the prefix of both others; (day, visitor) is
+    # the COUNT(DISTINCT) for "how many people"; (day, path) is the
+    # most-visited list. create_all() makes these with the table, but a
+    # database that somehow has the table without them needs the
+    # statements in DEPLOY.md.
+    __table_args__ = (
+        db.Index("ix_pageview_day", "day"),
+        db.Index("ix_pageview_day_visitor", "day", "visitor"),
+        db.Index("ix_pageview_day_path", "day", "path"),
+    )
+
+
+class PageViewDaily(db.Model):
+    """One day's totals, kept for ever once the raw rows are gone.
+
+    Written by `aggregate-pageviews` when a day passes out of the raw
+    window. Deliberately holds NO paths: a day's per-page figures are
+    only ever shown for the current month, so keeping them for years
+    would be storing more than anything asks for.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    day = db.Column(db.Date, nullable=False, unique=True)
+    views = db.Column(db.Integer, nullable=False, default=0)
+    visitors = db.Column(db.Integer, nullable=False, default=0)
+
+
+class VisitorSalt(db.Model):
+    """The salt for one day. ONE ROW, overwritten in place.
+
+    Shared through the database rather than held in memory because
+    gunicorn runs several workers: a per-worker salt would give the same
+    visitor a different hash in each worker and count them several
+    times. Overwritten rather than appended so yesterday's salt is
+    genuinely gone.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    day = db.Column(db.Date, nullable=False)
+    salt = db.Column(db.String(64), nullable=False)
+
+
 # The three rich-content layouts, shared by every content type.
 CONTENT_LAYOUTS = ("classic", "gallery", "alternating")
 CONTENT_LAYOUT_LABELS = (
@@ -2108,6 +2213,239 @@ def video_of(owner, fallback_image=""):
             "watch": video_watch_url(parsed["provider"], parsed["id"]),
             "poster": poster,
             "position": clean_video_position(position)}
+
+
+# ---------------------------------------------------------------- stats
+# Paths that are never counted. Admin is not a visitor, /static is not a
+# page, and the monitoring endpoints are a robot by definition — counting
+# any of them would make the figures a measure of Netbus rather than of
+# EBWA's audience.
+PAGEVIEW_SKIP_PREFIXES = ("/admin", "/static", "/healthz", "/sitemap.xml",
+                          "/robots.txt", "/favicon")
+# Cheap bot detection: a substring of the user agent, lower-cased. Not a
+# complete list and not meant to be — the expensive kinds of detection
+# need either a third-party service or a fingerprint, and both are
+# exactly what this feature is avoiding. It catches the loud ones.
+BOT_MARKERS = ("bot", "crawl", "spider", "slurp", "curl", "wget",
+               "python-requests", "httpx", "headlesschrome", "phantomjs",
+               "monitor", "uptime", "pingdom", "lighthouse", "preview",
+               "facebookexternalhit", "feedfetcher", "scraper")
+
+
+def looks_like_a_bot(user_agent):
+    """True for the obvious ones. Never stored — read and discarded."""
+    ua = (user_agent or "").lower()
+    if not ua:
+        return True            # a browser sends one; a script often does not
+    return any(marker in ua for marker in BOT_MARKERS)
+
+
+def visitor_salt_for(day):
+    """Today's salt, making a new one the first time the day turns.
+
+    The previous salt is OVERWRITTEN, not kept — that is the whole
+    mechanism by which yesterday's hashes stop being recomputable.
+    """
+    row = VisitorSalt.query.first()
+    if row is None:
+        row = VisitorSalt(day=day, salt=secrets.token_hex(32))
+        db.session.add(row)
+    elif row.day != day:
+        row.day = day
+        row.salt = secrets.token_hex(32)
+    return row.salt
+
+
+def visitor_hash(day, ip, user_agent):
+    """One-way, salted, and unrelated to the same visitor's hash
+    tomorrow. See the note on the models for what this is and is not."""
+    salt = visitor_salt_for(day)
+    raw = "%s|%s|%s" % (salt, ip or "", user_agent or "")
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def should_count(path, method, status, user_agent):
+    """Is this page load one a visitor made, on a page of the site?"""
+    if method != "GET" or status != 200:
+        return False
+    if any(path.startswith(p) for p in PAGEVIEW_SKIP_PREFIXES):
+        return False
+    # Staff looking at their own site are not an audience. Guarded,
+    # because current_user needs a request context and this helper is
+    # also the thing you call to reason about a path.
+    if has_request_context() and current_user.is_authenticated:
+        return False
+    return not looks_like_a_bot(user_agent)
+
+
+# ---- recording, off the critical path -------------------------------
+# after_request only STASHES the status, because that is the one thing
+# teardown cannot see. The insert itself happens in teardown_request,
+# after the response object is finished with, so nothing here sits
+# between the visitor and their page.
+@app.after_request
+def _note_status(response):
+    g._pv_status = response.status_code
+    return response
+
+
+@app.teardown_request
+def _record_page_view(exc=None):
+    """ONE INSERT, and it never raises.
+
+    Same rule as send_mail(): a statistics table must not be able to
+    turn somebody's visit into a 500, and a failure here is worth less
+    than the page it would break. Anything that goes wrong is swallowed
+    after rolling the session back.
+    """
+    if exc is not None or not has_request_context():
+        return
+    try:
+        status = getattr(g, "_pv_status", None)
+        if status is None:
+            return
+        agent = request.headers.get("User-Agent", "")
+        if not should_count(request.path, request.method, status, agent):
+            return
+        day = utc_as_uk(datetime.utcnow()).date()
+        db.session.add(PageView(
+            day=day, path=request.path[:255],
+            # request.remote_addr is the real client because ProxyFix is
+            # wrapped with exactly one hop. It is hashed here and never
+            # written; see the note on the models.
+            visitor=visitor_hash(day, request.remote_addr, agent)))
+        db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+# ---- reading the figures --------------------------------------------
+# Every query below is a COUNT or a GROUP BY over an indexed column.
+# Nothing loads rows to len() them: this is the biggest table on the
+# site and the panel is on a page an admin opens casually.
+STATS_CHART_DAYS = 30
+STATS_TOP_PAGES = 8
+
+
+def _pv_counts(start, end):
+    """(views, visitors) for [start, end], raw rows plus daily totals.
+
+    A range can straddle the retention boundary — "this month" does, on
+    the first days of a month — so both tables are asked and the answers
+    added. A day is only ever in one of them: aggregate-pageviews
+    deletes the raw rows in the same transaction that writes the total.
+    """
+    views = db.session.query(db.func.count(PageView.id)).filter(
+        PageView.day >= start, PageView.day <= end).scalar() or 0
+    visitors = db.session.query(
+        db.func.count(db.distinct(PageView.visitor))).filter(
+        PageView.day >= start, PageView.day <= end).scalar() or 0
+    rolled = db.session.query(
+        db.func.coalesce(db.func.sum(PageViewDaily.views), 0),
+        db.func.coalesce(db.func.sum(PageViewDaily.visitors), 0)).filter(
+        PageViewDaily.day >= start, PageViewDaily.day <= end).first()
+    return (views + (rolled[0] or 0), visitors + (rolled[1] or 0))
+
+
+def _pv_daily_series(start, end):
+    """{day: (views, visitors)} across both tables, days with none absent."""
+    out = {}
+    rows = (db.session.query(PageView.day, db.func.count(PageView.id),
+                             db.func.count(db.distinct(PageView.visitor)))
+            .filter(PageView.day >= start, PageView.day <= end)
+            .group_by(PageView.day).all())
+    for day, views, visitors in rows:
+        out[day] = (views, visitors)
+    for day, views, visitors in (
+            db.session.query(PageViewDaily.day, PageViewDaily.views,
+                             PageViewDaily.visitors)
+            .filter(PageViewDaily.day >= start,
+                    PageViewDaily.day <= end).all()):
+        got = out.get(day, (0, 0))
+        out[day] = (got[0] + views, got[1] + visitors)
+    return out
+
+
+def visitor_stats():
+    """Everything the Settings panel draws. All of it aggregate."""
+    today = utc_as_uk(datetime.utcnow()).date()
+    week_start = today - timedelta(days=today.weekday())      # Monday
+    month_start = today.replace(day=1)
+    chart_start = today - timedelta(days=STATS_CHART_DAYS - 1)
+    series = _pv_daily_series(chart_start, today)
+    days = [chart_start + timedelta(days=i) for i in range(STATS_CHART_DAYS)]
+    chart = [{"day": d, "views": series.get(d, (0, 0))[0],
+              "visitors": series.get(d, (0, 0))[1]} for d in days]
+
+    # The same month a year ago, only if there is anything there — a row
+    # of zeros would read as "we lost last year's traffic" rather than
+    # "the site was not up yet".
+    try:
+        last_year_start = month_start.replace(year=month_start.year - 1)
+    except ValueError:                       # 29 February
+        last_year_start = month_start.replace(year=month_start.year - 1,
+                                              day=28)
+    last_year_end = _month_end(last_year_start)
+    ly_views, ly_visitors = _pv_counts(last_year_start, last_year_end)
+
+    top = (db.session.query(PageView.path, db.func.count(PageView.id))
+           .filter(PageView.day >= month_start, PageView.day <= today)
+           .group_by(PageView.path)
+           .order_by(db.func.count(PageView.id).desc(), PageView.path)
+           .limit(STATS_TOP_PAGES).all())
+    oldest_raw = db.session.query(db.func.min(PageView.day)).scalar()
+    oldest_daily = db.session.query(db.func.min(PageViewDaily.day)).scalar()
+    return {
+        "today": _pv_counts(today, today),
+        "week": _pv_counts(week_start, today),
+        "month": _pv_counts(month_start, today),
+        "last_year": ((ly_views, ly_visitors)
+                      if (ly_views or ly_visitors) else None),
+        "last_year_label": last_year_start.strftime("%B %Y"),
+        "month_label": month_start.strftime("%B %Y"),
+        "chart": chart,
+        "chart_max": max([c["views"] for c in chart] or [0]),
+        "top": [{"path": p, "views": n} for p, n in top],
+        "since": min([d for d in (oldest_raw, oldest_daily) if d] or [today]),
+        "raw_days": PAGEVIEW_RAW_DAYS,
+    }
+
+
+def _month_end(first):
+    """Last day of the month `first` starts."""
+    if first.month == 12:
+        return first.replace(day=31)
+    return first.replace(month=first.month + 1, day=1) - timedelta(days=1)
+
+
+def aggregate_page_views(today=None):
+    """Fold days older than the raw window into totals, then delete them.
+
+    Returns (days_rolled, rows_deleted). Idempotent: a day already in
+    PageViewDaily is added to rather than duplicated, and its raw rows
+    are gone by then anyway.
+    """
+    today = today or utc_as_uk(datetime.utcnow()).date()
+    cutoff = today - timedelta(days=PAGEVIEW_RAW_DAYS)
+    rows = (db.session.query(PageView.day, db.func.count(PageView.id),
+                             db.func.count(db.distinct(PageView.visitor)))
+            .filter(PageView.day < cutoff)
+            .group_by(PageView.day).all())
+    deleted = 0
+    for day, views, visitors in rows:
+        existing = PageViewDaily.query.filter_by(day=day).first()
+        if existing:
+            existing.views += views
+            existing.visitors += visitors
+        else:
+            db.session.add(PageViewDaily(day=day, views=views,
+                                         visitors=visitors))
+        deleted += PageView.query.filter_by(day=day).delete()
+    db.session.commit()
+    return (len(rows), deleted)
 
 
 # ------------------------------------------------------- feature flags
@@ -6995,6 +7333,7 @@ def admin_features():
         home_sections=HOME_SECTIONS, home_order=home_section_order(),
         home_hidden=home_hidden_sections(),
         home_order_default=HOME_ORDER_DEFAULT_NAMES,
+        stats=visitor_stats(),
         health=server_health(), backup_limit=BACKUP_MANUAL_PER_HOUR,
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
@@ -7799,6 +8138,26 @@ def dangling_uploads():
             if filename not in on_disk:
                 out.append((model, column, row_id, label or "", filename))
     return out
+
+
+@app.cli.command("aggregate-pageviews")
+def aggregate_pageviews_command():
+    """Roll page views older than the raw window into daily totals.
+
+    Run daily from cron, beside run-scheduled-backup:
+
+        5 3 * * *  cd /opt/ebwa && ./venv/bin/flask --app app aggregate-pageviews
+
+    Safe to run twice: a day already rolled has no raw rows left to
+    roll. Nothing is lost by NOT running it either — the figures stay
+    correct, the table just keeps growing.
+    """
+    days, rows = aggregate_page_views()
+    if not days:
+        print("Nothing older than %d days to roll up." % PAGEVIEW_RAW_DAYS)
+        return
+    print("Rolled %d day%s into daily totals and deleted %d raw row%s."
+          % (days, "" if days == 1 else "s", rows, "" if rows == 1 else "s"))
 
 
 @app.cli.command("check-uploads")
