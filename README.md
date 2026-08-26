@@ -361,8 +361,9 @@ other rate-limit scopes, if it ever needs changing.
 
 **Settings → Send backups to the NAS** copies each archive to the NAS
 over SFTP, reached across Tailscale. Fill in the address, port, username,
-password, the folder on the NAS, the time of day to send (in **UTC**) and
-how many archives to keep there, then use **Test connection** — it
+password, the folder on the NAS, the time of day to send (**British
+time**, like every other time on the site) and how many archives to keep
+there, then use **Test connection** — it
 connects, checks the folder exists, and writes and deletes a small file
 to prove it can actually be written to.
 
@@ -400,25 +401,40 @@ It protects you from a mistake — a deleted album, a bad edit, a failed
 upgrade. It does **not** protect you from losing the server, which is the
 thing backups are for. A copy has to leave the machine.
 
-That copying is a **server-side job, not something this website does or
-can configure**. The site has no business holding a key to another
-machine, and nothing in the admin runs commands anybody typed into it.
-Set it up alongside the backup cron — for example, pushing the archives
-to a NAS or another host every night:
+**The app does that itself**, over SFTP to the NAS — see [Sending backups
+to the NAS](#sending-backups-to-the-nas) above. Writing the archive and
+getting it off the server are one job on one `BackupRun` row, so the
+Settings panel answers both halves of the only question anybody asks:
+did we back up, and did it leave the building?
 
-```cron
-45 2 * * * rsync -az --delete -e 'ssh -i /root/.ssh/ebwa-backup -o StrictHostKeyChecking=yes' /opt/ebwa/backups/ backup@nas.example.net:/volume1/backups/ebwa/ >> /var/log/ebwa-offsite.log 2>&1
-```
+> An earlier version of this section said the copying was "a server-side
+> job, not something this website does or can configure", and gave an
+> rsync cron line to set up by hand. **That stopped being true when the
+> NAS transfer landed** — the app now owns the whole of it. If you find
+> that rsync line in a crontab on a server, it is a leftover: it would
+> duplicate the transfer the app is already doing, and it can be removed.
 
-Points worth keeping:
+What did survive from that older design, because it was right for reasons
+that have not changed:
 
-- the ssh key is on the server, in root's keyring — never in the
-  database, never in this repository, never in the admin;
-- run the copy *after* the backup job, not at the same time;
-- check the far end actually has files, and that they open. An untested
-  backup is a rumour;
-- keep more copies at the far end than on the server — the whole point
-  is surviving the server.
+- **no shelling out.** No rsync, no scp, no subprocess, and no command
+  built from anything typed into the admin. The transfer is paramiko
+  talking SFTP from inside the app.
+- **one destination the admin configures**, not arbitrary remote hosts
+  and not a consumer cloud account.
+- **the credential never sits in the archive.** The NAS password is
+  encrypted with `FERNET_KEY`, which lives in the environment and not in
+  the database — so the archive that gets posted to the NAS does not
+  contain the key to the NAS.
+- **more copies at the far end than on the server.** Remote retention
+  (`sftp_keep`, 14 by default) is deliberately separate from local
+  (`BACKUP_KEEP`, 7) — the whole point is surviving the server, and the
+  NAS has room for far more history.
+- **check the far end actually has files, and that they open.** An
+  untested backup is a rumour. **Settings → Backups** shows the last
+  transfer and what it was called at the other end; to prove an archive
+  is readable rather than merely present, see *Reading an archive without
+  restoring it* in [RESTORE.md](RESTORE.md).
 
 ## Changing the SMTP password
 
