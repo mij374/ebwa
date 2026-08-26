@@ -423,7 +423,13 @@ with app.app_context():
           and "SCAN audit_log" not in plan_text, plan_text)
 
 # ---- READ-ONLY: nothing here acts
-panel = page.split("Server health")[1].split("Optional modules")[0]
+# Slice to the NEXT PANEL HEADING, not to a named one further down: the
+# Settings page grows, and "everything between Server health and Optional
+# modules" quietly came to include the visitor panel and the report form,
+# so this read their buttons as the health panel gaining an action.
+_after = page.split("Server health", 1)[1]
+_next = _after.find('<h2 class="admin-stats-head"')
+panel = _after[:_next] if _next > 0 else _after
 check("the panel contains no form", "<form" not in panel)
 check("the panel contains no button", "<button" not in panel)
 # The rule is that NOTHING HERE ACTS — no restart, no service control,

@@ -1353,6 +1353,37 @@ Built and maintained by Netbus IT Support.
       test seeds a year-ago month as totals with NO raw rows and asserts
       the card is populated — and that with no history it is absent
       rather than a row of zeros.
+  - **The figures are EBWA's, so /admin/visitors is open to EVERY
+    admin.** The Settings panel is super-admin only because of what sits
+    BESIDE it — the mail server, the NAS password, the state of the
+    machine — not because visitor numbers are Netbus's business. A
+    charity that cannot see how many people read its own website is
+    being counted at rather than for.
+    - **Its own page, not the dashboard**, and a card on the dashboard
+      linking to it — the pattern every other module follows. The
+      dashboard's job is "what needs me today"; a thirty-day chart would
+      be the largest thing on it and would compete with the one red card
+      that is meant to stand out. The test asserts the card is there and
+      the chart is not.
+    - `admin/_visitor_summary.html` is ONE partial rendered on both
+      pages. Two copies of a chart is two places to fix the next thing
+      found in one of them.
+  - The monthly report (`send-monthly-report`, from cron DAILY — a
+    machine off on the first would otherwise skip the month) is
+    **idempotent through the AUDIT LOG**, not a flag: the log already
+    records every send, it cannot drift from what happened, and cron may
+    run twice without a second email. `--force` overrides it, for
+    checking the address.
+    - Seeded OFF with no recipient. A site that starts emailing a board
+      the moment it is deployed is a site nobody asked for.
+    - **The wording is part of the feature.** A board reads it and the
+      number gets quoted afterwards without whatever caveat sat three
+      paragraphs away — so "a visit is one person on one day" goes on
+      the line UNDER the figure it qualifies, and the test asserts the
+      distance between them. Where there is no comparison to make it
+      says so in words rather than printing a zero.
+    - The address is never in the audit summary. Which field changed is
+      enough; somebody's email is not.
   - The chart is **inline SVG built in the template** — no charting
     library, no client-side fetch, nothing new for the CSP. It carries
     an `aria-label` listing every day and figure, because a bar chart is

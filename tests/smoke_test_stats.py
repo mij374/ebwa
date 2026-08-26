@@ -367,6 +367,218 @@ with app.app_context():
     check("opening Settings recorded nothing", PageView.query.count() == 0,
           str(PageView.query.count()))
 
+# ---- THE MONTHLY REPORT ----------------------------------------------
+print()
+print("---- the monthly report")
+from unittest.mock import patch      # noqa: E402
+from app import (STATS_REPORT_KEY, STATS_REPORT_TO_KEY,  # noqa: E402
+                 STATS_TARGET_KEY, STATS_TARGET_DEFAULT, STATS_REPORT_ACTION,
+                 AuditLog, monthly_report, monthly_report_sent_for,
+                 send_monthly_report, stats_monthly_target, stats_report_on,
+                 stats_report_setting, MAIL_TO_KEY)
+
+NL = chr(10)
+
+
+def set_block(key, value, group="stats"):
+    with app.app_context():
+        b = Block.query.filter_by(key=key).first()
+        if b is None:
+            b = Block(group=group, key=key, label=key, kind="text")
+            db.session.add(b)
+        b.value = value
+        db.session.commit()
+
+
+with app.app_context():
+    check("the report is OFF until somebody switches it on",
+          stats_report_on() is False)
+    check("the target defaults to the figure from the brief",
+          stats_monthly_target() == 2000 == STATS_TARGET_DEFAULT,
+          str(stats_monthly_target()))
+set_block(STATS_TARGET_KEY, "nonsense")
+with app.app_context():
+    check("a nonsense target falls back to the default rather than "
+          "breaking the report", stats_monthly_target() == 2000)
+set_block(STATS_TARGET_KEY, str(STATS_TARGET_DEFAULT))
+
+# Two months of figures: a busy one to report on and a quieter one
+# before it, plus the same month a year earlier.
+LAST = date(2026, 5, 1)
+with app.app_context():
+    PageView.query.delete()
+    PageViewDaily.query.delete()
+    db.session.commit()
+    for i in range(20):
+        for j in range(3):
+            db.session.add(PageView(day=LAST + timedelta(days=i),
+                                    path="/about" if j else "/",
+                                    visitor="p%d" % (i % 5)))
+    db.session.add(PageViewDaily(day=date(2026, 4, 10), views=30, visitors=9))
+    db.session.add(PageViewDaily(day=date(2025, 5, 10), views=44, visitors=11))
+    db.session.commit()
+    subject, body, month = monthly_report(for_month=LAST)
+
+check("the subject names the month", subject == "EBWA website: May 2026",
+      subject)
+check("the report is for the month asked for", month == LAST, str(month))
+check("it gives the page views", "60 page views" in body, body[:200])
+check("...and the visits", "from 5 visits" in body, body[:200])
+check("IT SAYS WHAT A VISIT IS, on the line under the number",
+      "A visit is one person on one day" in body
+      and body.index("A visit is one person") - body.index("60 page views")
+      < 120, "the caveat is not next to the figure")
+check("...and spells out the consequence rather than hinting at it",
+      "not the number of different people" in body)
+check("it compares with the month before",
+      "Against April" in body and "up 100%" in body,
+      str([l for l in body.split(NL) if "April" in l]))
+check("it compares with the same month last year",
+      "Against May 2025" in body,
+      str([l for l in body.split(NL) if "May 2025" in l]))
+check("it names the target and says the month fell short",
+      "target of 2,000" in body and "not met" in body
+      and "1,940 short" in body,
+      str([l for l in body.split(NL) if "target" in l]))
+check("it lists the most visited pages",
+      "Most visited pages" in body and "/about" in body)
+check("it says the figures are counted here, with no analytics",
+      "no analytics" in body and "identifies anybody" in body)
+check("no address, hash or anything personal is in the body",
+      "203.0.113" not in body and "Mozilla" not in body)
+
+# A month that beats the target reads differently.
+set_block(STATS_TARGET_KEY, "50")
+with app.app_context():
+    _s, body2, _m = monthly_report(for_month=LAST)
+check("a month that beats the target says so",
+      "was MET" in body2 and "10 over" in body2,
+      str([l for l in body2.split(NL) if "target" in l]))
+set_block(STATS_TARGET_KEY, str(STATS_TARGET_DEFAULT))
+
+# No history a year back: say so rather than printing a zero.
+with app.app_context():
+    PageViewDaily.query.filter_by(day=date(2025, 5, 10)).delete()
+    db.session.commit()
+    _s, body3, _m = monthly_report(for_month=LAST)
+check("with no figures from a year ago it says so, not a zero",
+      "no figures for May 2025" in body3 and "Against May 2025" not in body3,
+      str([l for l in body3.split(NL) if "2025" in l]))
+
+# ---- sending it: off, on, and once ------------------------------------
+sent = []
+
+
+def fake_send(to, subject, body, reply_to=None):
+    sent.append((tuple(to), subject, body))
+    return True
+
+
+with app.app_context():
+    result = send_monthly_report(for_month=LAST)
+check("switched off, it sends nothing", not sent and "switched off" in result,
+      result)
+
+set_block(STATS_REPORT_KEY, "1")
+set_block(MAIL_TO_KEY, "trustees@example.org", group="mail")
+with app.app_context():
+    check("the recipient falls back to the enquiries address",
+          stats_report_setting()["recipients"] == ["trustees@example.org"],
+          str(stats_report_setting()))
+    with patch("app.send_mail", fake_send):
+        first = send_monthly_report(for_month=LAST)
+check("switched on, it sends", len(sent) == 1 and "Sent the report" in first,
+      first)
+check("...to the enquiries address", sent[0][0] == ("trustees@example.org",))
+
+with app.app_context():
+    with patch("app.send_mail", fake_send):
+        again = send_monthly_report(for_month=LAST)
+check("RUNNING IT AGAIN THE SAME MONTH SENDS NOTHING",
+      len(sent) == 1 and "Already sent" in again, again)
+with app.app_context():
+    check("...and it knows because of the audit log, not a flag",
+          monthly_report_sent_for(LAST) is True)
+    entry = (AuditLog.query.filter_by(action=STATS_REPORT_ACTION)
+             .order_by(AuditLog.id.desc()).first())
+    check("the send is audit-logged, naming the month",
+          entry is not None and "May 2026" in entry.summary, str(entry))
+    check("...and does NOT put the address in the log",
+          "trustees@example.org" not in entry.summary, entry.summary)
+
+# A different month is a different report.
+with app.app_context():
+    with patch("app.send_mail", fake_send):
+        send_monthly_report(for_month=date(2026, 4, 1))
+check("a different month still sends", len(sent) == 2,
+      str([s[1] for s in sent]))
+with app.app_context():
+    with patch("app.send_mail", fake_send):
+        send_monthly_report(for_month=LAST, force=True)
+check("--force sends anyway, for checking the address", len(sent) == 3)
+
+# Its own recipient wins over the enquiries address.
+set_block(STATS_REPORT_TO_KEY, "board@example.org, chair@example.org")
+with app.app_context():
+    setting = stats_report_setting()
+check("a recipient set here wins over the enquiries address",
+      setting["recipients"] == ["board@example.org", "chair@example.org"],
+      str(setting))
+check("...and the page can say where it came from",
+      setting["source"] == "database", setting["source"])
+
+# ---- WHO SEES WHAT ----------------------------------------------------
+print()
+print("---- the client admin's own figures")
+with app.app_context():
+    PageView.query.delete()
+    db.session.commit()
+for _ in range(4):
+    visit("/about")
+
+client_admin = app.test_client()
+client_admin.post("/admin/login", data={"email": "client@example.com",
+                                        "password": PW})
+page = client_admin.get("/admin/visitors")
+check("A CLIENT ADMIN CAN SEE THEIR OWN FIGURES",
+      page.status_code == 200, str(page.status_code))
+html = page.data.decode("utf-8")
+check("...the headline numbers", "page views" in html)
+check("...and the chart", "<svg" in html and "stats-bar" in html)
+check("...and the caveat about what a visit is",
+      "one person on one day" in html)
+check("...and the target, so the number means something",
+      "monthly target" in html)
+check("BUT NOT THE REPORT SETTINGS",
+      'name="report_to"' not in html and 'name="enabled"' not in html)
+check("...nor anything else from Settings",
+      "SMTP" not in html and "Back up now" not in html
+      and "Homepage sections" not in html)
+check("...and Settings itself is still closed to them",
+      client_admin.get("/admin/features").status_code == 403)
+for path in ("/admin/stats-report", "/admin/stats-report/send"):
+    check("...as are the report's own routes (%s)" % path,
+          client_admin.post(path).status_code == 403)
+
+dash = client_admin.get("/admin").data.decode("utf-8")
+check("the dashboard carries a card that links to the page",
+      "Page views this month" in dash and "/admin/visitors" in dash)
+check("...and NOT the chart, which would swamp it",
+      "stats-bar" not in dash)
+
+check("an anonymous visitor gets the login page, not the figures",
+      app.test_client().get("/admin/visitors").status_code == 302)
+
+boss2 = app.test_client()
+boss2.post("/admin/login", data={"email": "netbus@example.com",
+                                 "password": PW})
+settings = boss2.get("/admin/features").data.decode("utf-8")
+check("a super admin sees the report settings on Settings",
+      'name="report_to"' in settings and 'name="enabled"' in settings
+      and 'name="target"' in settings)
+check("...and the same summary, from the one shared partial",
+      "one person on one day" in settings and "stats-bar" in settings)
+
 # ---- teardown ---------------------------------------------------------
 with app.app_context():
     db.session.remove()

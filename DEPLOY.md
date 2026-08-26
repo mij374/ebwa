@@ -136,6 +136,51 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Monthly report and the Visitors page
+
+**THREE NEW BLOCKS, NO SCHEMA CHANGE.** `init-db` is idempotent and
+inserts only missing keys:
+
+```bash
+flask --app app init-db
+flask --app app check-schema     # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+**ADD THE CRON LINE**, beside the backup and the page-view roll-up:
+
+```
+20 7 * * *  cd /opt/ebwa && ./venv/bin/flask --app app send-monthly-report
+```
+
+**Daily, not monthly, and that is deliberate.** A machine that happened
+to be off on the first of the month would otherwise skip that month
+entirely and nobody would notice until somebody asked for the figures.
+The command does nothing on the other thirty days: it checks the audit
+log for a report already sent for that month and stops.
+
+**Nothing is emailed until a super admin switches it on.** The three
+Blocks seed to off, no recipient and a 2,000 target, so installing this
+cannot start posting figures at a board that has not asked for them.
+Settings → Visitors carries the switch, the recipient and the target,
+plus a "Send one now" button for checking the address.
+
+The recipient falls back to the enquiries address. Set its own as soon
+as there is one: a monthly figure is for EBWA's trustees and an enquiry
+is for whoever answers the post, and they only look like the same
+address until one of them moves.
+
+**New page: /admin/visitors, open to EVERY admin.** EBWA could not see
+their own figures before — the panel was on Settings, which is
+super-admin only. Nothing on Settings became visible to them; the
+summary is a shared partial rendered on both pages.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-26 — Self-hosted fonts
 
 **NO SCHEMA CHANGE.** New static files and a changed stylesheet:

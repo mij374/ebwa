@@ -1,0 +1,18 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Visitors — EBWA admin{% endblock %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Visitors</h1>
+    <p class="admin-sub">How many people are reading the website, and
+      which pages they go to.</p>
+  </div>
+</div>
+
+<div class="admin-form">
+{% include "admin/_visitor_summary.html" %}
+  <p class="admin-sub" style="margin-top:22px">The monthly target is
+    <b>{{ "{:,}".format(target) }}</b> page views. Netbus can change it,
+    switch the monthly email on or off, and choose where it goes.</p>
+</div>
+{% endblock %}

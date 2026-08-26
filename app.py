@@ -280,6 +280,14 @@ class AuditLog(db.Model):
 # generated fresh rather than derived from anything (a salt derived from
 # the date would be reproducible for ever, which is the failure this
 # design exists to avoid).
+STATS_REPORT_KEY = "stats_report_enabled"
+STATS_REPORT_TO_KEY = "stats_report_to"
+STATS_TARGET_KEY = "stats_monthly_target"
+STATS_REPORT_ACTION = "stats_report"
+# From the client's brief. A target, not a promise — it is there so the
+# report can say "ahead" or "behind" rather than leaving a trustee to do
+# the arithmetic in their head.
+STATS_TARGET_DEFAULT = 2000
 VISITOR_HASH_LENGTH = 64          # sha256 hex
 # How long the per-page-load rows are kept before they are folded into
 # daily totals and deleted. 62 days covers "this month" and the whole of
@@ -1522,6 +1530,8 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
                      PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
                      PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY,
                      HOME_ORDER_KEY, HOME_HIDDEN_KEY,
+                     STATS_REPORT_KEY, STATS_REPORT_TO_KEY,
+                     STATS_TARGET_KEY,
                      ) + tuple(
     MOTION_ROWS["testimonials"][k]
     for k in ("mode_key", "step_key", "glide_key", "drift_key"))
@@ -5298,6 +5308,22 @@ def dashboard_cards(flags):
                            note="on %s of eligible donations"
                                 % pounds_filter(claimable)))
 
+    # Visitors gets a card like every other module — a module with no
+    # card is one the admin forgets exists — and the card is all it gets
+    # here. The chart lives on its own page: on the dashboard it would be
+    # the biggest thing on the screen and would compete with the one red
+    # card that is meant to stand out.
+    today_start = utc_as_uk(datetime.utcnow()).date()
+    month_start = today_start.replace(day=1)
+    month_views, _month_visits = _pv_counts(month_start, today_start)
+    target = stats_monthly_target()
+    cards.append(_card("Website", "Page views this month",
+                       "{:,}".format(month_views),
+                       url_for("admin_visitors"),
+                       note="target %s%s"
+                            % ("{:,}".format(target),
+                               " — met" if month_views >= target else "")))
+
     groups = []
     for c in cards:
         if not groups or groups[-1]["heading"] != c["group"]:
@@ -7208,6 +7234,31 @@ def admin_audit():
                            date_from=date_from, date_to=date_to)
 
 
+@app.route("/admin/visitors")
+@login_required
+def admin_visitors():
+    """EBWA's own figures, for EVERY admin.
+
+    The Settings panel this grew out of is super-admin only because of
+    what sits BESIDE it — the mail server, the NAS password, the state
+    of the machine — not because visitor numbers are Netbus's business.
+    They are EBWA's, and a charity that cannot see how many people read
+    its own website is being counted at rather than for.
+
+    ITS OWN PAGE RATHER THAN THE DASHBOARD, deliberately. The dashboard
+    is the first thing after every login and its job is "what needs me
+    today" — an attention panel, then counts. A thirty-day chart there
+    would be the largest thing on it and would compete with the one red
+    card that is supposed to stand out. So: a card on the dashboard that
+    links here, which is the pattern every other module follows.
+
+    Read-only: no toggle, no recipient, no target. Those are settings and
+    they live with the other settings.
+    """
+    return render_template("admin/visitors.html", stats=visitor_stats(),
+                           target=stats_monthly_target())
+
+
 # ---------------------------------------------------------------- admin: users
 # Super admin (Netbus) only. Every guard here is enforced server-side —
 # the UI hides impossible actions, but the route is what refuses them.
@@ -7351,7 +7402,10 @@ def admin_features():
         home_sections=HOME_SECTIONS, home_order=home_section_order(),
         home_hidden=home_hidden_sections(),
         home_order_default=HOME_ORDER_DEFAULT_NAMES,
-        stats=visitor_stats(),
+        stats=visitor_stats(), report_on=stats_report_on(),
+        report_to=stats_report_setting(),
+        target=stats_monthly_target(),
+        default_target=STATS_TARGET_DEFAULT,
         health=server_health(), backup_limit=BACKUP_MANUAL_PER_HOUR,
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
@@ -7753,6 +7807,65 @@ def _set_block(key, value, group="home", label=""):
     return changed
 
 
+@app.route("/admin/stats-report", methods=["POST"])
+@super_admin_required
+def admin_stats_report_save():
+    """Save the monthly report's switch, recipient and target."""
+    back = redirect(url_for("admin_features") + "#visitorStats")
+    raw_to = (request.form.get("report_to") or "").strip()
+    if raw_to and not parse_addresses(raw_to):
+        flash("That does not look like an email address. Separate several "
+              "with commas, or leave it empty to use the enquiries "
+              "address.", "error")
+        return back
+    try:
+        target = int((request.form.get("target") or "").strip())
+    except ValueError:
+        flash("The target must be a whole number of page views.", "error")
+        return back
+    # Mirrors the field's min/max, and the field's step base is its min
+    # — see the note beside it.
+    if not 100 <= target <= 1000000:
+        flash("The target must be between 100 and 1,000,000 page views.",
+              "error")
+        return back
+    was_on = stats_report_on()
+    changed = []
+    if _set_block(STATS_REPORT_KEY,
+                  "1" if request.form.get("enabled") == "on" else "",
+                  group="stats"):
+        changed.append("whether it is sent")
+    if _set_block(STATS_REPORT_TO_KEY, raw_to, group="stats"):
+        changed.append("the recipient")
+    if _set_block(STATS_TARGET_KEY, str(target), group="stats"):
+        changed.append("the target")
+    db.session.commit()
+    # The ADDRESS is not in the summary — it is somebody's email, and the
+    # audit log is not the place for it. Which field moved is enough.
+    log_action("edit", entity=("Block", 0),
+               summary="Changed the monthly website report (%s). Now %s."
+                       % (" and ".join(changed) if changed
+                          else "nothing changed",
+                          "on" if stats_report_on() else "off"))
+    flash("Report settings saved." if changed else "No change.", "ok")
+    return back
+
+
+@app.route("/admin/stats-report/send", methods=["POST"])
+@super_admin_required
+def admin_stats_report_test():
+    """Send last month's report now, however many have gone before.
+
+    Rate limited like the test email is: a button that emails a typed
+    address is a relay otherwise.
+    """
+    if rate_limited("test_mail"):
+        flash("Too many sends just now — try again shortly.", "error")
+    else:
+        flash(send_monthly_report(force=True), "ok")
+    return redirect(url_for("admin_features") + "#visitorStats")
+
+
 @app.route("/admin/home-sections", methods=["POST"])
 @super_admin_required
 def admin_home_sections_save():
@@ -7918,6 +8031,14 @@ DEFAULT_BLOCKS = [
     # video form, not typed into a text box.
     ("about", ABOUT_VIDEO_POSITION_KEY, "About video position", "text",
      VIDEO_POSITION_DEFAULT),
+    # The monthly report. Seeded OFF and empty: a site that starts
+    # emailing a board the moment it is deployed is a site nobody asked.
+    # All three hidden from the content editor — they are settings, and
+    # the recipient is an address rather than page copy.
+    ("stats", STATS_REPORT_KEY, "Monthly report on", "text", ""),
+    ("stats", STATS_REPORT_TO_KEY, "Monthly report goes to", "text", ""),
+    ("stats", STATS_TARGET_KEY, "Monthly page-view target", "text",
+     str(STATS_TARGET_DEFAULT)),
     # How the partner row moves. Set on the partners admin page, not in
     # the text editor, so both are hidden below.
     ("partners", PARTNER_MOTION_KEY, "Partner row movement", "text",
@@ -8158,6 +8279,190 @@ def dangling_uploads():
     return out
 
 
+# ---- the monthly report ---------------------------------------------
+# A board reads this, so the wording is part of the feature rather than
+# decoration. Two rules it has to keep:
+#   * say what a "visit" is, ONCE and plainly. The number will be read
+#     out at a meeting and quoted afterwards without whatever caveat sat
+#     three paragraphs away, so the caveat goes on the same line as the
+#     figure it qualifies.
+#   * never imply more precision than counting person-days gives.
+
+
+def stats_report_on():
+    block = Block.query.filter_by(key=STATS_REPORT_KEY).first()
+    return bool(block and (block.value or "").strip() == "1")
+
+
+def stats_monthly_target():
+    block = Block.query.filter_by(key=STATS_TARGET_KEY).first()
+    try:
+        value = int((block.value or "").strip()) if block else 0
+    except ValueError:
+        value = 0
+    return value if value > 0 else STATS_TARGET_DEFAULT
+
+
+def stats_report_setting():
+    """Where the report goes, and where that address came from.
+
+    Falls back to the enquiries address, like the security alerts do —
+    and for the same reason it is a SEPARATE setting: a monthly figure
+    is for EBWA's trustees, and the day enquiries move to a shared
+    mailbox nobody would notice the report had followed them there.
+    """
+    block = Block.query.filter_by(key=STATS_REPORT_TO_KEY).first()
+    chosen = (block.value or "").strip() if block else ""
+    if chosen:
+        return {"value": chosen, "recipients": parse_addresses(chosen),
+                "source": "database", "label": "This page"}
+    fallback = mail_settings()["recipient"]
+    return {"value": fallback["value"],
+            "recipients": parse_addresses(fallback["value"]),
+            "source": fallback["source"],
+            "label": "The enquiries address"}
+
+
+def _month_before(first):
+    """The first of the month before the one `first` starts."""
+    if first.month == 1:
+        return first.replace(year=first.year - 1, month=12, day=1)
+    return first.replace(month=first.month - 1, day=1)
+
+
+def _change_phrase(now, before, noun):
+    """"up 12% on ..." — or something honest when there is no baseline."""
+    if not before:
+        return "no figure for %s to compare with" % noun
+    diff = now - before
+    if diff == 0:
+        return "exactly the same as %s" % noun
+    pct = abs(diff) * 100 // before
+    return "%s %d%% on %s (%s%d)" % ("up" if diff > 0 else "down", pct,
+                                     noun, "+" if diff > 0 else "", diff)
+
+
+def monthly_report(for_month=None):
+    """The report for a finished month: (subject, body, month_start).
+
+    `for_month` is any date in the month being reported. Defaults to the
+    month before today, which is what the first of the month wants.
+    """
+    today = utc_as_uk(datetime.utcnow()).date()
+    month = (for_month or _month_before(today.replace(day=1))).replace(day=1)
+    end = _month_end(month)
+    views, visits = _pv_counts(month, end)
+    prev = _month_before(month)
+    prev_views, _prev_visits = _pv_counts(prev, _month_end(prev))
+    try:
+        year_ago = month.replace(year=month.year - 1)
+    except ValueError:
+        year_ago = month.replace(year=month.year - 1, day=28)
+    ly_views, ly_visits = _pv_counts(year_ago, _month_end(year_ago))
+    target = stats_monthly_target()
+    top = (db.session.query(PageView.path, db.func.count(PageView.id))
+           .filter(PageView.day >= month, PageView.day <= end)
+           .group_by(PageView.path)
+           .order_by(db.func.count(PageView.id).desc(), PageView.path)
+           .limit(STATS_TOP_PAGES).all())
+
+    label = month.strftime("%B %Y")
+    lines = ["Website figures for %s" % label, "", ""]
+    lines.append("%s page views, from %s visits."
+                 % ("{:,}".format(views), "{:,}".format(visits)))
+    # The caveat sits on the line under the number it qualifies, not in a
+    # footnote. Somebody reading this out has to trip over it.
+    lines.append("(A visit is one person on one day. Somebody who comes "
+                 "back next week")
+    lines.append(" counts twice, so this is not the number of different "
+                 "people.)")
+    lines.append("")
+    lines.append("Against %s: %s."
+                 % (prev.strftime("%B"),
+                    _change_phrase(views, prev_views,
+                                   prev.strftime("%B"))))
+    if ly_views:
+        lines.append("Against %s: %s."
+                     % (year_ago.strftime("%B %Y"),
+                        _change_phrase(views, ly_views,
+                                       year_ago.strftime("%B %Y"))))
+    else:
+        lines.append("There are no figures for %s to compare with — the "
+                     "site was not" % year_ago.strftime("%B %Y"))
+        lines.append("counting visits that far back yet.")
+    lines.append("")
+    if views >= target:
+        lines.append("The monthly target of %s page views was MET: %s over."
+                     % ("{:,}".format(target), "{:,}".format(views - target)))
+    else:
+        lines.append("The monthly target of %s page views was not met: %s "
+                     "short." % ("{:,}".format(target),
+                                 "{:,}".format(target - views)))
+    lines.append("")
+    if top:
+        lines.append("Most visited pages:")
+        for path, count in top:
+            lines.append("  %-28s %s" % (path, "{:,}".format(count)))
+    else:
+        lines.append("No per-page figures for this month. Page-level "
+                     "detail is kept for")
+        lines.append("%d days, so a report run late will show the totals "
+                     "and not the pages." % PAGEVIEW_RAW_DAYS)
+    lines.append("")
+    lines.append("")
+    lines.append("These figures are counted on EBWA's own server. There is "
+                 "no analytics")
+    lines.append("service, no advertising, and nothing stored that "
+                 "identifies anybody.")
+    lines.append("Sent once a month by the website. To stop it, or to "
+                 "change where it goes,")
+    lines.append("ask Netbus.")
+    return ("EBWA website: %s" % label, "\n".join(lines), month)
+
+
+def monthly_report_sent_for(month):
+    """Has a report for this month already gone out?
+
+    Read from the AUDIT LOG rather than a flag, exactly as the security
+    alert cooldown is: it is the record that already exists, it cannot
+    drift from what actually happened, and cron may run this on several
+    machines or several times without a second email.
+    """
+    return db.session.query(AuditLog.id).filter(
+        AuditLog.action == STATS_REPORT_ACTION,
+        AuditLog.summary.like("%%%s%%" % month.strftime("%B %Y"))
+    ).first() is not None
+
+
+def send_monthly_report(for_month=None, force=False):
+    """Send it if it is due. Returns a short sentence saying what happened.
+
+    Never raises: send_mail() does not, and neither does this — a report
+    that fails is worth less than the cron job it would turn into an
+    error email at three in the morning.
+    """
+    if not stats_report_on():
+        return "The monthly report is switched off."
+    subject, body, month = monthly_report(for_month)
+    if not force and monthly_report_sent_for(month):
+        return "Already sent the report for %s." % month.strftime("%B %Y")
+    setting = stats_report_setting()
+    if not setting["recipients"]:
+        return "No recipient for the monthly report, and no enquiries " \
+               "address to fall back to."
+    ok = send_mail(setting["recipients"], subject, body)
+    log_action(STATS_REPORT_ACTION, entity=("Stats", 0),
+               summary="%s the monthly website report for %s to %d "
+                       "recipient%s."
+                       % ("Sent" if ok else "Failed to send",
+                          month.strftime("%B %Y"),
+                          len(setting["recipients"]),
+                          "" if len(setting["recipients"]) == 1 else "s"))
+    return ("Sent the report for %s." if ok else
+            "Could not send the report for %s (see the audit log).") \
+        % month.strftime("%B %Y")
+
+
 @app.cli.command("aggregate-pageviews")
 def aggregate_pageviews_command():
     """Roll page views older than the raw window into daily totals.
@@ -8176,6 +8481,31 @@ def aggregate_pageviews_command():
         return
     print("Rolled %d day%s into daily totals and deleted %d raw row%s."
           % (days, "" if days == 1 else "s", rows, "" if rows == 1 else "s"))
+
+
+@app.cli.command("send-monthly-report")
+@click.option("--force", is_flag=True,
+              help="Send even if one has already gone out this month.")
+@click.option("--month", default="",
+              help="Report on this month instead, as YYYY-MM.")
+def send_monthly_report_command(force, month):
+    """Email the previous month's website figures, if one is due.
+
+    Meant for cron, daily — it does nothing on the other thirty days:
+
+        20 7 * * *  cd /opt/ebwa && ./venv/bin/flask --app app send-monthly-report
+
+    Daily rather than monthly on purpose: a machine that was off on the
+    first of the month would otherwise skip that month entirely, and
+    nobody would notice until somebody asked for the figures.
+    """
+    for_month = None
+    if month:
+        try:
+            for_month = datetime.strptime(month + "-01", "%Y-%m-%d").date()
+        except ValueError:
+            raise SystemExit("--month wants YYYY-MM, for example 2026-08.")
+    print(send_monthly_report(for_month=for_month, force=force))
 
 
 @app.cli.command("check-uploads")

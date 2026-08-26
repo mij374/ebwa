@@ -1,0 +1,101 @@
+{#- THE VISITOR SUMMARY, shared by the Visitors page and the Settings
+    page. One implementation: two copies of a chart is two places to fix
+    the next thing found in one of them, and they would drift.
+    Read-only throughout — the report's toggle, recipient and target are
+    settings and live only on Settings. -#}
+  {#- Counted on this server. No analytics service, no extra cookie, and
+      nothing stored that identifies anybody — see the note on PageView
+      in app.py for why a salted daily hash rather than an address. The
+      cookie notice and the privacy notice say there is no tracking, and
+      this panel does not make either of them untrue. -#}
+  <p class="admin-sub">Counted on this server. No analytics service and
+    no extra cookie: what is stored is the page, the day, and a one-way
+    hash that is thrown away and remade every night, so two visits on
+    different days can never be joined up. Nothing here identifies
+    anybody, and nothing here can be turned back into a person.</p>
+  {#- The daily hash is what makes the figures honest AND what limits
+      them, and saying only the first half would be a half-truth on a
+      page of numbers somebody will quote. -#}
+  <p class="admin-sub"><b>A “visit” is one person on one day.</b> Because
+    the hash is remade every night, somebody who comes back next week is
+    counted again — deliberately, since linking the two would be exactly
+    the tracking this avoids. So “visits this month” is not the number of
+    different people who came; it is the number of person-days.</p>
+
+  <div class="stat-cards">
+    {% for label, pair, unit in (
+         ('Today', stats.today, 'visitor'),
+         ('This week', stats.week, 'visit'),
+         (stats.month_label, stats.month, 'visit')) %}
+    <div class="stat-card">
+      <b>{{ pair[0] }}</b>
+      <span>page view{{ '' if pair[0] == 1 else 's' }}{{ ', ' ~ label|lower if label != stats.month_label }}</span>
+      {#- "visitors" only for today, where one day means one hash each
+          and the figure really is people. Over any longer span it is
+          person-days, and the word for that here is visits. -#}
+      <em>{{ pair[1] }} {{ unit }}{{ '' if pair[1] == 1 else 's' }}</em>
+    </div>
+    {% endfor %}
+    {#- Last year only when there is something there: a row of zeros
+        reads as "we lost last year's figures" rather than "the site was
+        not up yet". -#}
+    {% if stats.last_year %}
+    <div class="stat-card is-past">
+      <b>{{ stats.last_year[0] }}</b>
+      <span>in {{ stats.last_year_label }}</span>
+      <em>{{ stats.last_year[1] }} visit{{ '' if stats.last_year[1] == 1 else 's' }}</em>
+    </div>
+    {% endif %}
+  </div>
+
+  {#- THE CHART IS INLINE SVG, BUILT HERE. No charting library, no
+      client-side fetch, nothing for the CSP to allow. It is a list of
+      rectangles; a bar chart does not need a dependency. -#}
+  <h3 class="stats-chart-head">Page views, last {{ stats.chart|length }} days</h3>
+  {% set W = 720 %}{% set H = 160 %}{% set GAP = 3 %}
+  {% set bw = (W - GAP * (stats.chart|length - 1)) / stats.chart|length %}
+  <div class="stats-chart">
+    <svg viewBox="0 0 {{ W }} {{ H + 22 }}" role="img" width="100%"
+         aria-label="Page views per day for the last {{ stats.chart|length }} days.
+{% for d in stats.chart %}{{ d.day.strftime('%d %b') }}: {{ d.views }}. {% endfor %}">
+      {% for d in stats.chart %}
+      {% set h = 0 if not stats.chart_max else (d.views * H // stats.chart_max) %}
+      <rect x="{{ (loop.index0 * (bw + GAP))|round(2) }}"
+            y="{{ H - h }}" width="{{ bw|round(2) }}" height="{{ h if h else 1 }}"
+            rx="2" class="stats-bar{{ ' is-today' if loop.last }}"></rect>
+      {% endfor %}
+      {#- Only the ends and the middle are labelled: thirty dates across
+          720px is a smear, and the figures above already say the totals. -#}
+      {% for i in (0, (stats.chart|length // 2), stats.chart|length - 1) %}
+      <text x="{{ (i * (bw + GAP) + bw / 2)|round(2) }}" y="{{ H + 16 }}"
+            class="stats-tick"
+            text-anchor="{{ 'start' if i == 0 else 'end' if i == stats.chart|length - 1 else 'middle' }}"
+            >{{ stats.chart[i].day.strftime('%d %b') }}</text>
+      {% endfor %}
+    </svg>
+  </div>
+  <p class="admin-sub">Busiest day in the period:
+    <b>{{ stats.chart_max }}</b> page view{{ '' if stats.chart_max == 1 else 's' }}.
+    Counting since {{ stats.since.strftime('%d %B %Y') }}. Per-page
+    figures are kept for {{ stats.raw_days }} days and then folded into
+    daily totals.</p>
+
+  <h3 class="stats-chart-head">Most visited pages, {{ stats.month_label }}</h3>
+  {% if stats.top %}
+  <div class="table-scroll" tabindex="0" role="region"
+       aria-label="Most visited pages, scrollable">
+  <table class="admin-table">
+    <thead><tr><th>Page</th><th>Page views</th></tr></thead>
+    <tbody>
+      {% for row in stats.top %}
+      <tr>
+        <td><a href="{{ row.path }}" target="_blank">{{ row.path }}</a></td>
+        <td class="nowrap">{{ row.views }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="admin-sub">Nothing counted this month yet.</p>
+  {% endif %}

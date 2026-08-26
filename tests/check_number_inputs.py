@@ -411,6 +411,28 @@ with sync_playwright() as pw:
         check("%s: keeps its spinner" % label,
               spinner(page, sel)["appearance"] == SPUN)
 
+    # ---- the monthly page-view target
+    # A round number somebody sets once, so the arrows step by 100 —
+    # pressing up 1,900 times to get from the default to 2,000 would be
+    # a control nobody uses. min mirrors the route's 1..1,000,000.
+    s = state(page, "#target")
+    check("visitor target: is a number field", s["type"] == "number", str(s))
+    check("visitor target: steps by 100", s["step"] == "100", str(s["step"]))
+    check("visitor target: 100 to 1,000,000, mirroring the route",
+          s["min"] == "100" and s["max"] == "1000000", str(s))
+    check("visitor target: one arrow press moves 100",
+          arrow_moves(page, "#target") == 100)
+    check("visitor target: the DEFAULT IS ON THE STEP GRID",
+          would_accept(page, "#target", "2000")["valid"],
+          "the step base is min, so 2000 must be a multiple of 100 "
+          "above it")
+    check("visitor target: an off-step figure is refused",
+          not would_accept(page, "#target", "2050")["valid"])
+    check("visitor target: below the floor is refused",
+          not would_accept(page, "#target", "0")["valid"])
+    check("visitor target: keeps its spinner",
+          spinner(page, "#target")["appearance"] == SPUN)
+
     # ---- the homepage section positions
     # A position among a fixed set of six, not a sort weight — so unlike
     # the sort fields elsewhere it DOES carry a min: there is no first
