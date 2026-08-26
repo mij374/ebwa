@@ -849,9 +849,24 @@ has passed without a good run:
 */15 * * * * cd /opt/ebwa && set -a && . /etc/ebwa/env && set +a && ./venv/bin/flask --app app run-scheduled-backup >> /var/log/ebwa-backup.log 2>&1
 ```
 
-It replaces the plain `backup-now` line from the earlier entry if
-transfers are switched on — `run-scheduled-backup` does the backup as
-well as the transfer.
+**It replaces the plain `backup-now` line from the earlier entry
+outright — not only when transfers are switched on.** Remove that line
+when you add this one.
+
+`run-scheduled-backup` writes the archive whether or not SFTP is
+configured; it checks `sftp_ready()` afterwards, purely to decide whether
+to send it, and prints "Transfers to the NAS are off, so the archive
+stays here" when it is not. So the two lines together are not a belt-and-
+braces arrangement, they are **two archives a day**: `backup-now` records
+`reason="cli"`, which never satisfies this command's "has today's run
+happened?" check (that asks for `reason="scheduled"`), so it takes its
+own regardless. Both then compete for the same `BACKUP_KEEP`, halving how
+far back the local history reaches, and the `backup-now` one never leaves
+the machine.
+
+(This clause used to read "if transfers are switched on", which would
+reasonably lead somebody deploying with transfers off to keep both. The
+steps recorded below are unchanged; only this guidance is corrected.)
 
 Then, in Settings → Send backups to the NAS: fill in the details, save,
 **Test connection**, and finally **Backup now** to prove a whole archive
