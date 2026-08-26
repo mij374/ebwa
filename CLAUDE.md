@@ -1335,6 +1335,24 @@ Built and maintained by Netbus IT Support.
     range, or the figures would fall off a cliff at the boundary. The
     daily totals hold no paths: per-page figures are only ever shown for
     the current month.
+  - **`PageViewDaily` IS KEPT FOR EVER. Never add a prune to it.** The
+    raw rows are the disposable half; the daily totals are the point of
+    keeping anything, and the year-on-year figure is the one number that
+    cannot be recovered once it is gone — the rows it would be
+    recomputed from were deleted two months after they were written.
+    Measured: five years is about 350KB, 196 bytes a day including the
+    unique index, against 6.5MB for the raw table's own 62-day window at
+    200 views a day. The permanent history is about five per cent of the
+    working set.
+    - The only `.delete()` in the whole stats path is the raw one inside
+      `aggregate_page_views()`, and `tests/smoke_test_stats.py` pins it:
+      five years of totals, aggregation run four times, all fifteen rows
+      still there.
+    - "Same month last year" reads from `PageViewDaily` and nowhere
+      else, because there are no raw rows that old by definition. The
+      test seeds a year-ago month as totals with NO raw rows and asserts
+      the card is populated — and that with no history it is absent
+      rather than a row of zeros.
   - The chart is **inline SVG built in the template** — no charting
     library, no client-side fetch, nothing new for the CSP. It carries
     an `aria-label` listing every day and figure, because a bar chart is

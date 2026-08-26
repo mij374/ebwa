@@ -320,12 +320,24 @@ class PageView(db.Model):
 
 
 class PageViewDaily(db.Model):
-    """One day's totals, kept for ever once the raw rows are gone.
+    """One day's totals. KEPT FOR EVER — nothing prunes this table.
 
     Written by `aggregate-pageviews` when a day passes out of the raw
-    window. Deliberately holds NO paths: a day's per-page figures are
-    only ever shown for the current month, so keeping them for years
-    would be storing more than anything asks for.
+    window. The raw rows are the disposable half; these are the point of
+    keeping anything at all, and the year-on-year figure is the one
+    number that cannot be recovered once it is gone — the rows it would
+    be recomputed from were deleted two months after they were written.
+
+    So: NEVER ADD A PRUNE HERE, and be suspicious of anything that
+    offers to tidy the table up. Five years costs about 350KB (measured:
+    196 bytes a day including the unique index), against 6.5MB for the
+    raw table's 62-day window at 200 views a day. The history is roughly
+    five per cent of the working set and it is what makes the panel
+    worth having.
+
+    Deliberately holds NO paths: a day's per-page figures are only ever
+    shown for the current month, so keeping them for years would be
+    storing more than anything asks for.
     """
     id = db.Column(db.Integer, primary_key=True)
     day = db.Column(db.Date, nullable=False, unique=True)

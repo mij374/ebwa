@@ -15,7 +15,7 @@ Run:  python tests/smoke_test_stats.py
 """
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -31,7 +31,8 @@ from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,  # noqa: E402
                  FeatureFlag, PageView, PageViewDaily, User, VisitorSalt,
                  PAGEVIEW_RAW_DAYS, PAGEVIEW_SKIP_PREFIXES,
                  aggregate_page_views, looks_like_a_bot, should_count,
-                 visitor_hash, visitor_salt_for, visitor_stats)
+                 visitor_hash, visitor_salt_for, visitor_stats,
+                 utc_as_uk)
 
 app.config["TESTING"] = True
 PW = "stats-test-password"
@@ -242,6 +243,94 @@ with app.app_context():
     views, visitors = _pv_counts(old_day, today)
     check("a range spanning the boundary counts BOTH tables",
           views == 15 and visitors > 0, "%d views" % views)
+
+# ---- THE DAILY TOTALS ARE PERMANENT ----------------------------------
+# The raw rows are the disposable half; the totals are the point of
+# keeping anything at all. Nothing may ever delete them — year-on-year
+# comparison is the one figure that cannot be recovered once it is gone,
+# because the raw rows it would be recomputed from were pruned years
+# earlier. Asserted rather than assumed, because "we do not delete it"
+# is the sort of thing that stays true until somebody adds a tidy-up.
+print()
+print("---- long-term history")
+with app.app_context():
+    PageView.query.delete()
+    PageViewDaily.query.delete()
+    db.session.commit()
+    today = date(2026, 6, 30)
+    # Five years of history, nothing raw.
+    for years in range(1, 6):
+        for i in range(3):
+            db.session.add(PageViewDaily(
+                day=date(today.year - years, today.month, 1 + i),
+                views=100 * years + i, visitors=20 * years))
+    db.session.commit()
+    kept = PageViewDaily.query.count()
+    check("five years of daily totals are in the table", kept == 15,
+          str(kept))
+
+    # Rolling up today's traffic must not touch any of them.
+    old_day = today - timedelta(days=PAGEVIEW_RAW_DAYS + 1)
+    for i in range(4):
+        db.session.add(PageView(day=old_day, path="/x", visitor="v%d" % i))
+    db.session.commit()
+    aggregate_page_views(today=today)
+    check("AGGREGATION ADDS A DAY AND DELETES NOTHING OLDER",
+          PageViewDaily.query.count() == kept + 1,
+          "%d -> %d" % (kept, PageViewDaily.query.count()))
+    for _ in range(3):
+        aggregate_page_views(today=today)
+    check("...and running it again and again still deletes nothing",
+          PageViewDaily.query.count() == kept + 1,
+          str(PageViewDaily.query.count()))
+    oldest = db.session.query(db.func.min(PageViewDaily.day)).scalar()
+    check("the oldest day is still five years back",
+          oldest.year == today.year - 5, str(oldest))
+    # Every seeded year is more than 365 days back, so all fifteen must
+    # still be there — the newly rolled day is the only one inside the
+    # year and it is not part of this count.
+    older = PageViewDaily.query.filter(
+        PageViewDaily.day < today - timedelta(days=365)).count()
+    check("all five years survive, none quietly pruned", older == 15,
+          "rows older than a year: %d" % older)
+
+# ---- SAME MONTH LAST YEAR, read from the aggregate -------------------
+# There will be no raw rows for a month a year ago — they were pruned at
+# 62 days — so this figure comes entirely from PageViewDaily or it comes
+# from nowhere.
+with app.app_context():
+    PageView.query.delete()
+    PageViewDaily.query.delete()
+    db.session.commit()
+    today = utc_as_uk(datetime.utcnow()).date()
+    first_last_year = today.replace(year=today.year - 1, day=1)
+    for i in range(28):
+        db.session.add(PageViewDaily(day=first_last_year + timedelta(days=i),
+                                     views=10 + i, visitors=3))
+    db.session.commit()
+    check("no raw rows exist for that month at all",
+          PageView.query.filter(PageView.day >= first_last_year).count() == 0)
+    stats = visitor_stats()
+check("THE LAST-YEAR CARD IS POPULATED FROM THE AGGREGATE ALONE",
+      stats["last_year"] is not None, "the card would not appear")
+expected = sum(10 + i for i in range(28))
+check("...with the right total", stats["last_year"][0] == expected,
+      "%s vs %d" % (stats["last_year"], expected))
+check("...and the right visits", stats["last_year"][1] == 28 * 3,
+      str(stats["last_year"]))
+check("...labelled with the month and year",
+      stats["last_year_label"] == first_last_year.strftime("%B %Y"),
+      stats["last_year_label"])
+check("the panel knows how far back it can see",
+      stats["since"] == first_last_year, str(stats["since"]))
+
+# And it stays absent rather than showing zeros when there is no history.
+with app.app_context():
+    PageViewDaily.query.delete()
+    db.session.commit()
+    stats = visitor_stats()
+check("with no history the card is absent, not a row of zeros",
+      stats["last_year"] is None, str(stats["last_year"]))
 
 # ---- the panel is super-admin only -----------------------------------
 print()
