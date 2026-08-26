@@ -406,6 +406,20 @@ with app.app_context():
                                                               minute=0))
     check("due once the time has passed", due is True, why)
 
+# THE CLI READS THE REAL CLOCK, so the schedule has to be a time that
+# has certainly passed however early in the day this test is run. With
+# the 02:30 default it passed all afternoon and failed between midnight
+# and half past two, which is a test that reports on the hour rather
+# than on the code.
+with app.app_context():
+    for key, value in (("schedule", "00:01"), ("schedule_tz", "uk")):
+        row = Block.query.filter_by(key=SFTP_KEYS[key]).first()
+        if row is None:
+            row = Block(group="site", key=SFTP_KEYS[key], label=key,
+                        kind="text")
+            db.session.add(row)
+        row.value = value
+    db.session.commit()
 runner = app.test_cli_runner()
 res = runner.invoke(args=["run-scheduled-backup"])
 check("scheduled run works", res.exit_code == 0, res.output[-300:])

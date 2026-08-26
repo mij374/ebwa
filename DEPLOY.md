@@ -45,7 +45,9 @@ Re-running an `ALTER TABLE` that has already been applied fails with
 what is absent, and never drops or alters anything.
 
 Back up before you start. `instance/ebwa.db` and `static/uploads/` are
-the whole site.
+the whole site. If one of these steps goes wrong and you need to put
+the site back, [RESTORE.md](RESTORE.md) is the procedure — including
+why a restored database must never keep the old `-wal` beside it.
 
 ### Environment key
 

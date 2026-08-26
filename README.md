@@ -325,6 +325,11 @@ never a password: the site does not record attempted passwords at all.
 
 ## Backups
 
+> **Something already broken?** [RESTORE.md](RESTORE.md) is the procedure
+> for putting the site back — data loss with the server intact, and a
+> full rebuild from nothing. Read that rather than this section.
+
+
 The website can write a backup archive of itself: a consistent snapshot
 of the database plus every uploaded photo, zipped into `BACKUP_DIR` with
 a timestamped name. It keeps the newest `BACKUP_KEEP` archives (7 by
