@@ -28,12 +28,24 @@
     {% set video = video_of(camp, camp.image) %}
     {% set show_image = camp.image and camp.show_image_on_page
                         and not (video and video.poster == camp.image) %}
-    {% if video and video.position == 'lead' %}
-      {{ video_player(video) }}
-    {% endif %}
-    {% if show_image %}
-    <img class="event-hero" src="{{ upload_url(camp.image) }}" alt="">
-    {% endif %}
+
+    {#- ONE MACRO FOR ALL THREE SLOTS, so the two media can never come
+        out in different orders in different places. THE VIDEO GOES
+        FIRST when both are in the same slot: that is what this page has
+        always done at the top, so an admin who puts both in one place
+        gets the order they already know. See MEDIA_ORDER in app.py. -#}
+    {% macro media_at(where) %}
+      {% if video and video.position == where %}
+        {% if where == 'lead' %}{{ video_player(video) }}
+        {% else %}<div class="rc-video-block{{ ' rc-video-end' if where == 'end' }}">{{ video_player(video) }}</div>{% endif %}
+      {% endif %}
+      {% if show_image and camp.image_position == where %}
+      <img class="event-hero{{ ' collection-image-below' if where != 'lead' }}"
+           src="{{ upload_url(camp.image) }}" alt="">
+      {% endif %}
+    {% endmacro %}
+
+    {{ media_at('lead') }}
 
     <div class="event-body">
       {% for para in camp.description.split('\n') if para.strip() %}
@@ -41,9 +53,7 @@
       {% endfor %}
     </div>
 
-    {% if video and video.position == 'after_text' %}
-    <div class="rc-video-block">{{ video_player(video) }}</div>
-    {% endif %}
+    {{ media_at('after_text') }}
 
     {#- The figures read differently once a collection has finished: a
         running total invites you to add to it, a final one is a record
@@ -167,9 +177,7 @@
         take a payment, a video below the form is the "find out more"
         slot, which is a real and different place from "after the
         words". -#}
-    {% if video and video.position == 'end' %}
-    <div class="rc-video-block rc-video-end">{{ video_player(video) }}</div>
-    {% endif %}
+    {{ media_at('end') }}
   </div>
 </section>
 {% endblock %}

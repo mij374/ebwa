@@ -59,6 +59,26 @@
       photographs of its own and the cover would only repeat them.</small>
   </div>
 
+  {#- Only meaningful while the box above is ticked; it is left enabled
+      rather than hidden or disabled so the setting is still there when
+      somebody ticks the box back on. -#}
+  <div class="field">
+    <label for="image_position">Where that image sits on the page</label>
+    <select id="image_position" name="image_position">
+      {% for value, label, _desc in image_positions %}
+      <option value="{{ value }}"
+        {{ 'selected' if image_position == value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <small>
+      {% for value, label, desc in image_positions %}
+      <b>{{ label }}</b> — {{ desc }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+      <br>Only applies when the box above is ticked. If the picture and
+      the video are in the same place, the video comes first.
+    </small>
+  </div>
+
   {% if features.video %}
   <div class="field">
     <label for="video_url">Video link</label>

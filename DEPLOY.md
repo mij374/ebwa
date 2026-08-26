@@ -136,6 +136,36 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Collections: where the picture sits
+
+**ONE NEW COLUMN**, defaulting to the top, so nothing moves on any
+existing collection page.
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+ALTER TABLE campaign ADD COLUMN image_position VARCHAR(20) NOT NULL DEFAULT 'lead';
+SQL
+flask --app app check-schema     # must be clean
+sudo systemctl restart ebwa
+```
+
+Same three places as the video (`IMAGE_POSITIONS`, the same keys), and
+it applies only when `show_image_on_page` is ticked — the position is
+still stored while the box is unticked, so ticking it back on puts the
+picture where it was rather than at the top.
+
+**When both are in the same place the VIDEO goes first** (`MEDIA_ORDER`),
+which is what the top of this page has always done.
+
+No `init-db`, no Block, no data migration — the default is the existing
+behaviour.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-26 — Collections: keep the cover off the page
 
 **ONE NEW COLUMN**, defaulting to on, so nothing changes for any

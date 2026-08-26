@@ -1770,12 +1770,21 @@ Built (post-signing variation, Jul 2026):
   - The photo doing duty as the video's POSTER is still never shown
     twice, whatever the box says. Two independent reasons to leave it
     off the page, and both have to be checked.
-  - The campaign image is NOT positionable the way the video is, and
-    that is not an oversight: it is a plain column on a page that does
-    not use the rich-content macro, so nothing about ordering comes free
-    from that machinery. Making it positionable means a second column
-    and a second select, hand-threaded into the same template — worth
-    doing only if somebody asks.
+  - `image_position` puts it in the same three places as the video
+    (`IMAGE_POSITIONS` — the same keys, wording that suits a
+    photograph). It is hand-threaded into `collection_detail.html`, not
+    inherited from the rich-content macro, because campaigns do not use
+    that macro; there is nothing to reuse and nothing that comes free.
+    - Position is stored even while `show_image_on_page` is unticked, so
+      ticking the box back on puts the picture where it was rather than
+      at the top.
+    - **BOTH IN THE SAME SLOT: THE VIDEO GOES FIRST** (`MEDIA_ORDER`).
+      Decided rather than left to template accident — it is what the top
+      of this page has always done, so an admin who puts both in one
+      place gets the order they already know, and the video is the thing
+      somebody came to watch with the photograph reading as a still
+      beneath it. One `media_at()` macro renders all three slots, so the
+      two can never come out in different orders in different places.
 - Partner cards can show a logo: `Partner.display_mode` ('text' |
   'image' | 'both', see `PARTNER_MODES`) plus an optional `logo` upload,
   with admin CRUD moved to the list + form-page pattern so logos can be

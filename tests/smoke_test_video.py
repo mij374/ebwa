@@ -40,7 +40,7 @@ from app import (app, db, AuditLog, Block, Campaign, CSP,  # noqa: E402
                  video_embed_url, video_watch_url, VIDEO_POSITIONS,
                  VIDEO_POSITION_DEFAULT, VIDEO_POSITION_KEYS,
                  clean_video_position, video_of, video_position_for,
-                 ContentImage)
+                 ContentImage, IMAGE_POSITIONS, clean_media_position)
 
 app.config["TESTING"] = True
 PW = "video-test-password"
@@ -700,6 +700,116 @@ client.post("/admin/campaigns/%d/edit" % CAMP_ID,
 with app.app_context():
     check("and ticking it turns it back on",
           db.session.get(Campaign, CAMP_ID).show_image_on_page is True)
+
+# ---- THE PICTURE MOVES TOO, AND THE TWO NEVER COLLIDE -----------------
+# Every combination, asserted on the RENDERED PAGE and on ORDER — the
+# gap that let the video bug through was a test that read the stored
+# value and a page that ignored it.
+print()
+print("---- collection image position")
+import itertools as _it     # noqa: E402
+
+MARK = {"VIDEO": 'class="video-play"', "image": "campaign-photo.jpg",
+        "text": "Second para.", "form": "Pay securely"}
+
+
+def order_of(main):
+    """The order the page actually renders them in."""
+    found = [(main.index(needle), name)
+             for name, needle in MARK.items() if needle in main]
+    return [name for _i, name in sorted(found)]
+
+
+set_campaign(show_image_on_page=True, video_thumb="campaign-poster.jpg",
+             description="First para." + chr(10) * 2 + "Second para.")
+grid = {}
+for vpos, ipos in _it.product(VIDEO_POSITION_KEYS, VIDEO_POSITION_KEYS):
+    set_campaign(video_position=vpos, image_position=ipos)
+    main = collection_main()
+    grid[(vpos, ipos)] = order_of(main)
+    tag = "video %s / image %s" % (vpos, ipos)
+    check("%s: exactly one player" % tag,
+          main.count('class="video-play"') == 1)
+    check("%s: exactly one page picture" % tag,
+          main.count("campaign-photo.jpg") == 1,
+          str(main.count("campaign-photo.jpg")))
+    seq = grid[(vpos, ipos)]
+    # each lands where it was told
+    for name, pos in (("VIDEO", vpos), ("image", ipos)):
+        i = seq.index(name)
+        if pos == "lead":
+            check("%s: %s is above the text" % (tag, name),
+                  i < seq.index("text"), str(seq))
+        elif pos == "after_text":
+            check("%s: %s is below the text" % (tag, name),
+                  i > seq.index("text"), str(seq))
+            check("%s: %s is above the form" % (tag, name),
+                  i < seq.index("form"), str(seq))
+        else:
+            check("%s: %s is below the form" % (tag, name),
+                  i > seq.index("form"), str(seq))
+    if vpos == ipos:
+        check("%s: SAME SLOT -> the video comes first" % tag,
+              seq.index("VIDEO") < seq.index("image"), str(seq))
+
+check("all nine combinations render both, and no two are the same layout "
+      "unless they should be",
+      len({tuple(v) for v in grid.values()}) >= 6,
+      str(sorted({tuple(v) for v in grid.values()})))
+
+# Hidden beats position: an unticked box means no picture, wherever it
+# was told to go.
+set_campaign(show_image_on_page=False)
+for ipos in VIDEO_POSITION_KEYS:
+    set_campaign(image_position=ipos, video_position="lead")
+    main = collection_main()
+    check("hidden + image_position %s: no picture on the page" % ipos,
+          "campaign-photo.jpg" not in main)
+    check("hidden + image_position %s: the player is untouched" % ipos,
+          main.count('class="video-play"') == 1)
+check("...and the cover is still on the listing",
+      "campaign-photo.jpg" in client.get("/collections").data.decode("utf-8"))
+
+# The poster rule beats BOTH: a photo doing duty as the still is never
+# shown twice, wherever the picture was told to sit.
+set_campaign(show_image_on_page=True, video_thumb="")
+for ipos in VIDEO_POSITION_KEYS:
+    set_campaign(image_position=ipos, video_position="lead")
+    main = collection_main()
+    check("poster duty + image_position %s: shown once, not twice" % ipos,
+          main.count("campaign-photo.jpg") == 1,
+          str(main.count("campaign-photo.jpg")))
+set_campaign(video_thumb="campaign-poster.jpg")
+
+# The form offers it and round-trips it, including an unticked box.
+form = client.get("/admin/campaigns/%d/edit" % CAMP_ID).data.decode("utf-8")
+check("the campaign form offers the image position",
+      'name="image_position"' in form
+      and all(label in form for _k, label, _d in IMAGE_POSITIONS))
+client.post("/admin/campaigns/%d/edit" % CAMP_ID,
+            data={"title": "Video campaign", "description": "Words.",
+                  "target": "", "fee": "", "state": "open",
+                  "show_image_on_page": "on", "image_position": "end",
+                  "video_url": "https://vimeo.com/123456789",
+                  "video_position": "lead"},
+            follow_redirects=True)
+with app.app_context():
+    check("saving stores the image position",
+          db.session.get(Campaign, CAMP_ID).image_position == "end",
+          db.session.get(Campaign, CAMP_ID).image_position)
+client.post("/admin/campaigns/%d/edit" % CAMP_ID,
+            data={"title": "Video campaign", "description": "Words.",
+                  "target": "", "fee": "", "state": "open",
+                  "image_position": "made up",
+                  "video_url": "https://vimeo.com/123456789",
+                  "video_position": "lead"},
+            follow_redirects=True)
+with app.app_context():
+    c = db.session.get(Campaign, CAMP_ID)
+    check("a position nobody offered goes back to the top",
+          c.image_position == "lead", c.image_position)
+    check("...and unticking the box did not forget the position",
+          c.show_image_on_page is False)
 
 # ---- ABOUT HONOURS THE POSITION TOO ------------------------------------
 # About stores its settings in Blocks rather than columns, so it is a

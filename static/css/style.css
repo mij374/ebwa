@@ -1628,6 +1628,10 @@ input.money{-moz-appearance:textfield;appearance:textfield}
    it should not pretend to be. */
 .rc-video-block{margin:30px 0;max-width:760px}
 .rc-video-end{margin-bottom:0;margin-top:34px}
+/* The collection picture when it has been moved below the words: it is
+   a band of its own down there rather than the hero at the top, so it
+   takes the same spacing as a moved video. */
+.event-hero.collection-image-below{margin:30px 0 0}
 
 /* ---------- Footer newsletter ---------- */
 /* STACKED, not side by side: the address goes on its own line and the

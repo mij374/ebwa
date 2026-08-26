@@ -275,16 +275,44 @@ VIDEO_POSITIONS = (
 VIDEO_POSITION_KEYS = tuple(k for k, _l, _d in VIDEO_POSITIONS)
 VIDEO_POSITION_DEFAULT = VIDEO_POSITIONS[0][0]
 
+# The collection page's own picture takes the SAME THREE PLACES. Same
+# keys deliberately — one set of positions, one validator, one order to
+# reason about — with wording that suits a photograph rather than a
+# video. Only campaigns have this: everywhere else photographs are
+# ContentImage attachments laid out by a preset, and their order is the
+# preset's business.
+IMAGE_POSITIONS = (
+    ("lead", "At the top",
+     "Before the words. Where the picture has always been."),
+    ("after_text", "After the text",
+     "Below the description, above the figures."),
+    ("end", "At the end",
+     "Below the payment form, at the foot of the page."),
+)
+assert tuple(k for k, _l, _d in IMAGE_POSITIONS) == VIDEO_POSITION_KEYS
 
-def clean_video_position(value):
+# WHEN THE PICTURE AND THE VIDEO ARE IN THE SAME PLACE, THE VIDEO GOES
+# FIRST. Not a template accident — it is what 'lead' has always done on
+# this page (video, then image), so an admin who moves both to the same
+# slot gets the order they already know rather than a new one. It is
+# also the more useful way round: the video is the thing somebody came
+# to watch, and the photograph reads as the still beneath it.
+MEDIA_ORDER = ("video", "image")
+
+
+def clean_media_position(value):
     """A stored or submitted position, or the default.
 
     Anything unrecognised falls back to 'lead' rather than raising: a
-    hand-edited row or a form from an older deploy should put the video
+    hand-edited row or a form from an older deploy should put the media
     where it has always been, not break the page.
     """
     return (value if value in VIDEO_POSITION_KEYS
             else VIDEO_POSITION_DEFAULT)
+
+
+# The old name, kept because it reads correctly at the video call sites.
+clean_video_position = clean_media_position
 
 
 class ContentImage(db.Model):
@@ -744,6 +772,12 @@ class Campaign(db.Model):
     # — but the cover is not optional, so this switch cannot touch it.
     show_image_on_page = db.Column(db.Boolean, nullable=False, default=True,
                                    server_default="1")
+    # ...and WHERE it sits when it is shown, the same three places the
+    # video has (IMAGE_POSITIONS). Only the page picture moves; the
+    # cover is not positioned, it is a card.
+    image_position = db.Column(db.String(20), nullable=False,
+                               default=VIDEO_POSITION_DEFAULT,
+                               server_default="lead")
     # VISIBILITY AND TRADING ARE TWO QUESTIONS, and `active` answered both
     # at once: closing a collection took it off the website, so the trip
     # that was paid for and ran vanished the moment it stopped selling
@@ -6445,6 +6479,10 @@ def admin_campaign_form(campaign_id=None):
                 # not affected either way — that is the point of it.
                 "show_image_on_page":
                     request.form.get("show_image_on_page") == "on",
+                # Saved whether or not the box above is ticked: unticking
+                # it must not silently forget where the picture goes.
+                "image_position": clean_media_position(
+                    request.form.get("image_position", "")),
             }
             changed = [] if is_new else changed_fields(camp, values)
             apply_values(camp, values)
@@ -6489,8 +6527,11 @@ def admin_campaign_form(campaign_id=None):
     return render_template("admin/campaign_form.html", camp=camp,
                            campaign_states=CAMPAIGN_STATES,
                            video_positions=VIDEO_POSITIONS,
-                           video_position=clean_video_position(
-                               camp.video_position if camp else ""))
+                           video_position=clean_media_position(
+                               camp.video_position if camp else ""),
+                           image_positions=IMAGE_POSITIONS,
+                           image_position=clean_media_position(
+                               camp.image_position if camp else ""))
 
 
 @app.route("/admin/campaigns/<int:campaign_id>/delete", methods=["POST"])
