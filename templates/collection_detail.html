@@ -6,19 +6,32 @@
     <p class="eyebrow"><a href="{{ url_for('home') }}" class="crumb">← Home</a></p>
     <h1 class="event-title">{{ camp.title }}</h1>
 
-    {#- A video LEADS, it does not replace. The photograph is somebody's
+    {#- THIS PAGE DOES NOT USE THE RICH-CONTENT MACRO. Campaigns are not
+        rich-content owners (see CONTENT_OWNERS): there are no
+        ContentImage attachments and no layout preset here, just one
+        image column and one video. So the video's POSITION has to be
+        honoured by hand, and it is — three places, matching
+        VIDEO_POSITIONS. Rendering the player directly and forgetting
+        that is exactly how the setting came to have no effect here
+        while working everywhere else.
+
+        A video LEADS, it does not replace. The photograph is somebody's
         picture of the trip and the campaign's own identity — it is on
         the card and the homepage strip — so a video must not take it off
-        the page. Both appear, video first.
-        The one exception is when the photo IS the video's poster, which
-        happens when no still could be fetched from the provider: showing
-        it again underneath would just be the same picture twice. -#}
+        the page. Both appear.
+        Two things can keep the picture off THIS page and neither
+        touches the cover: the admin unticking `show_image_on_page`, and
+        the photo doing duty as the video's poster (which happens when
+        no still could be fetched, and showing it again underneath would
+        be the same picture twice). -#}
+    {% from "_rich_content.html" import video_player %}
     {% set video = video_of(camp, camp.image) %}
-    {% if video %}
-      {% from "_rich_content.html" import video_player %}
+    {% set show_image = camp.image and camp.show_image_on_page
+                        and not (video and video.poster == camp.image) %}
+    {% if video and video.position == 'lead' %}
       {{ video_player(video) }}
     {% endif %}
-    {% if camp.image and not (video and video.poster == camp.image) %}
+    {% if show_image %}
     <img class="event-hero" src="{{ upload_url(camp.image) }}" alt="">
     {% endif %}
 
@@ -27,6 +40,10 @@
       <p>{{ para }}</p>
       {% endfor %}
     </div>
+
+    {% if video and video.position == 'after_text' %}
+    <div class="rc-video-block">{{ video_player(video) }}</div>
+    {% endif %}
 
     {#- The figures read differently once a collection has finished: a
         running total invites you to add to it, a final one is a record
@@ -143,6 +160,15 @@
         <button class="btn btn-green" type="submit">Pay securely</button>
       </div>
     </form>
+    {% endif %}
+
+    {#- "At the end" means after the whole of the page's content — the
+        figures and the payment form included. On a page whose job is to
+        take a payment, a video below the form is the "find out more"
+        slot, which is a real and different place from "after the
+        words". -#}
+    {% if video and video.position == 'end' %}
+    <div class="rc-video-block rc-video-end">{{ video_player(video) }}</div>
     {% endif %}
   </div>
 </section>

@@ -323,6 +323,11 @@ with app.app_context():
     # public page to look at.
     c.active = True
     c.image = "campaign-photo.jpg"
+    # The edit-form posts above send no show_image_on_page box, which is
+    # how an unticked one reads — so the picture is off the page by the
+    # time we get here. Put it back: this section is about the video not
+    # displacing the photograph, not about the switch.
+    c.show_image_on_page = True
     c.video_url = "https://vimeo.com/123456789"
     c.video_thumb = "campaign-poster.jpg"
     db.session.commit()
@@ -559,6 +564,142 @@ with app.app_context():
     check("moving the video is audit-logged, naming where it went",
           "video" in (last.summary or "").lower()
           and "position" in (last.summary or "").lower(), last.summary)
+
+# ---- COLLECTIONS HONOUR IT TOO -----------------------------------------
+# This page does NOT use the rich-content macro: campaigns are not
+# rich-content owners, so it renders the player itself and has to honour
+# the position by hand. It did not, and the position tests here only
+# ever rendered a news post — the campaign checks asserted on the MODEL
+# (c.video_url == ...) and, on the page, only that the player and the
+# photograph were both PRESENT. Presence is not position. So the field
+# existed, the admin select saved it, and the page ignored it.
+#
+# Everything below asserts on the RENDERED PAGE and on ORDER.
+print()
+print("---- collections, which render the player themselves")
+with app.app_context():
+    c = db.session.get(Campaign, CAMP_ID)
+    c.state = "open"
+    c.image = "campaign-photo.jpg"
+    c.show_image_on_page = True
+    c.video_url = "https://vimeo.com/123456789"
+    c.video_thumb = "campaign-poster.jpg"
+    c.description = "First para." + chr(10) * 2 + "Second para."
+    db.session.commit()
+
+
+def collection_main():
+    html = client.get("/collections/video-campaign").data.decode("utf-8")
+    return html.split("<main", 1)[1].split("</main>", 1)[0]
+
+
+def set_campaign(**fields):
+    with app.app_context():
+        c = db.session.get(Campaign, CAMP_ID)
+        for k, v in fields.items():
+            setattr(c, k, v)
+        db.session.commit()
+
+
+camp_seen = {}
+for position in VIDEO_POSITION_KEYS:
+    set_campaign(video_position=position)
+    main = collection_main()
+    camp_seen[position] = main
+    check("collection/%s: exactly one player" % position,
+          main.count('class="video-play"') == 1,
+          str(main.count('class="video-play"')))
+    check("collection/%s: the photograph is still there" % position,
+          "campaign-photo.jpg" in main)
+    check("collection/%s: the description is still there" % position,
+          "Second para." in main)
+
+check("COLLECTIONS ACTUALLY MOVE THE VIDEO, they do not just store it",
+      camp_seen["lead"].index("video-play")
+      < camp_seen["after_text"].index("video-play")
+      < camp_seen["end"].index("video-play"),
+      "the collection page rendered the video in the same place for "
+      "every setting")
+check("collection/lead: above the photograph",
+      camp_seen["lead"].index("video-play")
+      < camp_seen["lead"].index("campaign-photo.jpg"))
+check("collection/after_text: below the description",
+      camp_seen["after_text"].index("video-play")
+      > camp_seen["after_text"].index("Second para."))
+check("collection/after_text: and above the payment form",
+      camp_seen["after_text"].index("video-play")
+      < camp_seen["after_text"].index("Pay securely"))
+check("collection/end: below the payment form",
+      camp_seen["end"].index("video-play")
+      > camp_seen["end"].index("Pay securely"))
+
+# ---- the cover and the page picture are two different jobs
+set_campaign(video_position="lead", show_image_on_page=False)
+main = collection_main()
+check("unticking it takes the picture OFF the collection page",
+      "campaign-photo.jpg" not in main)
+check("...but the player is untouched", main.count('class="video-play"') == 1)
+listing = client.get("/collections").data.decode("utf-8")
+check("...AND THE COVER IS UNTOUCHED on the listing",
+      "campaign-photo.jpg" in listing)
+home = client.get("/").data.decode("utf-8")
+check("...and on the homepage strip",
+      "campaign-photo.jpg" in home or "Video campaign" not in home)
+
+set_campaign(show_image_on_page=True)
+check("ticking it back puts the picture back",
+      "campaign-photo.jpg" in collection_main())
+
+# With the image off, the video still moves through all three places.
+set_campaign(show_image_on_page=False)
+noimg = {}
+for position in VIDEO_POSITION_KEYS:
+    set_campaign(video_position=position)
+    noimg[position] = collection_main()
+    check("no page image, %s: still exactly one player" % position,
+          noimg[position].count('class="video-play"') == 1)
+check("no page image: the video still moves",
+      noimg["lead"].index("video-play")
+      < noimg["after_text"].index("video-play")
+      < noimg["end"].index("video-play"))
+
+# The poster rule still wins: a photo doing duty as the poster is not
+# shown twice, whatever the checkbox says.
+set_campaign(show_image_on_page=True, video_thumb="", video_position="lead")
+main = collection_main()
+check("a photo serving as the video's poster is not repeated below it",
+      main.count("campaign-photo.jpg") == 1,
+      str(main.count("campaign-photo.jpg")))
+
+# The admin form offers the switch and round-trips it.
+form = client.get("/admin/campaigns/%d/edit" % CAMP_ID).data.decode("utf-8")
+check("the campaign form offers the switch",
+      'name="show_image_on_page"' in form)
+check("...ticked, because this campaign shows its image",
+      'name="show_image_on_page"' in form
+      and "checked" in form.split('name="show_image_on_page"', 1)[1][:40])
+client.post("/admin/campaigns/%d/edit" % CAMP_ID,
+            data={"title": "Video campaign", "description": "Words.",
+                  "target": "", "fee": "", "state": "open",
+                  "video_url": "https://vimeo.com/123456789",
+                  "video_position": "lead"},
+            follow_redirects=True)
+with app.app_context():
+    check("an unticked box really does turn it off",
+          db.session.get(Campaign, CAMP_ID).show_image_on_page is False)
+form = client.get("/admin/campaigns/%d/edit" % CAMP_ID).data.decode("utf-8")
+check("...and the form then shows it unticked",
+      "checked" not in form.split('name="show_image_on_page"', 1)[1][:40])
+client.post("/admin/campaigns/%d/edit" % CAMP_ID,
+            data={"title": "Video campaign", "description": "Words.",
+                  "target": "", "fee": "", "state": "open",
+                  "show_image_on_page": "on",
+                  "video_url": "https://vimeo.com/123456789",
+                  "video_position": "lead"},
+            follow_redirects=True)
+with app.app_context():
+    check("and ticking it turns it back on",
+          db.session.get(Campaign, CAMP_ID).show_image_on_page is True)
 
 # ---- ABOUT HONOURS THE POSITION TOO ------------------------------------
 # About stores its settings in Blocks rather than columns, so it is a

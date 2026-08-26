@@ -42,6 +42,23 @@
     <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>
   </div>
 
+  {#- The picture does two jobs, and this switch only touches the second.
+      Rendered `checked` from the row's CURRENT state, per the rule about
+      publish checkboxes: an unticked box posts nothing, so a form that
+      showed this unticked while editing a campaign that shows its image
+      would take the picture off the page on the next save. -#}
+  <div class="field field-check">
+    <label>
+      <input type="checkbox" name="show_image_on_page"
+             {{ 'checked' if not camp or camp.show_image_on_page }}>
+      Show this image on the collection page as well as the cover
+    </label>
+    <small>The photo is always the cover on the collections list and the
+      homepage. Untick this to keep it as the cover but leave it off the
+      collection's own page — useful when that page has a video or
+      photographs of its own and the cover would only repeat them.</small>
+  </div>
+
   {% if features.video %}
   <div class="field">
     <label for="video_url">Video link</label>

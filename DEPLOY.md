@@ -136,6 +136,36 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Collections: keep the cover off the page
+
+**ONE NEW COLUMN**, defaulting to on, so nothing changes for any
+existing campaign.
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+ALTER TABLE campaign ADD COLUMN show_image_on_page BOOLEAN NOT NULL DEFAULT '1';
+SQL
+flask --app app check-schema     # must be clean
+sudo systemctl restart ebwa
+```
+
+The campaign image does two jobs: the cover on the collections listing
+and the homepage strip, and a picture on the collection's own page. This
+column governs only the second. **The cover is not optional and this
+switch cannot touch it** — a collection with no card image would be a
+hole in the listing.
+
+No `init-db` and no Block. Shipped in the same commit as the fix for the
+video position having no effect on this page, which needed no schema
+change of its own — the column was already there from
+2026-08-25, the template simply never read it.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-25 — Where the video sits
 
 **FOUR NEW COLUMNS AND ONE NEW BLOCK.** The columns all default to

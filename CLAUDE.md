@@ -1038,6 +1038,23 @@ Built and maintained by Netbus IT Support.
     - Only a LEAD video takes the classic preset's lead slot. Moved
       anywhere else the slot goes back to the first photograph — a
       video sent down the page must not leave a hole at the top of it.
+    - **A PAGE THAT RENDERS `video_player()` ITSELF MUST HONOUR
+      `video.position` ITSELF.** The macro does it for the rich-content
+      owners; `collection_detail.html` does not use the macro, because
+      campaigns are not rich-content owners — no ContentImage
+      attachments, no layout preset, one image column and one video. It
+      called `video_player()` directly and hardcoded video-then-image,
+      so the setting saved and did nothing, on the one content type
+      whose page is hand-built. The three places there are: before
+      everything, after the description, and below the payment form —
+      which on a page whose job is to take a payment is the "find out
+      more" slot, and a genuinely different place from "after the
+      words".
+    - The position tests must assert on the RENDERED PAGE and on ORDER.
+      The campaign checks used to assert `c.video_url == ...` on the
+      model and, on the page, only that the player and the photograph
+      were both PRESENT. Presence is not position, and a field that
+      exists with an admin control that saves it looks covered.
     - **NO TEMPLATE ASSEMBLES THE DICT `video_of()` READS.** About has
       no row — its settings are Blocks — so something must build an
       object-shaped thing for it, and that something is `about_video()`
@@ -1743,6 +1760,22 @@ Built (post-signing variation, Jul 2026):
     presets are scaled down there to an image treatment for one entry —
     see the Our Journey block in the stylesheet for why. A future page
     that lists rich owners should copy this, not add its own queries.
+- **`Campaign.image` does two jobs**, and `show_image_on_page` governs
+  only one of them: it is the COVER on the collections listing and the
+  homepage strip, and a picture on the collection's own page. Unticking
+  the box keeps the cover and takes the picture off the detail page —
+  useful when that page has a video or photographs of its own. The cover
+  is not optional and no setting may make it so; a collection with no
+  card image is a hole in the listing.
+  - The photo doing duty as the video's POSTER is still never shown
+    twice, whatever the box says. Two independent reasons to leave it
+    off the page, and both have to be checked.
+  - The campaign image is NOT positionable the way the video is, and
+    that is not an oversight: it is a plain column on a page that does
+    not use the rich-content macro, so nothing about ordering comes free
+    from that machinery. Making it positionable means a second column
+    and a second select, hand-threaded into the same template — worth
+    doing only if somebody asks.
 - Partner cards can show a logo: `Partner.display_mode` ('text' |
   'image' | 'both', see `PARTNER_MODES`) plus an optional `logo` upload,
   with admin CRUD moved to the list + form-page pattern so logos can be

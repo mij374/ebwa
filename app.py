@@ -737,6 +737,13 @@ class Campaign(db.Model):
     video_position = db.Column(db.String(20), nullable=False,
                                default=VIDEO_POSITION_DEFAULT,
                                server_default="lead")
+    # `image` does TWO JOBS: the cover on the listing cards and the
+    # homepage strip, and a picture on the collection's own page. This
+    # says whether it does the second one. A page with its own video, or
+    # with photographs of its own, may not want the cover repeated on it
+    # — but the cover is not optional, so this switch cannot touch it.
+    show_image_on_page = db.Column(db.Boolean, nullable=False, default=True,
+                                   server_default="1")
     # VISIBILITY AND TRADING ARE TWO QUESTIONS, and `active` answered both
     # at once: closing a collection took it off the website, so the trip
     # that was paid for and ran vanished the moment it stopped selling
@@ -6433,6 +6440,11 @@ def admin_campaign_form(campaign_id=None):
                 "target_pence": target_pence,
                 "fee_pence": fee_pence,
                 "state": state,
+                # An unticked checkbox posts nothing, which is what
+                # "do not show it on the page" means here. The COVER is
+                # not affected either way — that is the point of it.
+                "show_image_on_page":
+                    request.form.get("show_image_on_page") == "on",
             }
             changed = [] if is_new else changed_fields(camp, values)
             apply_values(camp, values)
