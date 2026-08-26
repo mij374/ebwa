@@ -1568,7 +1568,7 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
                      "security_alert_email", "site_security_alert_to",
                      "sftp_enabled", "sftp_host", "sftp_port", "sftp_user",
                      "sftp_password_enc", "sftp_remote_path",
-                     "sftp_schedule", "sftp_keep",
+                     "sftp_schedule", "sftp_schedule_tz", "sftp_keep",
                      PARTNER_MOTION_KEY, PARTNER_STEP_KEY,
                      PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY,
                      HOME_ORDER_KEY, HOME_HIDDEN_KEY,
@@ -3853,7 +3853,13 @@ SFTP_KEYS = {
     "user": "sftp_user",
     "password": "sftp_password_enc",    # Fernet ciphertext, never plaintext
     "path": "sftp_remote_path",
-    "schedule": "sftp_schedule",        # "HH:MM", UTC
+    "schedule": "sftp_schedule",        # "HH:MM", UK LOCAL (see below)
+    # Empty on a database written before the schedule became UK local,
+    # "uk" once it holds a local time. Absent means the stored value is
+    # still the old UTC one and is converted on the way out, so a
+    # deployment that never runs the migration command cannot quietly
+    # start backing up an hour off.
+    "schedule_tz": "sftp_schedule_tz",
     "keep": "sftp_keep",                # how many to keep ON THE NAS
 }
 SFTP_DEFAULT_PORT = 22
@@ -3908,13 +3914,38 @@ def sftp_settings():
         "port": int(port) if port.isdigit() else SFTP_DEFAULT_PORT,
         "user": rows.get(SFTP_KEYS["user"], ""),
         "path": rows.get(SFTP_KEYS["path"], ""),
-        "schedule": rows.get(SFTP_KEYS["schedule"], "") or
-        SFTP_DEFAULT_SCHEDULE,
+        "schedule": schedule_in_uk(
+            rows.get(SFTP_KEYS["schedule"], "") or SFTP_DEFAULT_SCHEDULE,
+            rows.get(SFTP_KEYS["schedule_tz"], "")),
+        "schedule_migrated":
+            rows.get(SFTP_KEYS["schedule_tz"], "") == "uk",
         "keep": int(keep) if keep.isdigit() else SFTP_DEFAULT_KEEP,
         # Whether one is stored — never what it is.
         "password_set": bool(rows.get(SFTP_KEYS["password"], "")),
         "key_present": fernet() is not None,
     }
+
+
+def schedule_in_uk(stored, marker, on=None):
+    """The schedule as a UK local "HH:MM", converting a legacy UTC one.
+
+    The field used to be UTC and is now UK local. A stored value written
+    before that change is still UTC, and reading it as local would move
+    every backup by an hour for half the year without a word to anybody
+    — the failure this exists to prevent. So an unmarked value is
+    CONVERTED ON THE WAY OUT, which means a deployment that never runs
+    `migrate-backup-schedule` still behaves correctly and still shows the
+    admin the time their backup actually happens.
+
+    Converted against the offset in force TODAY, which is the ambiguous
+    part and is discussed in the CLI command below.
+    """
+    if marker == "uk":
+        return stored
+    hour, minute = schedule_parts(stored)
+    on = on or datetime.utcnow().date()
+    return utc_as_uk(datetime(on.year, on.month, on.day, hour,
+                              minute)).strftime("%H:%M")
 
 
 def sftp_password():
@@ -7316,6 +7347,77 @@ def utc_as_uk(dt):
     return dt.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
 
 
+def uk_clock_change(d):
+    """The instant the UK clocks change on date `d`, as naive UTC, or None.
+
+    Found by halving the day rather than by knowing when the government
+    moves the clocks: the rule has changed before and zoneinfo already
+    holds the answer.
+    """
+    lo = uk_midnight_as_utc(d)
+    hi = uk_midnight_as_utc(d + timedelta(days=1))
+    first = utc_as_uk(lo).utcoffset()
+    if utc_as_uk(hi - timedelta(seconds=1)).utcoffset() == first:
+        return None                      # an ordinary day
+    for _ in range(40):
+        mid = lo + (hi - lo) / 2
+        if utc_as_uk(mid).utcoffset() == first:
+            lo = mid
+        else:
+            hi = mid
+    # `hi` is the first instant on the new offset; transitions land on
+    # the hour, so round away the binary search's last fractions.
+    return (hi + timedelta(seconds=1) - timedelta(
+        microseconds=hi.microsecond)).replace(second=0, microsecond=0)
+
+
+def uk_wall_as_utc(d, hour, minute):
+    """A UK wall-clock time on a UK calendar date, as naive UTC.
+
+    The same idea as `uk_midnight_as_utc`, for a time somebody typed.
+    Two days a year that is not a straightforward sum, and both are
+    handled here rather than at the call site:
+
+    SPRING, the hour that does not happen. At 01:00 GMT the clocks go to
+    02:00 BST, so nothing between 01:00 and 01:59 exists that day. A
+    schedule set inside it is due AT THE MOMENT THE CLOCKS CHANGE — the
+    first instant that day at or after the time that was asked for. It
+    runs once, as early as it could have, rather than being skipped for
+    the year or dragged to the following midnight.
+
+    AUTUMN, the hour that happens twice. At 02:00 BST the clocks go back
+    to 01:00 GMT, so 01:00-01:59 comes round again an hour later. The
+    FIRST of the two is used (`fold=0`), so the backup happens at the
+    first opportunity; the caller's "has today's run already happened?"
+    check then stops the second one, which is why this returns one
+    instant and not two.
+    """
+    naive = datetime(d.year, d.month, d.day, hour, minute)
+    # fold=0 is the first of a repeated pair, which is what autumn wants.
+    utc = (naive.replace(tzinfo=UK_TZ).astimezone(timezone.utc)
+           .replace(tzinfo=None))
+    if utc_as_uk(utc).replace(tzinfo=None) == naive:
+        return utc                       # the wall time exists; done
+    # It does not exist: this is the spring gap. Use the change itself.
+    change = uk_clock_change(d)
+    return change if change is not None else utc
+
+
+def schedule_parts(text):
+    """"HH:MM" -> (hour, minute), falling back to the default.
+
+    A hand-edited or empty Block must not stop the nightly backup, so
+    anything unreadable becomes the default time rather than an error.
+    """
+    try:
+        hour, minute = [int(part) for part in str(text).split(":")]
+    except (ValueError, AttributeError, TypeError):
+        hour, minute = [int(part) for part in SFTP_DEFAULT_SCHEDULE.split(":")]
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        hour, minute = [int(part) for part in SFTP_DEFAULT_SCHEDULE.split(":")]
+    return hour, minute
+
+
 @app.template_filter("uk_date")
 def uk_date_filter(dt):
     """Display a naive-UTC timestamp as its UK local calendar date."""
@@ -8132,7 +8234,8 @@ def admin_sftp_settings():
     if not keep.isdigit() or int(keep) < 1:
         errors.append("Keep at least one archive on the NAS.")
     if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", schedule):
-        errors.append("The transfer time must look like 02:30, in UTC.")
+        errors.append("The transfer time must look like 02:30, in British "
+                      "time.")
     if path and not path.startswith("/"):
         errors.append("The folder on the NAS must start with a slash.")
     if enabled and not (host and user and path):
@@ -8152,7 +8255,10 @@ def admin_sftp_settings():
     values = {SFTP_KEYS["enabled"]: "1" if enabled else "",
               SFTP_KEYS["host"]: host, SFTP_KEYS["port"]: port,
               SFTP_KEYS["user"]: user, SFTP_KEYS["path"]: path,
-              SFTP_KEYS["schedule"]: schedule, SFTP_KEYS["keep"]: keep}
+              SFTP_KEYS["schedule"]: schedule, SFTP_KEYS["keep"]: keep,
+              # Whatever was typed here is a UK local time, so saving is
+              # also what settles a legacy UTC value for good.
+              SFTP_KEYS["schedule_tz"]: "uk"}
     if password:
         # Encrypted here and nowhere else. The plaintext never reaches
         # the database, an audit entry or a page.
@@ -8436,7 +8542,8 @@ DEFAULT_BLOCKS = [
     ("site", "sftp_user", "NAS username", "text", ""),
     ("site", "sftp_password_enc", "NAS password (encrypted)", "text", ""),
     ("site", "sftp_remote_path", "Folder on the NAS", "text", ""),
-    ("site", "sftp_schedule", "Daily transfer time (UTC)", "text", ""),
+    ("site", "sftp_schedule", "Daily transfer time (UK time)", "text", ""),
+    ("site", "sftp_schedule_tz", "Schedule time zone marker", "text", ""),
     ("site", "sftp_keep", "Archives to keep on the NAS", "text", ""),
     ("home", "home_hero_title", "Hero headline", "text",
      "Empowering communities, enriching lives in Enfield."),
@@ -9351,13 +9458,20 @@ def scheduled_run_due(now=None):
     """
     cfg = sftp_settings()
     now = now or datetime.utcnow()
-    try:
-        hour, minute = [int(part) for part in cfg["schedule"].split(":")]
-    except (ValueError, AttributeError):
-        hour, minute = 2, 30
-    due_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    # THE SCHEDULE IS A UK WALL-CLOCK TIME, like every other admin-facing
+    # time in this app. It used to be read as UTC while being typed by
+    # somebody in Enfield, so a 19:36 schedule ran at 20:36 their time
+    # for seven months of the year and read as simply not working.
+    #
+    # "Today" is therefore the UK calendar date, not the UTC one: for
+    # half an hour after midnight BST the two disagree, and using the UTC
+    # date there would ask whether YESTERDAY's run had happened.
+    hour, minute = schedule_parts(cfg["schedule"])
+    today = utc_as_uk(now).date()
+    due_at = uk_wall_as_utc(today, hour, minute)
     if now < due_at:
-        return False, "today's %s UTC run is not due yet" % cfg["schedule"]
+        return False, ("today's %s run (UK time) is not due yet"
+                       % cfg["schedule"])
 
     done = (BackupRun.query
             .filter(BackupRun.reason == "scheduled",
@@ -9376,6 +9490,61 @@ def scheduled_run_due(now=None):
                        "tomorrow, as the settings page says"
                        % done.transfer_attempts)
     return True, "today's backup is done but has not reached the NAS"
+
+
+@app.cli.command("migrate-backup-schedule")
+def migrate_backup_schedule():
+    """Rewrite a legacy UTC backup schedule as the UK local time it means.
+
+    WHY THIS IS A CHOICE AND NOT AN OBVIOUS SUM. A time of day in UTC is
+    two different local times depending on the season: 19:36 UTC is 20:36
+    in Enfield in July and 19:36 in January. So "what did the admin
+    mean?" has no single answer, and there were three on offer:
+
+      1. Leave the digits alone. The field would keep saying 19:36 and
+         start meaning local, so the backup would move an hour earlier in
+         real terms every summer. Rejected: it changes what the site DOES
+         while showing the admin nothing, which is the exact failure this
+         whole change is about.
+      2. Assume GMT, so the digits never move. Correct only in winter,
+         and wrong by an hour for the seven months that matter.
+      3. Convert against the offset in force on the day of migration, so
+         the backup goes on happening at the moment it happens now.
+
+    Number 3, taken. The admin chose 19:36 UTC by doing the arithmetic
+    for a quiet hour in their own evening; keeping the real moment keeps
+    that choice, and from then on it stays put in local terms across the
+    clock changes instead of drifting. On a site currently on BST the
+    displayed time moves forward an hour — which is not the schedule
+    changing, it is the label finally agreeing with it. On GMT nothing
+    moves at all.
+
+    Idempotent: the marker Block records that it has been done, and a
+    second run says so rather than shifting the time again.
+    """
+    rows = {b.key: (b.value or "") for b in Block.query.filter(
+        Block.key.in_((SFTP_KEYS["schedule"], SFTP_KEYS["schedule_tz"]))
+    ).all()}
+    if rows.get(SFTP_KEYS["schedule_tz"], "") == "uk":
+        print("Already done: the schedule is stored as UK local time.")
+        return
+    stored = rows.get(SFTP_KEYS["schedule"], "") or SFTP_DEFAULT_SCHEDULE
+    local = schedule_in_uk(stored, "")
+    _set_block(SFTP_KEYS["schedule"], local, group="site",
+               label="Daily transfer time (UK time)")
+    _set_block(SFTP_KEYS["schedule_tz"], "uk", group="site",
+               label="Schedule time zone marker")
+    db.session.commit()
+    if local == stored:
+        print("Schedule %s kept as it was — the clocks are on GMT today, "
+              "so the UTC time and the British time are the same." % stored)
+    else:
+        print("Schedule %s UTC is %s British time, which is when the backup "
+              "already runs.\nStored as %s. The time it happens has not "
+              "changed; the label now matches it." % (stored, local, local))
+    log_action("backup",
+               summary=("Backup schedule re-recorded as %s British time "
+                        "(was %s UTC)." % (local, stored)))
 
 
 @app.cli.command("run-scheduled-backup")

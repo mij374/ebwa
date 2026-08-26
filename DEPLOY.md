@@ -136,6 +136,48 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Backup schedule in British time
+
+**ONE NEW BLOCK AND A ONE-OFF COMMAND. No schema change.**
+
+```bash
+flask --app app init-db
+flask --app app migrate-backup-schedule     # see below — run it once
+flask --app app check-schema                # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+**What changed.** The NAS transfer time was entered and read as UTC while
+every other admin-facing time on this site is Europe/London. On a British
+site that means a 19:36 schedule fires at 20:36 for seven months of the
+year, which reads as the schedule not working. It is now a British time,
+like the rest.
+
+**`migrate-backup-schedule` rewrites the stored value** from the UTC time
+it used to mean to the British time that is the same moment — so the
+backup goes on happening exactly when it happens today, and only the
+label changes. Run on BST the displayed time moves forward an hour; run
+on GMT nothing moves. It is idempotent: a second run says so and changes
+nothing.
+
+**IT IS SAFE TO FORGET, but do not.** An unmigrated value is converted on
+the way out too (`schedule_in_uk`), so a deployment that skips the
+command still backs up at the right moment and still shows the admin the
+right time. What it does NOT do is settle the stored digits, so the
+displayed time will shift at the next clock change until somebody either
+runs the command or saves the Settings form. Run it.
+
+**The two awkward mornings**, in case anybody is asked: on the day the
+clocks go forward an hour does not exist, and a schedule set inside it
+runs once, at the moment the clocks change. On the day they go back an
+hour happens twice, and it runs once, at the first.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## 1993a37 — 2026-08-26 — Retention setting and the period report
 
 **THREE NEW BLOCKS, NO SCHEMA CHANGE.** `init-db` is idempotent and

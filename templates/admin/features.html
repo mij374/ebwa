@@ -373,12 +373,20 @@
                value="{{ sftp.path }}" placeholder="/volume1/backups/ebwa">
       </div>
       <div class="field">
-        <label for="sftp_schedule">Daily transfer time (UTC)</label>
+        <label for="sftp_schedule">Daily transfer time (British time)</label>
         <input type="text" id="sftp_schedule" name="schedule" maxlength="5"
                value="{{ sftp.schedule }}" placeholder="02:30">
-        <small>UTC, not British time — 02:30 UTC is 03:30 in the summer.
-          A cron job on the server checks every fifteen minutes and runs
-          it once the time has passed.</small>
+        <small>British time, the same as every other time on this site —
+          02:30 means 02:30 as the clock in the hall says it, summer and
+          winter. A cron job on the server checks every fifteen minutes
+          and runs it once the time has passed.
+          {#- The two days a year this is not a plain sum. Said here
+              because an admin who sets 01:30 deserves to know what
+              happens on them, rather than finding out from the log. -#}
+          On the morning the clocks go forward, an hour is skipped: a
+          time inside it still runs once, as soon as the hour exists. On
+          the morning the clocks go back, an hour happens twice: it runs
+          once, at the first of them.</small>
       </div>
     </div>
 

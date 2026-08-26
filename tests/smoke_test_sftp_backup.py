@@ -455,6 +455,235 @@ with app.app_context():
           run.transfer_status == "none")
 check("the NAS is untouched", len(nas_files()) == before_nas)
 
+# ---- THE SCHEDULE IS A BRITISH TIME -----------------------------------
+# It used to be read as UTC while being typed by somebody in Enfield, so
+# a 19:36 schedule ran at 20:36 their time for seven months of the year
+# and read as the schedule simply not working.
+print()
+print("---- the backup schedule, in UK local time")
+from datetime import date                                      # noqa: E402
+from app import (uk_wall_as_utc, uk_clock_change,              # noqa: E402
+                 schedule_parts, schedule_in_uk, scheduled_run_due,
+                 SFTP_KEYS, SFTP_DEFAULT_SCHEDULE, utc_as_uk)
+
+
+def set_sftp(key, value):
+    with app.app_context():
+        b = Block.query.filter_by(key=SFTP_KEYS[key]).first()
+        if b is None:
+            b = Block(group="site", key=SFTP_KEYS[key], label=key,
+                      kind="text")
+            db.session.add(b)
+        b.value = value
+        db.session.commit()
+
+
+# ---- an ordinary day, each side of the clock change
+for when, wall, expect_utc, why in (
+        (date(2026, 6, 1), "02:30", "01:30", "in summer, BST is an hour "
+                                             "ahead of UTC"),
+        (date(2026, 1, 15), "02:30", "02:30", "in winter, GMT is UTC"),
+        (date(2026, 7, 4), "19:36", "18:36", "the evening time from the "
+                                             "report")):
+    hour, minute = schedule_parts(wall)
+    got = uk_wall_as_utc(when, hour, minute)
+    check("%s at %s British time is %s UTC — %s"
+          % (when, wall, expect_utc, why),
+          got.strftime("%H:%M") == expect_utc, got.strftime("%H:%M"))
+    check("...and reads back as the time that was typed",
+          utc_as_uk(got).strftime("%H:%M") == wall,
+          utc_as_uk(got).strftime("%H:%M"))
+
+# ---- SPRING: the hour that does not happen
+# At 01:00 GMT the clocks go to 02:00 BST. Nothing between 01:00 and
+# 01:59 exists that morning.
+SPRING = date(2027, 3, 28)
+check("the clocks are found to change that morning, without hard-coding "
+      "the date", uk_clock_change(SPRING) == datetime(2027, 3, 28, 1, 0),
+      str(uk_clock_change(SPRING)))
+check("an ordinary day has no clock change",
+      uk_clock_change(date(2026, 6, 1)) is None)
+
+for wall in ("01:00", "01:30", "01:59"):
+    hour, minute = schedule_parts(wall)
+    got = uk_wall_as_utc(SPRING, hour, minute)
+    check("SPRING: %s does not exist, so it runs at the change itself"
+          % wall, got == datetime(2027, 3, 28, 1, 0), str(got))
+    check("...which is %s British time, the first moment the hour exists"
+          % "02:00", utc_as_uk(got).strftime("%H:%M") == "02:00",
+          utc_as_uk(got).strftime("%H:%M"))
+
+check("SPRING: a time before the gap is untouched",
+      uk_wall_as_utc(SPRING, 0, 30) == datetime(2027, 3, 28, 0, 30),
+      str(uk_wall_as_utc(SPRING, 0, 30)))
+check("SPRING: a time after the gap is BST, so an hour back in UTC",
+      uk_wall_as_utc(SPRING, 2, 30) == datetime(2027, 3, 28, 1, 30),
+      str(uk_wall_as_utc(SPRING, 2, 30)))
+
+# IT RUNS ONCE on that morning, not never and not twice.
+set_sftp("schedule", "01:30")
+set_sftp("schedule_tz", "uk")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+    before = datetime(2027, 3, 28, 0, 45)     # 00:45 GMT, before the gap
+    due, why = scheduled_run_due(now=before)
+    check("SPRING: not due before the clocks change", due is False, why)
+    at_change = datetime(2027, 3, 28, 1, 0)   # 02:00 BST
+    due, why = scheduled_run_due(now=at_change)
+    check("SPRING: DUE the moment the hour exists", due is True, why)
+    # Once it has run, it does not run again that day.
+    db.session.add(BackupRun(reason="scheduled", status="ok",
+                             transfer_status="ok",
+                             started_at=at_change))
+    db.session.commit()
+    due, why = scheduled_run_due(now=datetime(2027, 3, 28, 3, 0))
+    check("SPRING: and does NOT run a second time later that morning",
+          due is False, why)
+
+# ---- AUTUMN: the hour that happens twice
+# At 02:00 BST the clocks go back to 01:00 GMT, so 01:00-01:59 comes
+# round again an hour later.
+AUTUMN = date(2026, 10, 25)
+check("the autumn change is found too",
+      uk_clock_change(AUTUMN) == datetime(2026, 10, 25, 1, 0),
+      str(uk_clock_change(AUTUMN)))
+got = uk_wall_as_utc(AUTUMN, 1, 30)
+check("AUTUMN: 01:30 uses the FIRST of the two, which is BST",
+      got == datetime(2026, 10, 25, 0, 30), str(got))
+
+set_sftp("schedule", "01:30")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+    first = datetime(2026, 10, 25, 0, 30)     # 01:30 BST
+    second = datetime(2026, 10, 25, 1, 30)    # 01:30 GMT, the repeat
+    check("AUTUMN: both really are 01:30 British time",
+          utc_as_uk(first).strftime("%H:%M") == "01:30"
+          and utc_as_uk(second).strftime("%H:%M") == "01:30",
+          "%s / %s" % (utc_as_uk(first), utc_as_uk(second)))
+    due, why = scheduled_run_due(now=datetime(2026, 10, 25, 0, 15))
+    check("AUTUMN: not due before the first 01:30", due is False, why)
+    due, why = scheduled_run_due(now=first)
+    check("AUTUMN: due at the first 01:30", due is True, why)
+    db.session.add(BackupRun(reason="scheduled", status="ok",
+                             transfer_status="ok", started_at=first))
+    db.session.commit()
+    due, why = scheduled_run_due(now=second)
+    check("AUTUMN: NOT DUE AGAIN at the second 01:30 — once, not twice",
+          due is False, why)
+    due, why = scheduled_run_due(now=datetime(2026, 10, 25, 23, 0))
+    check("AUTUMN: and not again later that day", due is False, why)
+
+# ---- the UK date, not the UTC one
+# Between midnight and 01:00 BST the two disagree, and using the UTC date
+# would ask whether YESTERDAY's run had happened.
+set_sftp("schedule", "23:30")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+    # 00:15 UTC on 2 July is 01:15 BST on 2 July; the 23:30 run belongs
+    # to the 1st and has already been done.
+    db.session.add(BackupRun(reason="scheduled", status="ok",
+                             transfer_status="ok",
+                             started_at=datetime(2026, 7, 1, 22, 30)))
+    db.session.commit()
+    due, why = scheduled_run_due(now=datetime(2026, 7, 2, 0, 15))
+    check("after midnight BST it does not re-run yesterday's backup",
+          due is False, why)
+
+# ---- MIGRATING AN EXISTING UTC VALUE
+print()
+print("---- the stored value, which used to be UTC")
+check("an unmarked value is read as UTC and converted, in summer",
+      schedule_in_uk("19:36", "", on=date(2026, 7, 4)) == "20:36",
+      schedule_in_uk("19:36", "", on=date(2026, 7, 4)))
+check("...and is unchanged in winter, when the two agree",
+      schedule_in_uk("19:36", "", on=date(2026, 1, 4)) == "19:36",
+      schedule_in_uk("19:36", "", on=date(2026, 1, 4)))
+check("A VALUE ALREADY MARKED uk IS LEFT ALONE",
+      schedule_in_uk("19:36", "uk", on=date(2026, 7, 4)) == "19:36")
+check("...so migrating twice cannot shift it twice",
+      schedule_in_uk(schedule_in_uk("19:36", "", on=date(2026, 7, 4)),
+                     "uk", on=date(2026, 7, 4)) == "20:36")
+
+# The whole point: the backup goes on happening at the moment it happens
+# now, rather than moving an hour without anybody being told.
+set_sftp("schedule", "19:36")
+set_sftp("schedule_tz", "")
+with app.app_context():
+    cfg = sftp_settings()
+check("AN UNMIGRATED SITE STILL SHOWS THE TIME ITS BACKUP HAPPENS",
+      cfg["schedule"] == schedule_in_uk("19:36", ""), cfg["schedule"])
+check("...and the page can say it has not been settled yet",
+      cfg["schedule_migrated"] is False)
+
+runner = app.test_cli_runner()
+out = runner.invoke(args=["migrate-backup-schedule"]).output
+check("the migration command reports what it did",
+      "British time" in out or "GMT today" in out, out.strip()[:160])
+with app.app_context():
+    cfg = sftp_settings()
+    stored = Block.query.filter_by(key=SFTP_KEYS["schedule"]).first().value
+check("...and stores a UK local time from then on",
+      cfg["schedule_migrated"] is True and stored == cfg["schedule"],
+      "%s / %s" % (stored, cfg["schedule"]))
+check("...leaving the schedule where the admin's backup already ran",
+      stored == schedule_in_uk("19:36", ""), stored)
+out2 = runner.invoke(args=["migrate-backup-schedule"]).output
+check("RUNNING IT TWICE DOES NOT SHIFT IT AGAIN",
+      "Already done" in out2, out2.strip()[:120])
+with app.app_context():
+    check("...and the value is untouched",
+          Block.query.filter_by(
+              key=SFTP_KEYS["schedule"]).first().value == stored)
+
+# ---- the page says British time, nowhere says UTC
+set_sftp("schedule_tz", "uk")
+set_sftp("schedule", "02:30")
+panel = client.get("/admin/features").data.decode("utf-8")
+check("the field is labelled British time",
+      "Daily transfer time (British time)" in panel)
+check("...and no longer claims to be UTC",
+      "Daily transfer time (UTC)" not in panel and "02:30 UTC" not in panel)
+check("...and explains both clock-change mornings",
+      "clocks go forward" in panel and "clocks go back" in panel
+      and "as soon as the hour exists" in panel)
+# Saving through the form is the other way a legacy value gets settled,
+# so it has to set the marker as well as the time.
+set_sftp("schedule_tz", "")
+with app.app_context():
+    stored_password_first = sftp_settings()["password_set"]
+saved = client.post("/admin/settings/sftp", data={
+    "host": "nas.example.org", "port": "22", "user": "backup",
+    "path": "/volume1/backups/ebwa", "schedule": "03:15", "keep": "14",
+    "password": "", "enabled": ""}, follow_redirects=True)
+check("the settings form accepts a British time",
+      saved.status_code == 200 and b"must look like" not in saved.data,
+      saved.data.decode("utf-8", "replace")[:200])
+with app.app_context():
+    cfg = sftp_settings()
+check("SAVING A TIME RECORDS THAT IT IS A BRITISH ONE",
+      cfg["schedule"] == "03:15" and cfg["schedule_migrated"] is True,
+      "%s / %s" % (cfg["schedule"], cfg["schedule_migrated"]))
+check("...so it is not converted a second time on the next read",
+      schedule_in_uk(cfg["schedule"], "uk", on=date(2026, 7, 4)) == "03:15")
+
+# The last-run time was already shown in UK local, through the same
+# uk_datetime filter as every other admin timestamp. Pinned so it stays
+# that way rather than being assumed.
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.add(BackupRun(reason="manual", status="ok",
+                             filename="x.zip", size_bytes=10, file_count=1,
+                             started_at=datetime(2026, 7, 4, 18, 36),
+                             finished_at=datetime(2026, 7, 4, 18, 37)))
+    db.session.commit()
+panel = client.get("/admin/features").data.decode("utf-8")
+check("THE LAST BACKUP IS SHOWN IN BRITISH TIME, not UTC",
+      "19:36" in panel and "04 Jul 2026, 18:36" not in panel,
+      "expected 19:36 (BST) for an 18:36 UTC row")
+
 # ---- teardown
 with app.app_context():
     db.session.remove()

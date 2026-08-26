@@ -472,6 +472,31 @@ Built and maintained by Netbus IT Support.
   - Remote retention is SEPARATE from local (`sftp_keep` vs
     `BACKUP_KEEP`): the NAS has room for far more history, which is most
     of the point of it.
+  - **The transfer time is a UK LOCAL time**, like every other
+    admin-facing time here — it was UTC, and on a British site a 19:36
+    schedule firing at 20:36 all summer reads as the schedule being
+    broken. `uk_wall_as_utc()` is the converse of `uk_midnight_as_utc()`
+    and owns both awkward mornings, so no caller has to think about them:
+    - SPRING, the hour that does not happen: a schedule set inside it is
+      due AT THE INSTANT THE CLOCKS CHANGE — once, as early as it could
+      have been, rather than skipped for the year.
+    - AUTUMN, the hour that happens twice: `fold=0`, so the first of the
+      pair. The existing "has today's run happened?" check then stops the
+      second, which is why the helper returns one instant and not two.
+    - The clock change is FOUND by halving the day, never hard-coded: the
+      rule has changed before and zoneinfo already knows.
+    - "Today" is the UK calendar date. Between midnight and 01:00 BST the
+      UTC date is still yesterday, and asking about yesterday's run would
+      re-run it.
+    - **A stored value predating this is UTC and is converted on the way
+      out** (`schedule_in_uk`, keyed off the `sftp_schedule_tz` marker
+      Block), so a deployment that never runs `migrate-backup-schedule`
+      cannot quietly start backing up an hour off. Saving the form also
+      settles it. The migration keeps the REAL MOMENT the backup already
+      happens rather than the digits — the admin picked a quiet hour in
+      their own evening by doing the arithmetic, and that choice is the
+      thing worth preserving; see the command's docstring for the two
+      alternatives and why they lose.
   - **Scheduling is cron, not a thread.** `run-scheduled-backup` asks the
     BackupRun table whether today's run has happened and does nothing if
     it has; cron calls it every fifteen minutes. Never start a background
