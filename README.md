@@ -6,14 +6,37 @@ page text/images, events (each with its own page) and a photo gallery.
 
 ## Features
 
-- **Public pages:** Home, About, Events (list + auto-generated detail pages), Gallery, Contact (with map)
-- **Admin area** (`/admin`, login required):
-  - **Page content** — edit text blocks and swap images per page, grouped by tab
-  - **Events** — create/edit/delete events with date, time, venue, summary, full description, photo, published/draft toggle. Past events auto-move to "Past events"
-  - **Gallery** — multi-file photo upload with captions, delete
-- SQLite database (single file: `instance/ebwa.db`) — backup = copy one file
-- Uploaded images stored in `static/uploads/` with UUID filenames
-- Follows CLAUDE.md conventions: `var` not `const/let`, naive UTC storage on timestamps
+**Public pages.** Home, About, Our Journey, Events (list plus a page per
+event), News & Projects, Gallery with albums, Community resources, FAQ,
+Membership, Collections and Donate, Contact (with a map), and the legal
+pages. Which of these exist depends on the feature flags — see
+[Admin roles and feature flags](#admin-roles-and-feature-flags).
+
+**Admin area** (`/admin`, login required) — a page per module, all
+reached from the sidebar:
+
+- **Page content** — every editable string on the site, grouped by tab
+- **What we do**, **Events**, **News & Projects**, **Gallery**
+  (photos and albums), **Testimonials**, **Partners**, **FAQ**,
+  **Resources**, **Our Journey** — create, edit, delete, publish
+- **Enquiries** and **Membership** — personal data, admin-only, logged
+- **Subscribers**, **Collections**, **Gift Aid** — with CSV exports
+  where they are useful and deliberately not where they are not
+- **Visitors** — how many people read the site, counted on this server
+- **Account** (your password and 2FA) and **Help** (the written guide)
+- Super admins only: **Users**, **Settings**, **Audit log**
+
+**Underneath.** SQLite (`instance/ebwa.db`) in WAL mode; uploads in
+`static/uploads/` under UUID filenames, resized and stripped of EXIF on
+the way in; self-hosted fonts, so the site makes no third-party request
+of its own. It follows the conventions in CLAUDE.md — `var` not
+`const`/`let`, naive UTC in the database and UK local on screen.
+
+> **"Backup = copy one file" is not true**, though this file used to say
+> so. WAL mode means the database is up to three files (`ebwa.db`,
+> `-wal`, `-shm`), and a backup is worth nothing without
+> `static/uploads/` beside it. Use `backup-now` — see
+> [Backups](#backups) — and [RESTORE.md](RESTORE.md) to put it back.
 
 ## Local setup
 
@@ -228,22 +251,41 @@ flask --app app disable-2fa               # clear someone's 2FA
 flask --app app delete-admin              # remove an account
 ```
 
-Super admins get a **Settings** page at `/admin/features` listing the
-optional modules (News & projects, Community resources, Our Journey,
-Become a member, Donations & collections, Audit log visibility) with an
-on/off toggle each. Normal admins never see the link and get a 403 if
-they try the URL.
+Super admins get a **Settings** page at `/admin/features`, which carries
+an on/off toggle for every optional module — plus the email settings, the
+backups and NAS transfer, security alerts, visitor statistics and the
+order of the homepage sections. Normal admins never see the link and get
+a 403 if they try the URL.
 
-Switching a module off hides its public pages (they 404), its menu links
-and its admin section — **nothing is deleted**, and switching it back on
-restores everything exactly as it was. Core pages (home, about, events,
-gallery, contact) have no flag and are always on.
+**`FEATURES` in `app.py` is the list of flags.** It is not repeated here
+on purpose: a list kept in two places drifts, and this one has drifted
+twice — it named six modules for a while after there were ten. Open the
+Settings page, or read `FEATURES`.
+
+Switching a module off hides its **public pages** (they 404) and its
+**menu links** — nothing is deleted, and switching it back on restores
+everything exactly as it was. Core pages (home, about, events, gallery,
+contact) have no flag and are always on.
+
+**Its admin pages stay reachable**, and that is deliberate: a flag is a
+tidiness feature, not a security boundary, and content must never be
+stranded behind one. An admin who switches News off can still open
+`/admin/news` and get at what is there.
+
+The single exception is listed in `ADMIN_FLAG_GATES`: the **audit log**,
+whose admin route enforces its own flag and returns 403, because that
+flag governs who may *read* the log rather than whether the module is on
+show. Anything that genuinely needs protecting needs an auth check of its
+own — `@super_admin_required` — not a flag.
 
 To add a flag, append to `FEATURES` in `app.py` (name, label,
 description, default), guard the public route with
 `@feature_required("name")`, wrap the nav link in
 `{% if features.name %}`, and run `flask --app app init-db` again (it
-only inserts missing names).
+only inserts missing names). A flag that must gate an *admin* route as
+well goes in `ADMIN_FLAG_GATES` — and reads it with
+`flag_explicitly_on()`, not `feature_enabled()`, so that "no row yet"
+means no rather than falling through to the default.
 
 ## Legal pages and the cookie notice
 
@@ -272,7 +314,8 @@ proper consent flow, not this banner. Raise it with Netbus first.
 
 Available on the **About** page (Page content → About), and on every
 **news post**, **event** and **Our Journey milestone** — open one for
-editing and the same two panels appear below the usual form. A brand-new post or event has to be
+editing and the same three panels appear below the usual form: **Page
+layout**, **Video** and **Photos**. A brand-new post or event has to be
 saved once before its photos can be added, since there is nothing to
 attach them to until then.
 
@@ -300,9 +343,26 @@ image the first time you use the manager, so nothing is lost. Listing
 pages and homepage cards always show that lead photo only — the extra
 photos appear on the full page.
 
-Netbus can hide both panels with the **Rich page layouts** flag in
-Settings; with it off the page renders the classic layout with that one
-photo, exactly as it did before.
+**Video** takes an ordinary YouTube or Vimeo link — the one from the
+address bar, not an embed code; paste an embed and the site takes just
+the video out of it. The page shows a still image with a play button and
+**only contacts YouTube or Vimeo if a visitor presses play**, which is
+what keeps the cookie notice's "no tracking of any kind" true.
+
+**Where the video sits is a setting** — at the top (the default, and what
+a video has always done), after the text, or at the end after any
+photographs. A video never displaces a photograph: it takes the lead
+slot and everything else moves down one.
+
+Collections work the same way but are on their own path — they are not
+rich-content owners, so they have one image and one video with the same
+three positions, plus a tick-box for whether the image appears on the
+collection page as well as on its card. With both in the same slot the
+video comes first.
+
+Netbus can hide the layout and photo panels with the **Rich page
+layouts** flag in Settings; with it off the page renders the classic
+layout with that one photo, exactly as it did before.
 
 ## Security alerts
 
@@ -492,6 +552,96 @@ the service, by nobody else:
 sudo chown root:www-data /etc/ebwa/env
 sudo chmod 640 /etc/ebwa/env
 ```
+
+## Visitor statistics
+
+**Visitors** in the sidebar shows how many people are reading the site.
+Open to **every admin** — the figures are EBWA's own, and a charity that
+cannot see how many people read its website is being counted at rather
+than for. Headline totals, a thirty-day bar chart and the most-visited
+pages this month.
+
+It is counted **on this server**. No Google Analytics, no third-party
+request, no extra cookie, and nothing stored that identifies anybody — so
+the cookie and privacy notices stay true. Telling two visits apart uses a
+salted daily hash of the IP and user agent; neither is written anywhere,
+and the salt is replaced every day, so the counts cannot be joined up
+across days even by somebody holding the database. CLAUDE.md explains why
+that was chosen over storing an identifier.
+
+**A "visit" is one person on one day.** Somebody returning next week is
+counted again, so a month's figure is person-days rather than a count of
+different people. Only "today" is people. The page says so on the line
+under the figure, because the number gets quoted without its caveat.
+
+- **Per-page detail** is kept for 62 days by default, then folded into
+  daily totals and pruned. A super admin can set that anywhere from 30 to
+  365 days on Settings; the trade-off and the disk cost at each end are
+  in the helper text beside it.
+- **The daily totals are kept for ever**, and have no setting. They are
+  what year-on-year comparison is made of, and a control that can delete
+  them is one somebody would use by accident.
+- **Report for a period** (`/admin/visitors/report`) produces a document
+  for grant applications — EBWA's name and charity number, the period,
+  the figures, the comparison with last year and the date it was
+  produced. Print-friendly HTML rather than a generated PDF: use the
+  browser's Print and save it.
+- **A monthly email** to the board can be switched on by a super admin,
+  off by default with no recipient. It is sent by cron
+  (`send-monthly-report`) and is idempotent through the audit log, so
+  running it twice in a month sends once.
+
+Set EBWA's name and charity number in **Page content → Org**, or the
+period report goes out without them. It says so on screen while they are
+missing, and that note is deliberately not printed — a funding
+application should not carry a message to its own author.
+
+## The written guide at /admin/help
+
+**Help** in the sidebar is the manual for running the site — every admin
+role, with a contents list and a print stylesheet so it saves as a PDF.
+It covers each module, the four rules that come up everywhere (Published,
+sort order, delete being final, what happens to an uploaded photo) and a
+"if something looks wrong" list.
+
+Its screenshots are **captured, not drawn**:
+
+```bash
+python tools/capture-guide-shots.py
+```
+
+That signs in to the real admin in a browser against a scratch database
+of demo content and photographs each screen into `static/img/guide/`.
+**Re-run it when a screen changes** rather than editing an image by hand
+— a hand-made screenshot is right once and then quietly wrong. It refuses
+to run against `instance/ebwa.db` and checks its own fixtures, so no real
+enquiry or donor detail can end up in the guide.
+
+## Fonts
+
+The three faces — Bricolage Grotesque, Public Sans and Noto Serif Bengali
+— are **self-hosted** from `static/fonts/`, and that removed the last
+third-party request the site makes of its own accord. Linking Google's
+CSS meant every visitor announced their IP address to Google before a
+word was drawn, which sits badly with a site that tells people it does
+not track them.
+
+Two things to know if you touch them:
+
+- **The version is in the filename** (`name.<sha8>.woff2`), because a
+  `url()` inside a static stylesheet cannot call `asset_version()` and
+  nginx serves `/static/` with `expires 30d`. After adding or replacing a
+  face, run `python tools/hash-fonts.py` to re-stamp the names and
+  rewrite the CSS.
+- **The font hosts are out of the CSP**, and the two must stay in step —
+  leaving the domains in the policy would quietly re-permit what was
+  removed. `tests/check_fonts.py` proves in a browser that nothing leaves
+  this server, and that the Bengali face actually loads for the eyebrow
+  text.
+
+The map on /contact is still a third party: Google's iframe loads its own
+fonts from inside itself. Those are requests the *map* makes, not the
+page, and they are the one remaining off-site request.
 
 ## Enquiries from the contact form
 
@@ -837,22 +987,32 @@ and commit them.
 The server clock matters for 2FA — codes are time-based, so keep NTP
 running (Ubuntu does by default; check with `timedatectl`).
 
-## Backups
-
-Everything lives in two places:
+## Where the data lives
 
 - `instance/ebwa.db` — the database
-- `static/uploads/` — all images
+- `static/uploads/` — every uploaded image
 
-A nightly cron zipping both (and optionally sending to Telegram, same as the
-RustDesk server) covers full disaster recovery:
+**Backing those up is the app's own job** — see [Backups](#backups)
+above, and [RESTORE.md](RESTORE.md) for putting them back.
 
-```bash
-0 3 * * * cd /opt/ebwa && zip -qr /opt/backups/ebwa-$(date +\%F).zip instance static/uploads
-```
+> **Do not zip `instance/` on a running site.** This section used to
+> recommend exactly that, and it is worse than useless. SQLite runs in
+> WAL mode, so a plain `zip` of the folder captures the database
+> mid-write along with its `-wal` and `-shm` companions — and a restore
+> from that is not obviously broken. Rehearsing it gave `PRAGMA
+> integrity_check` → `ok` and a table with **zero rows**: it looks like a
+> successful restore and the data is gone. `backup-now` exists because of
+> this. It takes the snapshot through SQLite's own backup API, which is
+> consistent even while the site is serving.
 
 ## Notes / possible next steps
 
-- Donations/volunteer section, contact form with email, event RSVP,
-  multi-admin roles, and Bengali page translations are all easy additions.
-- To move to PostgreSQL later: set `DATABASE_URL` env var — no code changes.
+- Event RSVP and Bengali page translations are the obvious remaining
+  additions. Phase 2 in CLAUDE.md is the current list — read it there.
+- **This is SQLite by design, not by accident, and it stays that way.**
+  `DATABASE_URL` exists so tests and rehearsals can point at a throwaway
+  file; it is an escape hatch, never a default, and swapping in
+  PostgreSQL is *not* a configuration change. WAL mode is set with a
+  `PRAGMA` on connect, `run_backup()` uses `sqlite3.connect` and the
+  SQLite backup API for its snapshot, and `check-schema` knows about
+  `sqlite_autoindex_*` entries. See CLAUDE.md → Stack.
