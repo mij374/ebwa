@@ -375,7 +375,7 @@ from app import (STATS_REPORT_KEY, STATS_REPORT_TO_KEY,  # noqa: E402
                  STATS_TARGET_KEY, STATS_TARGET_DEFAULT, STATS_REPORT_ACTION,
                  AuditLog, monthly_report, monthly_report_sent_for,
                  send_monthly_report, stats_monthly_target, stats_report_on,
-                 stats_report_setting, MAIL_TO_KEY)
+                 stats_report_setting, MAIL_TO_KEY, send_mail)
 
 NL = chr(10)
 
@@ -465,19 +465,64 @@ check("with no figures from a year ago it says so, not a zero",
       "no figures for May 2025" in body3 and "Against May 2025" not in body3,
       str([l for l in body3.split(NL) if "2025" in l]))
 
-# ---- sending it: off, on, and once ------------------------------------
-sent = []
+# ---- sending it: through the REAL send_mail ---------------------------
+# THIS USED TO PATCH send_mail ITSELF, and that is why it passed while
+# every actual send raised. The old fake accepted anything, so the test
+# asserted the ARGUMENTS the report handed over rather than that the
+# mail layer could take them — send_monthly_report was passing a list to
+# a function that called .strip() on it, and nothing here ever found out.
+# Same gap as the video position bug: the stored value was right and the
+# behaviour was never exercised.
+#
+# So the fake is at the SMTP boundary now. Everything above it is the
+# real code, including the recipient handling, and what is asserted is
+# the message that would have gone down the wire.
+class FakeSMTP:
+    sent = []
+
+    def __init__(self, host, port, timeout=None):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def starttls(self):
+        pass
+
+    def login(self, user, password):
+        pass
+
+    def send_message(self, message):
+        FakeSMTP.sent.append(message)
 
 
-def fake_send(to, subject, body, reply_to=None):
-    sent.append((tuple(to), subject, body))
-    return True
+def mail_setup():
+    """Enough configuration for send_mail to get as far as sending."""
+    for key, value in (("smtp_host", "smtp.example.org"),
+                       ("smtp_port", "587"),
+                       ("smtp_from", "website@example.org"),
+                       ("smtp_security", "none")):
+        set_block(key, value, group="mail")
 
+
+def sent_messages():
+    return FakeSMTP.sent
+
+
+def clear_sent():
+    FakeSMTP.sent = []
+
+
+mail_setup()
+clear_sent()
 
 with app.app_context():
     result = send_monthly_report(for_month=LAST)
-check("switched off, it sends nothing", not sent and "switched off" in result,
-      result)
+check("switched off, it sends nothing",
+      not sent_messages() and "switched off" in result, result)
 
 set_block(STATS_REPORT_KEY, "1")
 set_block(MAIL_TO_KEY, "trustees@example.org", group="mail")
@@ -485,17 +530,25 @@ with app.app_context():
     check("the recipient falls back to the enquiries address",
           stats_report_setting()["recipients"] == ["trustees@example.org"],
           str(stats_report_setting()))
-    with patch("app.send_mail", fake_send):
+    with patch("app.smtplib.SMTP", FakeSMTP):
         first = send_monthly_report(for_month=LAST)
-check("switched on, it sends", len(sent) == 1 and "Sent the report" in first,
-      first)
-check("...to the enquiries address", sent[0][0] == ("trustees@example.org",))
+check("SWITCHED ON, IT ACTUALLY SENDS — through the real send_mail",
+      len(sent_messages()) == 1 and "Sent the report" in first, first)
+check("...to one recipient, in the To header",
+      sent_messages()[0]["To"] == "trustees@example.org",
+      str(sent_messages()[0]["To"]))
+check("...with the month in the subject",
+      "May 2026" in sent_messages()[0]["Subject"],
+      sent_messages()[0]["Subject"])
+check("...and the caveat in the body it would really deliver",
+      "one person on one day"
+      in sent_messages()[0].get_content())
 
 with app.app_context():
-    with patch("app.send_mail", fake_send):
+    with patch("app.smtplib.SMTP", FakeSMTP):
         again = send_monthly_report(for_month=LAST)
 check("RUNNING IT AGAIN THE SAME MONTH SENDS NOTHING",
-      len(sent) == 1 and "Already sent" in again, again)
+      len(sent_messages()) == 1 and "Already sent" in again, again)
 with app.app_context():
     check("...and it knows because of the audit log, not a flag",
           monthly_report_sent_for(LAST) is True)
@@ -506,18 +559,17 @@ with app.app_context():
     check("...and does NOT put the address in the log",
           "trustees@example.org" not in entry.summary, entry.summary)
 
-# A different month is a different report.
 with app.app_context():
-    with patch("app.send_mail", fake_send):
+    with patch("app.smtplib.SMTP", FakeSMTP):
         send_monthly_report(for_month=date(2026, 4, 1))
-check("a different month still sends", len(sent) == 2,
-      str([s[1] for s in sent]))
+check("a different month still sends", len(sent_messages()) == 2)
 with app.app_context():
-    with patch("app.send_mail", fake_send):
+    with patch("app.smtplib.SMTP", FakeSMTP):
         send_monthly_report(for_month=LAST, force=True)
-check("--force sends anyway, for checking the address", len(sent) == 3)
+check("--force sends anyway, for checking the address",
+      len(sent_messages()) == 3)
 
-# Its own recipient wins over the enquiries address.
+# ---- SEVERAL RECIPIENTS, end to end -----------------------------------
 set_block(STATS_REPORT_TO_KEY, "board@example.org, chair@example.org")
 with app.app_context():
     setting = stats_report_setting()
@@ -526,6 +578,94 @@ check("a recipient set here wins over the enquiries address",
       str(setting))
 check("...and the page can say where it came from",
       setting["source"] == "database", setting["source"])
+clear_sent()
+with app.app_context():
+    with patch("app.smtplib.SMTP", FakeSMTP):
+        many = send_monthly_report(for_month=LAST, force=True)
+check("IT SENDS TO SEVERAL RECIPIENTS",
+      len(sent_messages()) == 1 and "Sent the report" in many, many)
+check("...with both in one To header, comma separated",
+      sent_messages()[0]["To"] == "board@example.org, chair@example.org",
+      str(sent_messages()[0]["To"]))
+
+# A semicolon, a stray blank and a duplicate are an admin typing, not an
+# error worth refusing a whole month's report over.
+set_block(STATS_REPORT_TO_KEY,
+          "board@example.org; , chair@example.org ,BOARD@example.org")
+clear_sent()
+with app.app_context():
+    with patch("app.smtplib.SMTP", FakeSMTP):
+        send_monthly_report(for_month=LAST, force=True)
+check("semicolons, blanks and a duplicate are cleaned up rather than sent",
+      sent_messages()[0]["To"] == "board@example.org, chair@example.org",
+      str(sent_messages()[0]["To"]))
+set_block(STATS_REPORT_TO_KEY, "board@example.org, chair@example.org")
+
+# ---- the security alert takes both shapes too -------------------------
+print()
+print("---- the security alert, one address and several")
+from app import (note_failed_login, SECURITY_ALERT_KEY,  # noqa: E402
+                 SECURITY_ALERT_TO_KEY, ALERT_IP_THRESHOLD,
+                 security_alert_to, recipient_header,
+                 FAILED_LOGIN_ACTION)
+
+check("recipient_header takes a plain string",
+      recipient_header("a@x.org") == "a@x.org")
+check("...a list", recipient_header(["a@x.org", "b@x.org"])
+      == "a@x.org, b@x.org")
+check("...a comma-separated string",
+      recipient_header("a@x.org, b@x.org") == "a@x.org, b@x.org")
+check("...a list whose elements are themselves lists of addresses",
+      recipient_header(["a@x.org, b@x.org"]) == "a@x.org, b@x.org")
+check("...and nothing at all, without raising",
+      recipient_header(None) == "" and recipient_header([]) == ""
+      and recipient_header("") == "")
+
+set_block(SECURITY_ALERT_KEY, "1", group="security")
+for addresses, expected in (
+        ("netbus@example.org", "netbus@example.org"),
+        ("netbus@example.org, oncall@example.org",
+         "netbus@example.org, oncall@example.org")):
+    set_block(SECURITY_ALERT_TO_KEY, addresses, group="security")
+    clear_sent()
+    with app.app_context():
+        AuditLog.query.delete()
+        db.session.commit()
+        # note_failed_login COUNTS the failed-login rows; it does not
+        # write them. The real flow logs the failure first and then
+        # calls it, so the test has to do both or the threshold is never
+        # reached and nothing is sent — which looked like a bug in the
+        # alert and was a bug in the fixture.
+        for i in range(ALERT_IP_THRESHOLD):
+            db.session.add(AuditLog(user_email="someone@example.org",
+                                    action=FAILED_LOGIN_ACTION,
+                                    summary="Wrong password.",
+                                    ip="198.51.100.1"))
+        db.session.commit()
+        with patch("app.smtplib.SMTP", FakeSMTP):
+            note_failed_login("someone@example.org", "198.51.100.1")
+    check("the alert reaches %d recipient(s)" % len(expected.split(",")),
+          len(sent_messages()) == 1, str(len(sent_messages())))
+    check("...in one To header: %s" % expected,
+          sent_messages() and sent_messages()[0]["To"] == expected,
+          str(sent_messages()[0]["To"]) if sent_messages() else "nothing sent")
+    check("...and it carries no password, only the addresses tried",
+          "someone@example.org" in sent_messages()[0].get_content())
+set_block(SECURITY_ALERT_KEY, "", group="security")
+
+# ---- the contact form's single address still works --------------------
+from app import mail_recipient      # noqa: E402
+set_block(MAIL_TO_KEY, "enquiries@example.org", group="mail")
+with app.app_context():
+    check("the contact form's recipient is a plain string",
+          isinstance(mail_recipient(), str), str(type(mail_recipient())))
+clear_sent()
+with app.app_context():
+    with patch("app.smtplib.SMTP", FakeSMTP):
+        ok = send_mail(mail_recipient(), "Test", "Body")
+check("...and a plain string still sends", ok is True
+      and len(sent_messages()) == 1)
+check("...to that address", sent_messages()[0]["To"] == "enquiries@example.org")
 
 # ---- WHO SEES WHAT ----------------------------------------------------
 print()

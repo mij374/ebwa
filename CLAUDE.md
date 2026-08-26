@@ -178,6 +178,20 @@ Built and maintained by Netbus IT Support.
   `.env.example` is committed and must list EVERY variable the app
   reads — it is the only complete inventory of them, so add to it in the
   same commit that adds a variable.
+- **`send_mail()` takes a STRING OR A LIST of addresses** and
+  normalises both through `recipient_header()` — commas or semicolons,
+  blanks dropped, duplicates removed, joined with ", " for the header.
+  It used to take a string and call `.strip()` on it, so
+  `send_monthly_report` handing it a list was an `AttributeError` on
+  every send, including the button whose entire job was to prove the
+  address worked. Fixed in the helper rather than at the call site:
+  every caller has a list of addresses in mind, some hold it as text a
+  super admin typed and some as the parsed list, and making each one
+  remember which is how this happened.
+  - `security_alert_to()` predates it and joined by hand for exactly
+    this reason — that path was right by design, not by accident. It
+    survives for the places that want the addresses as TEXT (a flash, a
+    log line) rather than as something to send to.
 - Email: everything outbound goes through `send_mail(to, subject, body,
   reply_to=None)`. Membership and ticketing will use it as it stands.
   - **It never raises.** Callers save the visitor's data FIRST and send
@@ -1446,6 +1460,17 @@ No migration tool. Schema changes are additive:
    never fail it, since this project never drops anything.
 
 ## Testing
+
+**A TEST THAT PATCHES THE THING IT IS TESTING PROVES NOTHING.** The
+monthly report's tests replaced `send_mail` with a fake that accepted
+anything, then asserted the ARGUMENTS handed to it — so a report passing
+a list to a function that called `.strip()` on it passed every check
+while raising on every real send. Patch at the BOUNDARY instead: the
+mail tests fake `smtplib.SMTP` and assert on the `EmailMessage` that
+would have gone down the wire, so the recipient handling, the header and
+the body are all real code. The same gap let the video position bug
+through, and it has one shape: asserting the value rather than the
+behaviour.
 
 Smoke-test with Flask's test client (see README history): assert status
 codes for every new route, auth redirects (302) for anonymous access to

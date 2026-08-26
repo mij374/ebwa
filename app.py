@@ -3107,8 +3107,43 @@ def describe_mail_failure(exc, cfg):
     return "%s: %s" % (type(exc).__name__, _scrubbed(exc, cfg))
 
 
+def recipient_header(to):
+    """`to` as a header value, whatever shape the caller had it in.
+
+    ACCEPTS A STRING OR A LIST, on purpose. Every caller has a list of
+    addresses in mind; some of them hold it as text a super admin typed
+    into a box, and some as the list that text was already parsed into.
+    Making each one remember which is how send_monthly_report came to
+    hand a list to something that called .strip() on it — an
+    AttributeError on every send, including the button whose whole job
+    was to prove the address worked.
+
+    Both shapes go through parse_addresses(), so one function knows what
+    an address list is: commas or semicolons, blanks dropped, a list
+    whose elements are themselves comma-separated flattened. Returns ""
+    when there is nobody, which the caller reports rather than raising.
+    """
+    if to is None:
+        return ""
+    if isinstance(to, str):
+        parts = parse_addresses(to)
+    else:
+        parts = []
+        for item in to:
+            parts.extend(parse_addresses(item if isinstance(item, str)
+                                         else str(item)))
+    seen, out = set(), []
+    for address in parts:
+        if address.lower() not in seen:      # the same person, once
+            seen.add(address.lower())
+            out.append(address)
+    return ", ".join(out)
+
+
 def send_mail_result(to, subject, body, reply_to=None):
     """Send one plain-text email. Returns (sent, reason).
+
+    `to` may be a string or a list of addresses — see recipient_header().
 
     THIS NEVER RAISES. Everything that calls it has already saved the
     thing the visitor typed, and an SMTP server that is down, slow or
@@ -3116,7 +3151,7 @@ def send_mail_result(to, subject, body, reply_to=None):
     page. `reason` is a sentence fit to show an admin or write to the
     audit log, and never contains the password.
     """
-    to = (to or "").strip()
+    to = recipient_header(to)
     cfg = mail_config()
     if not to:
         return False, "no recipient address is set"
@@ -3162,7 +3197,9 @@ def send_mail(to, subject, body, reply_to=None):
     """
     ok, reason = send_mail_result(to, subject, body, reply_to=reply_to)
     if not ok:
-        _mail_failed(subject, to, reason)
+        # The NORMALISED header, so the log reads the same whichever
+        # shape the caller passed.
+        _mail_failed(subject, recipient_header(to), reason)
     return ok
 
 
@@ -3226,8 +3263,13 @@ def security_alert_setting():
 
 
 def security_alert_to():
-    """The recipients as one header value, or "" if there are none."""
-    return ", ".join(security_alert_setting()["recipients"])
+    """The recipients as one header value, or "" if there are none.
+
+    send_mail() takes either shape now, so this exists for the places
+    that want the addresses as TEXT — a flash, a log line — rather than
+    as a thing to send to.
+    """
+    return recipient_header(security_alert_setting()["recipients"])
 
 
 def failed_logins_since(hours=FAILED_LOGIN_WINDOW_HOURS):
@@ -8450,14 +8492,26 @@ def send_monthly_report(for_month=None, force=False):
     if not setting["recipients"]:
         return "No recipient for the monthly report, and no enquiries " \
                "address to fall back to."
-    ok = send_mail(setting["recipients"], subject, body)
-    log_action(STATS_REPORT_ACTION, entity=("Stats", 0),
-               summary="%s the monthly website report for %s to %d "
-                       "recipient%s."
-                       % ("Sent" if ok else "Failed to send",
-                          month.strftime("%B %Y"),
-                          len(setting["recipients"]),
-                          "" if len(setting["recipients"]) == 1 else "s"))
+    # The docstring above promises this never raises, so it has to
+    # be true of everything in here and not only of send_mail(): a
+    # cron job that tracebacks at seven in the morning is an email
+    # nobody wanted about an email nobody got.
+    try:
+        ok = send_mail(setting["recipients"], subject, body)
+        log_action(STATS_REPORT_ACTION, entity=("Stats", 0),
+                   summary="%s the monthly website report for %s to %d "
+                           "recipient%s."
+                           % ("Sent" if ok else "Failed to send",
+                              month.strftime("%B %Y"),
+                              len(setting["recipients"]),
+                              "" if len(setting["recipients"]) == 1 else "s"))
+    except Exception as exc:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return ("Could not send the report for %s (%s)."
+                % (month.strftime("%B %Y"), type(exc).__name__))
     return ("Sent the report for %s." if ok else
             "Could not send the report for %s (see the audit log).") \
         % month.strftime("%B %Y")
