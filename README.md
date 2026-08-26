@@ -395,21 +395,31 @@ of the database plus every uploaded photo, zipped into `BACKUP_DIR` with
 a timestamped name. It keeps the newest `BACKUP_KEEP` archives (7 by
 default) and deletes older ones.
 
-By hand, on the server:
+**The nightly one is `run-scheduled-backup`**, the single cron line under
+[Sending backups to the NAS](#sending-backups-to-the-nas) below. That is
+the only backup job a server needs.
+
+> **There is deliberately no second cron line for `backup-now`.** This
+> file used to carry one, and a server running both takes two archives a
+> day — because `backup-now` writes a local archive with **no transfer
+> step**, and records `reason="cli"`, which never satisfies the scheduled
+> job's "has today's run happened?" check (that asks for
+> `reason="scheduled"`). So the nightly `backup-now` archive never leaves
+> the machine, and both compete for the same `BACKUP_KEEP` of 7, halving
+> how far back the local history reaches. Remove it if you find it in a
+> crontab.
+
+`backup-now` is still there for running one by hand:
 
 ```bash
 cd /opt/ebwa && ./venv/bin/flask --app app backup-now
 ```
 
-Nightly, as a cron job for the service user:
-
-```cron
-15 2 * * * cd /opt/ebwa && set -a && . /etc/ebwa/env && set +a && ./venv/bin/flask --app app backup-now >> /var/log/ebwa-backup.log 2>&1
-```
-
 Or from the website: **Settings → Backups → Back up now** (Netbus only,
 ten an hour at most, and never two at once — it refuses while another run
-is still going, including one started by the cron job above). Both the
+is still going, including one started by the scheduled job). It starts
+the work and returns straight away, with the panel showing **Running**,
+then **Finished** or **Failed** without the page being touched. Both the
 runs and the refusals appear in the audit log. The same page shows when
 the last backup ran, how big it was, how many archives are kept, the
 database and uploads sizes, and how much disk is free.
