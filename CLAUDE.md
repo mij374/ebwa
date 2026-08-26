@@ -386,6 +386,34 @@ Built and maintained by Netbus IT Support.
       on `window` before waiting and asserts the same value is still
       there when the panel has changed. Without that, a check would pass
       against a page that simply reloaded — or against no script at all.
+      It also drives the FAST path — the handover to the thread removed,
+      so the real claim and the real run finish before the view returns —
+      because holding the archive shut to prove the running state is
+      exactly what let the fast case ship broken. **A check that slows
+      something down to observe it has not tested what happens when it is
+      quick.**
+      And it reads WHERE the flash and the panel are (`ONSCREEN`), not
+      only that they are in the document, since a rendered element
+      1,900px away is one nobody can see.
+  - **THE MESSAGE IS COMPOSED WHEN THE PAGE IS DRAWN, not in the POST**
+    (`backup_started_flash()`, off a `backup_started` session marker).
+    A sentence written in the route describes a state that may not exist
+    by the time anybody reads it: on a small site the backup FINISHES in
+    under a second, so "the panel below shows how it is getting on" sat
+    above a panel that already said Finished. The flash and the panel now
+    come from the same read of the same row in the same render, so they
+    cannot disagree.
+    - **The flash and the panel are never on screen together**, and that
+      is the other half of the same bug. Settings is about 9,000px tall;
+      the redirect lands on `#backups`, which puts the panel in view and
+      the flash roughly 1,900px above it. So neither may point at the
+      other — no "below", no "see the panel" — and each has to carry the
+      whole fact on its own. The panel says what the state IS; the flash
+      says what just happened, once.
+    - Reported as "no panel appears". It always appeared; it was 1,900px
+      from the sentence promising it. When a message and a thing it
+      describes cannot share a screen, "where is it?" is the bug even
+      though every element rendered correctly.
   - Work that outlives the request needs `current_actor()`, captured IN
     the request and passed to the thread, because there is no
     `current_user` there. An audit entry reading "anonymous" for

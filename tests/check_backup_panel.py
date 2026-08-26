@@ -15,11 +15,27 @@ That is a browser question and only a browser can answer it:
     waits and asserting the same value is still there afterwards. A
     check that allowed a reload would pass against no script at all;
   * a failure shows the reason rather than a colour;
-  * the button cannot be pressed again while one is running.
+  * the button cannot be pressed again while one is running;
+  * AND WHAT THE PERSON IS TOLD MATCHES WHAT IS ON THE SCREEN, whether
+    the backup takes a minute or is over before the page is drawn.
+
+That last one is here because of a bug this file's first version could
+not have caught. It proved the running state by holding the archive
+shut, so the fast path — what a small site actually does, in well under
+a second — was never exercised end to end, and the message was composed
+inside the POST before anyone knew which it would be. It read "the panel
+below shows how it is getting on" over a panel that already said
+Finished. It also pointed "below" at something about 1,900px down a
+9,000px page: the redirect lands on #backups, so the panel is on screen
+and the flash is far above it, and the two are never in view together.
+Hence ONSCREEN — this file reads WHERE things are, not only that they
+exist in the document.
 
 The backup itself is slowed down here, not mocked away: the real
 `run_backup` still writes a real archive, it is just held for a moment
-first, so the running state exists long enough to look at.
+first, so the running state exists long enough to look at. For the fast
+path the handover to the thread is removed instead, so the real claim and
+the real run both complete before the view returns.
 
 Run:  python tests/check_backup_panel.py [--shots DIR]
 """
@@ -100,6 +116,26 @@ appmod.run_backup = instrumented
 server = make_server("127.0.0.1", PORT, app, threaded=True)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 time.sleep(0.6)
+
+# WHAT IS ON SCREEN, not merely in the document. The Settings page is
+# about 9,000px tall and the redirect lands on #backups, so the flash sits
+# roughly 1,900px above the panel and the two are never in view together.
+# That is why each has to be true on its own, and why this reads their
+# positions rather than only their text.
+ONSCREEN = r"""() => {
+  const out = {scrollY: Math.round(window.scrollY)};
+  const look = (name, sel) => {
+    const el = document.querySelector(sel);
+    if (!el) { out[name] = null; return; }
+    const r = el.getBoundingClientRect();
+    out[name] = {inView: r.bottom > 0 && r.top < window.innerHeight,
+                 top: Math.round(r.top),
+                 text: (el.textContent || '').replace(/\s+/g, ' ').trim()};
+  };
+  look('flash', '.flash');
+  look('panel', '#backupState');
+  return out;
+}"""
 
 STATE = """() => {
   const row = document.getElementById('backupState');
@@ -201,12 +237,19 @@ with sync_playwright() as pw:
     # The poll must STOP once there is nothing to watch, or an admin who
     # leaves Settings open asks the server a question every two seconds
     # for the rest of the afternoon.
-    seen = {"n": 0}
-    page.on("request", lambda r: seen.__setitem__(
-        "n", seen["n"] + (1 if "backup.json" in r.url else 0)))
+    polls = {"n": 0}
+
+    def count_polls(request):
+        if "backup.json" in request.url:
+            polls["n"] += 1
+
+    page.on("request", count_polls)
     time.sleep(6)
     check("THE POLL STOPS once the backup is finished",
-          seen["n"] == 0, "%d more requests in six seconds" % seen["n"])
+          polls["n"] == 0, "%d more requests in six seconds" % polls["n"])
+    # Detached here: it outlives this section otherwise, and every later
+    # navigation goes on running a listener that belongs to one check.
+    page.remove_listener("request", count_polls)
 
     # ---- a failure ---------------------------------------------------
     gate.clear()
@@ -232,6 +275,100 @@ with sync_playwright() as pw:
         page.screenshot(path=os.path.join(SHOTS, "backup-failed.png"),
                         full_page=True)
 
+    # ---- A BACKUP THAT BEATS THE PAGE --------------------------------
+    # The checks above prove the RUNNING state by holding the archive
+    # shut, which means the fast path — what a small site really does —
+    # was never exercised end to end. Here the whole job completes before
+    # the view returns, and what the person is told must match what is on
+    # the screen in front of them.
+    with app.app_context():
+        BackupRun.query.delete()
+        db.session.commit()
+    appmod._rate_buckets.clear()
+    gate.set()
+    mode["how"] = "slow"          # i.e. not broken; the gate is open
+
+    real_start = appmod.start_backup
+
+    def start_and_finish(reason="manual", actor=None):
+        """The real claim and the real run, without the handover."""
+        run = appmod.claim_backup_slot(reason)
+        if run is None:
+            return None
+        appmod.log_action("backup",
+                          summary="Started a backup from the Settings page.",
+                          actor=actor)
+        appmod.backup_job(run.id, actor)
+        return run
+
+    appmod.start_backup = start_and_finish
+    try:
+        page.goto(BASE + "/admin/features", wait_until="load")
+        page.click("#backupButton")
+        page.wait_for_load_state("load")
+    finally:
+        appmod.start_backup = real_start
+
+    quick = page.evaluate(STATE)
+    onscreen = page.evaluate(ONSCREEN)
+    check("A BACKUP THAT FINISHES FIRST SHOWS AS FINISHED, not running",
+          quick and quick["state"] == "ok" and quick["pill"] == "Finished",
+          str(quick))
+    check("...and the panel is what the person is looking at",
+          onscreen["panel"] and onscreen["panel"]["inView"] is True,
+          "the panel is off screen: %s" % str(onscreen.get("panel")))
+    check("...naming the archive right there",
+          quick and ".zip" in quick["detail"], str(quick))
+
+    # THE MESSAGE. It is far above the panel, so it is read on its own or
+    # not at all — either way it must not describe the wrong thing.
+    flash_text = (onscreen["flash"] or {}).get("text", "")
+    check("THE MESSAGE SAYS IT HAS FINISHED",
+          "Backup finished already" in flash_text, flash_text or "no flash")
+    check("...and carries the result, rather than pointing elsewhere",
+          ".zip" in flash_text, flash_text)
+    check("...and does NOT promise a panel the reader cannot see",
+          "panel below" not in flash_text, flash_text)
+    check("THE MESSAGE AND THE PANEL AGREE",
+          ("finished" in flash_text.lower())
+          == (quick["state"] == "ok"), "%s vs %s" % (flash_text, quick))
+    if SHOTS:
+        page.screenshot(path=os.path.join(SHOTS, "backup-instant.png"),
+                        full_page=True)
+
+    # The same question for the SLOW case, from the same code path.
+    with app.app_context():
+        BackupRun.query.delete()
+        db.session.commit()
+    appmod._rate_buckets.clear()
+    gate.clear()
+    page.goto(BASE + "/admin/features", wait_until="load")
+    page.click("#backupButton")
+    page.wait_for_load_state("load")
+    slow_state = page.evaluate(STATE)
+    slow_seen = page.evaluate(ONSCREEN)
+    slow_flash = (slow_seen["flash"] or {}).get("text", "")
+    check("A SLOW BACKUP SAYS IT IS RUNNING",
+          "it is running now" in slow_flash, slow_flash or "no flash")
+    check("...and the panel agrees, on screen",
+          slow_state["state"] == "running"
+          and slow_seen["panel"]["inView"] is True, str(slow_seen["panel"]))
+    check("...and it does not point at a panel either",
+          "panel below" not in slow_flash, slow_flash)
+    gate.set()
+    done2 = wait_for(page, "ok")
+    check("...and it still finishes on its own afterwards",
+          done2 and done2["state"] == "ok", str(done2))
+
+    # Revisiting Settings must not repeat the message — it describes a
+    # moment, while the panel describes a state.
+    page.goto(BASE + "/admin/features", wait_until="load")
+    later = page.evaluate(ONSCREEN)
+    check("the message is shown once, not on every later visit",
+          later["flash"] is None, str(later["flash"]))
+    check("...but the panel still shows the result",
+          (page.evaluate(STATE) or {}).get("pill") == "Finished")
+
     # ---- with no script at all ---------------------------------------
     # The button is a plain POST form, so it must still start a backup
     # and the page must still say what happened when it is reloaded.
@@ -256,9 +393,10 @@ with sync_playwright() as pw:
     nopage.click("#backupButton")          # no confirm() without script
     nopage.wait_for_load_state("load")
     text = nopage.inner_text("main")
-    check("...the button still starts a backup", "Backup started" in text,
-          text[:200])
-    check("...and the panel still says it is running", "Running" in text)
+    check("...the button still starts a backup",
+          "Backup started" in text or "Backup finished" in text, text[:200])
+    check("...and the panel says which it is, with no script to update it",
+          "Running" in text or "Finished" in text)
     deadline = time.time() + 40
     while time.time() < deadline:
         with app.app_context():

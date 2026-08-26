@@ -303,7 +303,7 @@ def press_and_wait(seconds=20):
 appmod._rate_buckets.clear()
 run, r = press_and_wait()
 check("THE BUTTON RETURNS AT ONCE, saying the backup has started",
-      b"Backup started" in r.data,
+      b"Backup started" in r.data or b"Backup finished already" in r.data,
       r.data.decode("utf-8", "replace")[:300])
 check("...and does not wait for the archive to be written",
       b"Backup written" not in r.data)
@@ -329,7 +329,7 @@ check("the panel states the real limit",
 accepted = 1
 for _i in range(LIMIT + 2):
     _run, r = press_and_wait()
-    if b"Backup started" in r.data:
+    if b"Backup started" in r.data or b"Backup finished" in r.data:
         accepted += 1
 check("the button allows the stated number an hour", accepted == LIMIT,
       "%d accepted, limit %d" % (accepted, LIMIT))
@@ -478,7 +478,7 @@ appmod.run_backup = broken_run_backup
 try:
     r = client.post("/admin/settings/backup", follow_redirects=True)
     check("a backup that will fail still starts cheerfully",
-          b"Backup started" in r.data)
+          b"Backup started" in r.data or b"The backup failed" in r.data)
     deadline = time.time() + 20
     while time.time() < deadline:
         with app.app_context():
@@ -508,6 +508,132 @@ with app.app_context():
     check("a failed run does not go on blocking the next one",
           appmod.backup_in_progress() is None)
 
+# ---- A BACKUP THAT FINISHES BEFORE THE PAGE IS DRAWN ------------------
+# THE GAP THIS CLOSES: the browser check proved "running shows
+# immediately" by holding the archive shut, so the fast path — which is
+# what a small site actually does, in well under a second — was never
+# exercised end to end. The message used to be written inside the POST
+# ("the panel below shows how it is getting on") and could therefore
+# describe a state that had already passed by the time anybody read it.
+print()
+print("---- when the backup beats the page to the finish")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+appmod._rate_buckets.clear()
+
+real_start_backup = appmod.start_backup
+
+
+def start_and_finish(reason="manual", actor=None):
+    """Claim, then do the whole job BEFORE returning to the view.
+
+    Not a fake of the feature — the real claim, the real run_backup, the
+    real logging. Only the handover to a thread is removed, which is
+    exactly what a backup finishing in 200ms amounts to from the point of
+    view of the page that is about to be rendered.
+    """
+    run = appmod.claim_backup_slot(reason)
+    if run is None:
+        return None
+    appmod.log_action("backup",
+                      summary="Started a backup from the Settings page.",
+                      actor=actor)
+    appmod.backup_job(run.id, actor)
+    return run
+
+
+appmod.start_backup = start_and_finish
+try:
+    r = client.post("/admin/settings/backup", follow_redirects=True)
+finally:
+    appmod.start_backup = real_start_backup
+
+body = r.data.decode("utf-8")
+with app.app_context():
+    state = backup_state()
+check("the run really did finish before the page was rendered",
+      state["state"] == "ok", str(state["state"]))
+check("THE MESSAGE SAYS IT HAS FINISHED, not that it is getting on",
+      "Backup finished already" in body,
+      [ln for ln in body.splitlines() if "Backup" in ln and "flash" in ln]
+      or body[:200])
+check("...and names the archive, so the message IS the result",
+      ".zip" in body.split("flash-ok")[1][:400] if "flash-ok" in body
+      else False, "the flash does not carry the outcome")
+check("...IT NO LONGER POINTS AT A PANEL THE READER CANNOT SEE",
+      "panel below" not in body, "still says 'the panel below'")
+check("...and the panel agrees with it, in the same render",
+      'data-state="ok"' in body and "Finished" in body,
+      "the words and the panel disagree")
+check("...and the panel is not busy, so nothing is polled for",
+      'data-busy="0"' in body)
+
+# THE MESSAGE IS SHOWN ONCE. It lives in the session between the POST
+# and the render; a later visit to Settings must not repeat it.
+again = client.get("/admin/features").data.decode("utf-8")
+check("the message is not repeated on the next visit to Settings",
+      "Backup finished already" not in again
+      and "Backup started" not in again)
+check("...though the panel still shows the result, which is not a message",
+      'data-state="ok"' in again and "Finished" in again)
+
+# AND THE SLOW CASE STILL READS AS RUNNING, from the same code path.
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+appmod._rate_buckets.clear()
+gate2 = threading.Event()
+
+
+def held(reason="manual", run=None):
+    gate2.wait(20)
+    return real_run_backup(reason=reason, run=run)
+
+
+appmod.run_backup = held
+try:
+    r = client.post("/admin/settings/backup", follow_redirects=True)
+    slow = r.data.decode("utf-8")
+    check("A SLOW BACKUP STILL READS AS RUNNING",
+          "it is running now" in slow, slow[:200])
+    check("...and the panel agrees, in the same render",
+          'data-state="running"' in slow and 'data-busy="1"' in slow)
+    check("...and it says the work carries on without the page",
+          "carries on if you leave this page" in slow)
+    check("...without pointing anywhere the reader may not be looking",
+          "panel below" not in slow)
+finally:
+    gate2.set()
+    appmod.run_backup = real_run_backup
+
+deadline = time.time() + 20
+while time.time() < deadline:
+    with app.app_context():
+        if backup_state()["state"] != "running":
+            break
+    time.sleep(0.05)
+
+# A FAILURE THAT BEATS THE PAGE says so too, rather than "started".
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+appmod._rate_buckets.clear()
+appmod.run_backup = broken_run_backup
+appmod.start_backup = start_and_finish
+try:
+    r = client.post("/admin/settings/backup", follow_redirects=True)
+finally:
+    appmod.run_backup = real_run_backup
+    appmod.start_backup = real_start_backup
+quick_fail = r.data.decode("utf-8")
+check("A FAILURE THAT HAPPENS AT ONCE IS REPORTED AS A FAILURE",
+      "The backup failed" in quick_fail and "disk went away" in quick_fail,
+      quick_fail[:200])
+check("...and is not dressed up as a successful start",
+      "Backup started" not in quick_fail)
+check("...and the panel agrees", 'data-state="failed"' in quick_fail)
+
 # ---- A WORKER KILLED MID-BACKUP ---------------------------------------
 # gunicorn is restarted on every deploy, and the thread dies with the
 # process, leaving a row saying "running" that nothing is working on.
@@ -532,7 +658,8 @@ with app.app_context():
           appmod.backup_in_progress() is None)
 appmod._rate_buckets.clear()
 _run, r = press_and_wait()
-check("...which it can be", b"Backup started" in r.data)
+check("...which it can be",
+      b"Backup started" in r.data or b"Backup finished" in r.data)
 
 # A row that is running and RECENT is still busy — the stale rule must
 # not be so eager that it declares a live backup dead.
@@ -651,7 +778,7 @@ with app.app_context():
 appmod._rate_buckets.clear()
 _run, r = press_and_wait()
 check("so a backup can still be run after a crash",
-      b"Backup started" in r.data)
+      b"Backup started" in r.data or b"Backup finished" in r.data)
 with app.app_context():
     for row in BackupRun.query.filter_by(status="running").all():
         db.session.delete(row)

@@ -7739,6 +7739,7 @@ def admin_user_delete(user_id):
 @app.route("/admin/features")
 @super_admin_required
 def admin_features():
+    backup_started_flash()
     return render_template(
         "admin/features.html", rows=FEATURES, flags=feature_flags(),
         settings=mail_settings(), fields=MAIL_SETTINGS,
@@ -7952,11 +7953,60 @@ def admin_backup_now():
     if run is None:
         # Lost the claim to another click in the same instant.
         flash("A backup was already starting, so this one was not begun. "
-              "The panel below shows the one that is running.", "error")
+              "The one that is running is shown under Backups.", "error")
         return redirect(url_for("admin_features") + "#backups")
-    flash("Backup started. It runs on the server, so you can leave this "
-          "page — the panel below shows how it is getting on.", "ok")
+    # NOT a flash written here. Between this line and the page being
+    # drawn the backup may well have finished — on a small site it takes
+    # under a second — and a message composed now would be describing a
+    # state that no longer exists by the time anybody reads it. The next
+    # render says what is actually true; see `backup_started_flash()`.
+    flask_session["backup_started"] = run.id
     return redirect(url_for("admin_features") + "#backups")
+
+
+def backup_started_flash():
+    """Flash the outcome of a backup just started, if one just was.
+
+    THE MESSAGE AND THE PANEL MUST AGREE, and the only way to guarantee
+    that is to write the message from the same read of the same row that
+    the panel is drawn from, in the same render. The button used to flash
+    "the panel below shows how it is getting on" from inside the POST,
+    which was wrong in two ways at once:
+
+      * on a small site the backup FINISHES before the page is drawn, so
+        the sentence promised progress on something already done while
+        the panel — correctly — said Finished;
+      * it pointed "below" at a panel about 1,900px down a 9,000px page.
+        The redirect lands on #backups, so the panel is on screen and the
+        flash is far above it; read the flash instead, at the top, and
+        the panel is as good as absent. Neither is ever in view with the
+        other, so each has to stand on its own.
+
+    So: no direction, no "below", and no claim about what is happening
+    that this render has not just checked.
+    """
+    run_id = flask_session.pop("backup_started", None)
+    if not run_id:
+        return
+    state = backup_state()
+    run = state["run"]
+    if run is None or run.id != run_id:
+        # It has been overtaken by a later run, or pruned from under us.
+        # Say the plain true thing rather than describing the wrong row.
+        flash("Backup started.", "ok")
+        return
+    if state["state"] == "running":
+        flash("Backup started, and it is running now. It carries on if you "
+              "leave this page; the Backups panel keeps itself up to date.",
+              "ok")
+    elif state["state"] == "ok":
+        flash("Backup finished already — %s. %s"
+              % (state["detail"].rstrip("."),
+                 "It was quick because this site is small."), "ok")
+    elif state["state"] == "failed":
+        flash("The backup failed: %s" % state["detail"], "error")
+    else:
+        flash("Backup started.", "ok")
 
 
 @app.route("/admin/settings/backup.json")
