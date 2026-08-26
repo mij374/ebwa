@@ -1,0 +1,135 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Website report — {{ r.org }}{% endblock %}
+{% block content %}
+
+{#- Everything in .report-doc is the DOCUMENT. Everything outside it is
+    the admin looking at it, and the print stylesheet hides all of that:
+    the sidebar, the flashes, the date picker and this note. What comes
+    out of the printer is the page below and nothing else. -#}
+<div class="report-tools">
+  <div class="admin-head-row">
+    <div>
+      <h1 class="admin-h1">Website report</h1>
+      <p class="admin-sub">Choose a period, then use your browser's
+        <b>Print</b> and save it as a PDF. It prints as a document on its
+        own — no menus, no buttons, nothing from this screen.</p>
+    </div>
+  </div>
+
+  <form class="admin-form report-period" method="get">
+    <div class="field-row">
+      <div class="field">
+        <label for="from">From</label>
+        <input type="date" id="from" name="from"
+               value="{{ r.start.strftime('%Y-%m-%d') }}">
+      </div>
+      <div class="field">
+        <label for="to">To</label>
+        <input type="date" id="to" name="to"
+               value="{{ r.end.strftime('%Y-%m-%d') }}">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-green" type="submit">Show this period</button>
+      <a class="btn btn-ghost" href="{{ url_for('admin_visitors') }}">Back to visitors</a>
+    </div>
+  </form>
+</div>
+
+<article class="report-doc">
+  <header class="report-head">
+    <h2>{{ r.org }}</h2>
+    {% if r.charity_number %}
+    <p class="report-org">Registered charity number {{ r.charity_number }}</p>
+    {% else %}
+    {#- Shown on screen so somebody fixes it, and hidden from the print,
+        because a grant document should not carry a note to itself. -#}
+    <p class="report-org report-missing">No registered charity number is
+      set. Add it in Page content → org, so this report carries it.</p>
+    {% endif %}
+    <h3>Website visitor report</h3>
+    <p class="report-period-line">
+      {{ r.start.strftime('%d %B %Y') }} to {{ r.end.strftime('%d %B %Y') }}
+      <span>({{ r.days }} day{{ '' if r.days == 1 else 's' }})</span>
+    </p>
+  </header>
+
+  <section class="report-figures">
+    <div class="report-figure">
+      <b>{{ "{:,}".format(r.views) }}</b>
+      <span>page views</span>
+    </div>
+    <div class="report-figure">
+      <b>{{ "{:,}".format(r.visits) }}</b>
+      <span>visits</span>
+    </div>
+  </section>
+  {#- The caveat sits directly under the figure it qualifies, for the
+      same reason it does in the monthly email: this number is going into
+      a funding application and will be quoted without whatever note sat
+      at the bottom of the page. -#}
+  <p class="report-caveat">A <b>visit</b> is one person on one day.
+    Somebody who returns the following week is counted again, so this is
+    not a count of different people. Figures are collected by
+    {{ r.org }}'s own website; no analytics service is used and nothing
+    is stored that identifies an individual visitor.</p>
+
+  <section class="report-compare">
+    <h4>Compared with</h4>
+    <table class="report-table">
+      <tbody>
+        <tr>
+          <th>The previous {{ r.days }} day{{ '' if r.days == 1 else 's' }}
+            <small>{{ r.previous.start.strftime('%d %b %Y') }} –
+              {{ r.previous.end.strftime('%d %b %Y') }}</small></th>
+          <td>{{ "{:,}".format(r.previous.views) }} page views</td>
+          <td>{{ r.previous.phrase }}</td>
+        </tr>
+        {% if r.last_year %}
+        <tr>
+          <th>The same period a year earlier
+            <small>{{ r.last_year.start.strftime('%d %b %Y') }} –
+              {{ r.last_year.end.strftime('%d %b %Y') }}</small></th>
+          <td>{{ "{:,}".format(r.last_year.views) }} page views</td>
+          <td>{{ r.last_year.phrase }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <th>The same period a year earlier</th>
+          <td colspan="2">No figures — the website was not counting
+            visits that far back.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="report-pages">
+    <h4>Most visited pages</h4>
+    {% if r.top %}
+    <table class="report-table">
+      <thead><tr><th>Page</th><th>Page views</th></tr></thead>
+      <tbody>
+        {% for row in r.top %}
+        <tr><th>{{ row.path }}</th><td>{{ "{:,}".format(row.views) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif not r.pages_held %}
+    {#- A gap with a reason is a record; a gap without one looks like an
+        error, or worse like nobody visited. -#}
+    <p>Page-by-page figures are kept for {{ r.raw_days }} days and this
+      period begins before
+      {{ r.kept_from.strftime('%d %B %Y') }}, so they are no longer held.
+      The totals above cover the whole period and are kept permanently.</p>
+    {% else %}
+    <p>No pages were visited in this period.</p>
+    {% endif %}
+  </section>
+
+  <footer class="report-foot">
+    <p>Produced {{ r.produced.strftime('%d %B %Y') }} from
+      {{ r.org }}'s website records.</p>
+  </footer>
+</article>
+{% endblock %}

@@ -433,6 +433,30 @@ with sync_playwright() as pw:
     check("visitor target: keeps its spinner",
           spinner(page, "#target")["appearance"] == SPUN)
 
+    # ---- how long the per-page detail is kept
+    # Days, so the step is 1 and every value in the range is reachable.
+    # The step base is `min` = 30, and with a step of 1 that grid holds
+    # every whole number, so the 62-day default cannot fall off it —
+    # which is what the two traps in this file were about.
+    s = state(page, "#raw_days")
+    check("retention: is a number field", s["type"] == "number", str(s))
+    check("retention: steps by a day", s["step"] == "1", str(s["step"]))
+    check("retention: 30 to 365, mirroring the route",
+          s["min"] == "30" and s["max"] == "365", str(s))
+    check("retention: one arrow press moves a day",
+          arrow_moves(page, "#raw_days") == 1)
+    check("retention: THE 62-DAY DEFAULT IS ON THE GRID",
+          would_accept(page, "#raw_days", "62")["valid"],
+          "the step base is min=30")
+    check("retention: both ends of the range are accepted",
+          would_accept(page, "#raw_days", "30")["valid"]
+          and would_accept(page, "#raw_days", "365")["valid"])
+    check("retention: a day either side of the range is refused",
+          not would_accept(page, "#raw_days", "29")["valid"]
+          and not would_accept(page, "#raw_days", "366")["valid"])
+    check("retention: keeps its spinner — a day is worth a press",
+          spinner(page, "#raw_days")["appearance"] == SPUN)
+
     # ---- the homepage section positions
     # A position among a fixed set of six, not a sort weight — so unlike
     # the sort fields elsewhere it DOES carry a min: there is no first

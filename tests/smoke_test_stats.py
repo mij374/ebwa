@@ -719,6 +719,218 @@ check("a super admin sees the report settings on Settings",
 check("...and the same summary, from the one shared partial",
       "one person on one day" in settings and "stats-bar" in settings)
 
+# ---- HOW LONG PER-PAGE DETAIL IS KEPT ---------------------------------
+print()
+print("---- the retention setting")
+from app import (PAGEVIEW_RAW_MIN, PAGEVIEW_RAW_MAX,  # noqa: E402
+                 STATS_RAW_DAYS_KEY, pageview_raw_days, human_bytes,
+                 period_report, parse_report_period, ORG_NAME_KEY,
+                 ORG_CHARITY_NO_KEY)
+
+with app.app_context():
+    check("it defaults to the 62 days it was fixed at",
+          pageview_raw_days() == PAGEVIEW_RAW_DAYS == 62,
+          str(pageview_raw_days()))
+for value, expected, why in (
+        ("30", 30, "the floor is allowed"),
+        ("365", 365, "the ceiling is allowed"),
+        ("120", 120, "a value inside the range is used"),
+        ("29", 62, "below the floor falls back to the default"),
+        ("366", 62, "above the ceiling falls back"),
+        ("0", 62, "zero falls back"),
+        ("-40", 62, "a negative falls back"),
+        ("", 62, "an empty setting falls back"),
+        ("ninety", 62, "nonsense falls back rather than raising")):
+    set_block(STATS_RAW_DAYS_KEY, value)
+    with app.app_context():
+        check("%s (%r)" % (why, value), pageview_raw_days() == expected,
+              str(pageview_raw_days()))
+
+# The route refuses what the field refuses, so a hand-made POST cannot
+# set a window the helper would then ignore.
+set_block(STATS_RAW_DAYS_KEY, str(PAGEVIEW_RAW_DAYS))
+# boss2, logged in further up: the login rate limiter allows five in ten
+# minutes and this file is already at its limit, so a fresh client here
+# would be turned away and every check below it would pass or fail
+# against the login page instead of Settings.
+
+
+def save_settings(**over):
+    data = {"target": "2000", "raw_days": "62",
+            "report_to": "", "enabled": "on"}
+    data.update(over)
+    return boss2.post("/admin/stats-report", data=data,
+                      follow_redirects=True)
+
+
+for bad in ("29", "366", "0", "abc", ""):
+    r = save_settings(raw_days=bad)
+    with app.app_context():
+        check("the route refuses raw_days=%r" % bad,
+              pageview_raw_days() == 62
+              and (b"between 30 and 365" in r.data
+                   or b"whole number" in r.data),
+              str(pageview_raw_days()))
+save_settings(raw_days="90")
+with app.app_context():
+    check("...and accepts one inside the range",
+          pageview_raw_days() == 90, str(pageview_raw_days()))
+
+# AGGREGATION FOLLOWS THE SETTING, which is the whole point of it.
+with app.app_context():
+    PageView.query.delete()
+    PageViewDaily.query.delete()
+    db.session.commit()
+    ref = date(2026, 6, 30)
+    for back in (100, 95, 40, 10):
+        db.session.add(PageView(day=ref - timedelta(days=back),
+                                path="/", visitor="v"))
+    db.session.commit()
+    aggregate_page_views(today=ref)
+    left = sorted((ref - r.day).days for r in PageView.query.all())
+    check("at 90 days, the two older rows roll up and the rest stay",
+          left == [10, 40], str(left))
+set_block(STATS_RAW_DAYS_KEY, "30")
+with app.app_context():
+    aggregate_page_views(today=ref)
+    left = sorted((ref - r.day).days for r in PageView.query.all())
+    check("SHORTENING IT PRUNES MORE ON THE NEXT RUN", left == [10],
+          str(left))
+    check("...and the rolled-up days are all still in the totals",
+          PageViewDaily.query.count() == 3,
+          str(PageViewDaily.query.count()))
+    total = db.session.query(
+        db.func.sum(PageViewDaily.views)).scalar() or 0
+    check("...with nothing lost from the totals", total == 3, str(total))
+
+# THE DAILY TOTALS HAVE NO SETTING, and that is deliberate.
+settings_html = boss2.get("/admin/features").data.decode("utf-8")
+check("the retention field is on Settings",
+      'name="raw_days"' in settings_html)
+check("...and says what the trade-off is",
+      "most visited" in settings_html.lower()
+      and "bigger database" in settings_html)
+check("...and states the storage at both ends of the range",
+      human_bytes(200 * PAGEVIEW_RAW_MIN * 460) in settings_html
+      and human_bytes(200 * PAGEVIEW_RAW_MAX * 460) in settings_html,
+      "the numbers in the helper text do not match the measured cost")
+check("IT SAYS THE DAILY TOTALS ARE NOT AFFECTED",
+      "not affected" in settings_html and "kept for ever" in settings_html)
+check("...and that having no control over them is a decision",
+      "a decision" in settings_html and "not an omission" in settings_html)
+check("there is NO setting that can shorten the daily totals",
+      'name="daily_days"' not in settings_html
+      and 'name="totals_days"' not in settings_html)
+set_block(STATS_RAW_DAYS_KEY, str(PAGEVIEW_RAW_DAYS))
+
+# ---- THE DOWNLOADABLE REPORT ------------------------------------------
+print()
+print("---- the report for a period")
+set_block(ORG_NAME_KEY, "Enfield Bangladesh Welfare Association",
+          group="org")
+set_block(ORG_CHARITY_NO_KEY, "1234567", group="org")
+with app.app_context():
+    PageView.query.delete()
+    PageViewDaily.query.delete()
+    db.session.commit()
+    today = utc_as_uk(datetime.utcnow()).date()
+    recent_start = today - timedelta(days=9)
+    for i in range(10):
+        for j in range(4):
+            db.session.add(PageView(day=recent_start + timedelta(days=i),
+                                    path="/about" if j else "/",
+                                    visitor="p%d" % (i % 3)))
+    db.session.commit()
+    r = period_report(recent_start, today)
+
+check("the report knows who it is about", r["org"].startswith("Enfield"))
+check("...and carries the charity number", r["charity_number"] == "1234567")
+check("...the period and its length",
+      r["start"] == recent_start and r["end"] == today and r["days"] == 10,
+      str((r["start"], r["end"], r["days"])))
+check("...the views and the visits", r["views"] == 40 and r["visits"] == 3,
+      str((r["views"], r["visits"])))
+check("...a comparison with the previous period of the same length",
+      r["previous"]["days"] if False else
+      (r["previous"]["start"] == recent_start - timedelta(days=10)
+       and r["previous"]["end"] == recent_start - timedelta(days=1)),
+      str(r["previous"]))
+check("...and it is described in words, not just a number",
+      "no figure" in r["previous"]["phrase"]
+      or "up" in r["previous"]["phrase"]
+      or "down" in r["previous"]["phrase"], r["previous"]["phrase"])
+check("...the most visited pages, while the detail is still held",
+      r["pages_held"] is True and r["top"] and r["top"][0]["path"] == "/about",
+      str(r["top"]))
+check("...and when it was produced", r["produced"] is not None)
+
+# A PERIOD WITH ONLY DAILY TOTALS: the figures still come out, and the
+# missing page detail is explained rather than shown as zero.
+with app.app_context():
+    old_start = date(2024, 3, 1)
+    old_end = date(2024, 3, 31)
+    for i in range(31):
+        db.session.add(PageViewDaily(day=old_start + timedelta(days=i),
+                                     views=20 + i, visitors=5))
+    db.session.commit()
+    old = period_report(old_start, old_end)
+check("A PERIOD WITH ONLY DAILY TOTALS STILL REPORTS ITS FIGURES",
+      old["views"] == sum(20 + i for i in range(31)) and old["visits"] == 155,
+      str((old["views"], old["visits"])))
+check("...and says the page detail is no longer held, rather than zero",
+      old["pages_held"] is False and old["top"] == [], str(old["top"]))
+check("...naming the date it is kept from",
+      old["kept_from"] is not None and old["raw_days"] == 62,
+      str((old["kept_from"], old["raw_days"])))
+
+# ---- the page it renders ----------------------------------------------
+page = client_admin.get("/admin/visitors/report?from=%s&to=%s"
+                        % (old_start, old_end))
+check("A CLIENT ADMIN CAN OPEN THE REPORT", page.status_code == 200,
+      str(page.status_code))
+doc = page.data.decode("utf-8")
+check("it names the association", "Enfield Bangladesh Welfare" in doc)
+check("...and the charity number", "1234567" in doc
+      and "Registered charity number" in doc)
+check("...the period in words", "01 March 2024" in doc
+      and "31 March 2024" in doc)
+check("...the caveat, beside the figures",
+      "one person on one day" in doc
+      and doc.index("one person on one day") - doc.index("page views")
+      < 900, "the caveat is not near the figures")
+check("...that no analytics service is used", "no analytics service" in doc)
+check("...when it was produced", "Produced" in doc)
+check("...and explains the missing page detail",
+      "no longer held" in doc, "the gap is unexplained")
+check("it is a document, not a screenshot: the admin chrome is print-hidden",
+      "report-doc" in doc and "report-tools" in doc)
+
+fresh = client_admin.get("/admin/visitors/report?from=%s&to=%s"
+                         % (recent_start, today)).data.decode("utf-8")
+check("a recent period lists the pages", "/about" in fresh
+      and "Most visited pages" in fresh)
+
+# Bad input is refused rather than becoming a strange query.
+for args, why in (("from=nonsense", "a date that is not a date"),
+                  ("from=2026-12-01&to=2026-01-01", "a backwards period"),
+                  ("from=1990-01-01&to=2030-01-01", "a forty-year period")):
+    r2 = client_admin.get("/admin/visitors/report?" + args)
+    check("refuses %s, and still renders" % why, r2.status_code == 200,
+          str(r2.status_code))
+
+check("an anonymous visitor cannot read it",
+      app.test_client().get("/admin/visitors/report").status_code == 302)
+
+# With no charity number it says so on screen, and that note is
+# print-hidden so it cannot end up in a funding application.
+set_block(ORG_CHARITY_NO_KEY, "", group="org")
+doc2 = client_admin.get("/admin/visitors/report").data.decode("utf-8")
+check("with no charity number it prompts for one on screen",
+      "No registered charity number is" in doc2)
+check("...and that prompt is hidden from the print",
+      "report-missing" in doc2)
+set_block(ORG_CHARITY_NO_KEY, "1234567", group="org")
+
 # ---- teardown ---------------------------------------------------------
 with app.app_context():
     db.session.remove()

@@ -288,12 +288,53 @@ STATS_REPORT_ACTION = "stats_report"
 # report can say "ahead" or "behind" rather than leaving a trustee to do
 # the arithmetic in their head.
 STATS_TARGET_DEFAULT = 2000
+ORG_NAME_KEY = "org_name"
+ORG_CHARITY_NO_KEY = "org_charity_number"
 VISITOR_HASH_LENGTH = 64          # sha256 hex
 # How long the per-page-load rows are kept before they are folded into
 # daily totals and deleted. 62 days covers "this month" and the whole of
 # last month, which is as far back as the per-page figures are ever
 # shown; the daily totals are what answer "the same month last year".
+#
+# CONFIGURABLE, within a range, because the trade is a real one and it
+# depends on the site: a row costs about 460 bytes with its three
+# indexes (measured), so at 200 views a day the window is 2.6MB at 30
+# days and 32MB at 365. What it buys is how far back "most visited
+# pages" can look.
+#
+# THE DAILY TOTALS ARE NOT CONFIGURABLE AND MUST NOT BECOME SO. They
+# cost about 70KB a year, they are the whole of the year-on-year figure,
+# and the raw rows they were computed from are long gone — a control
+# that can delete them is a control somebody will use by accident. See
+# the note on PageViewDaily.
 PAGEVIEW_RAW_DAYS = 62
+PAGEVIEW_RAW_MIN = 30
+PAGEVIEW_RAW_MAX = 365
+STATS_RAW_DAYS_KEY = "stats_raw_days"
+# Measured: one PageView row plus its share of ix_pageview_day,
+# ix_pageview_day_visitor and ix_pageview_day_path.
+PAGEVIEW_ROW_BYTES = 460
+
+
+def human_bytes(n):
+    """A size somebody can read, for helper text rather than a table."""
+    for unit, step in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
+        if n >= step:
+            value = n / step
+            return "%.0f%s" % (value, unit) if value >= 10                 else "%.1f%s" % (value, unit)
+    return "%d bytes" % n
+
+
+def pageview_raw_days():
+    """The configured window, or the default if nobody has set one."""
+    block = Block.query.filter_by(key=STATS_RAW_DAYS_KEY).first()
+    try:
+        value = int((block.value or "").strip()) if block else 0
+    except ValueError:
+        value = 0
+    if not PAGEVIEW_RAW_MIN <= value <= PAGEVIEW_RAW_MAX:
+        return PAGEVIEW_RAW_DAYS
+    return value
 
 
 class PageView(db.Model):
@@ -1531,7 +1572,7 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
                      PARTNER_GLIDE_KEY, PARTNER_DRIFT_KEY,
                      HOME_ORDER_KEY, HOME_HIDDEN_KEY,
                      STATS_REPORT_KEY, STATS_REPORT_TO_KEY,
-                     STATS_TARGET_KEY,
+                     STATS_TARGET_KEY, STATS_RAW_DAYS_KEY,
                      ) + tuple(
     MOTION_ROWS["testimonials"][k]
     for k in ("mode_key", "step_key", "glide_key", "drift_key"))
@@ -2432,7 +2473,7 @@ def visitor_stats():
         "chart_max": max([c["views"] for c in chart] or [0]),
         "top": [{"path": p, "views": n} for p, n in top],
         "since": min([d for d in (oldest_raw, oldest_daily) if d] or [today]),
-        "raw_days": PAGEVIEW_RAW_DAYS,
+        "raw_days": pageview_raw_days(),
     }
 
 
@@ -2451,7 +2492,7 @@ def aggregate_page_views(today=None):
     are gone by then anyway.
     """
     today = today or utc_as_uk(datetime.utcnow()).date()
-    cutoff = today - timedelta(days=PAGEVIEW_RAW_DAYS)
+    cutoff = today - timedelta(days=pageview_raw_days())
     rows = (db.session.query(PageView.day, db.func.count(PageView.id),
                              db.func.count(db.distinct(PageView.visitor)))
             .filter(PageView.day < cutoff)
@@ -7301,6 +7342,30 @@ def admin_visitors():
                            target=stats_monthly_target())
 
 
+@app.route("/admin/visitors/report")
+@login_required
+def admin_visitor_report():
+    """A period's figures as a document EBWA can hand to a funder.
+
+    PRINT-FRIENDLY HTML RATHER THAN A GENERATED PDF, deliberately. The
+    only PDF libraries worth using here are a real dependency — reportlab
+    is not in requirements.txt and would be a pip install on the server
+    plus hand-positioned text — and the browser's own "Save as PDF"
+    produces a better artefact than either: selectable text, the site's
+    real fonts (self-hosted, so nothing is fetched while printing), and
+    a page that is readable on screen and by a screen reader before
+    anybody prints it.
+
+    Open to EVERY admin, like the visitor summary. A grant application
+    is EBWA's work, not Netbus's.
+    """
+    start, end, error = parse_report_period(request.args)
+    if error:
+        flash(error, "error")
+    return render_template("admin/visitor_report.html",
+                           r=period_report(start, end), error=error)
+
+
 # ---------------------------------------------------------------- admin: users
 # Super admin (Netbus) only. Every guard here is enforced server-side —
 # the UI hides impossible actions, but the route is what refuses them.
@@ -7448,6 +7513,10 @@ def admin_features():
         report_to=stats_report_setting(),
         target=stats_monthly_target(),
         default_target=STATS_TARGET_DEFAULT,
+        raw_days=pageview_raw_days(), raw_min=PAGEVIEW_RAW_MIN,
+        raw_max=PAGEVIEW_RAW_MAX, row_bytes=PAGEVIEW_ROW_BYTES,
+        storage_low=human_bytes(200 * PAGEVIEW_RAW_MIN * PAGEVIEW_ROW_BYTES),
+        storage_high=human_bytes(200 * PAGEVIEW_RAW_MAX * PAGEVIEW_ROW_BYTES),
         health=server_health(), backup_limit=BACKUP_MANUAL_PER_HOUR,
         backup=backup_status(), alerts_on=security_alerts_on(),
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
@@ -7871,6 +7940,16 @@ def admin_stats_report_save():
         flash("The target must be between 100 and 1,000,000 page views.",
               "error")
         return back
+    try:
+        raw_days = int((request.form.get("raw_days") or "").strip())
+    except ValueError:
+        flash("The number of days of detail must be a whole number.",
+              "error")
+        return back
+    if not PAGEVIEW_RAW_MIN <= raw_days <= PAGEVIEW_RAW_MAX:
+        flash("Keep between %d and %d days of per-page detail."
+              % (PAGEVIEW_RAW_MIN, PAGEVIEW_RAW_MAX), "error")
+        return back
     was_on = stats_report_on()
     changed = []
     if _set_block(STATS_REPORT_KEY,
@@ -7881,6 +7960,11 @@ def admin_stats_report_save():
         changed.append("the recipient")
     if _set_block(STATS_TARGET_KEY, str(target), group="stats"):
         changed.append("the target")
+    if _set_block(STATS_RAW_DAYS_KEY, str(raw_days), group="stats"):
+        # Shortening it does not delete anything here and now: the next
+        # aggregate-pageviews run folds the newly-out-of-window days into
+        # totals, which is the same path every other day takes.
+        changed.append("how long per-page detail is kept")
     db.session.commit()
     # The ADDRESS is not in the summary — it is somebody's email, and the
     # audit log is not the place for it. Which field moved is enough.
@@ -8081,6 +8165,14 @@ DEFAULT_BLOCKS = [
     ("stats", STATS_REPORT_TO_KEY, "Monthly report goes to", "text", ""),
     ("stats", STATS_TARGET_KEY, "Monthly page-view target", "text",
      str(STATS_TARGET_DEFAULT)),
+    ("stats", STATS_RAW_DAYS_KEY, "Days of per-page detail", "text",
+     str(PAGEVIEW_RAW_DAYS)),
+    # The association's own identity, for the downloadable report. A
+    # grant document with the wrong legal name or no charity number is
+    # worse than no document, and neither is Netbus's to invent.
+    ("org", ORG_NAME_KEY, "Association name (legal)", "text",
+     "Enfield Bangladesh Welfare Association"),
+    ("org", ORG_CHARITY_NO_KEY, "Registered charity number", "text", ""),
     # How the partner row moves. Set on the partners admin page, not in
     # the text editor, so both are hidden below.
     ("partners", PARTNER_MOTION_KEY, "Partner row movement", "text",
@@ -8449,7 +8541,7 @@ def monthly_report(for_month=None):
         lines.append("No per-page figures for this month. Page-level "
                      "detail is kept for")
         lines.append("%d days, so a report run late will show the totals "
-                     "and not the pages." % PAGEVIEW_RAW_DAYS)
+                     "and not the pages." % pageview_raw_days())
     lines.append("")
     lines.append("")
     lines.append("These figures are counted on EBWA's own server. There is "
@@ -8517,6 +8609,96 @@ def send_monthly_report(for_month=None, force=False):
         % month.strftime("%B %Y")
 
 
+def period_report(start, end):
+    """Everything the downloadable report shows, for [start, end].
+
+    A DOCUMENT rather than a screenshot: it goes into grant
+    applications, so it carries who it is about, what period it covers,
+    what the figures mean and when it was produced. Somebody reading it
+    a year later, with no access to the admin, has to be able to tell
+    all of that from the page.
+    """
+    length = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=length - 1)
+    views, visits = _pv_counts(start, end)
+    prev_views, prev_visits = _pv_counts(prev_start, prev_end)
+    try:
+        ly_start = start.replace(year=start.year - 1)
+        ly_end = end.replace(year=end.year - 1)
+    except ValueError:                       # 29 February
+        ly_start = start.replace(year=start.year - 1, day=28)
+        ly_end = end.replace(year=end.year - 1, day=28)
+    ly_views, ly_visits = _pv_counts(ly_start, ly_end)
+
+    # Per-page detail only exists while the raw rows do. Saying "no
+    # pages" for an older period would read as "nobody visited any";
+    # saying WHY is the difference between a gap and a mistake.
+    kept_from = (utc_as_uk(datetime.utcnow()).date()
+                 - timedelta(days=pageview_raw_days()))
+    pages_held = start >= kept_from
+    top = []
+    if pages_held:
+        top = [{"path": path, "views": n} for path, n in
+               db.session.query(PageView.path, db.func.count(PageView.id))
+               .filter(PageView.day >= start, PageView.day <= end)
+               .group_by(PageView.path)
+               .order_by(db.func.count(PageView.id).desc(), PageView.path)
+               .limit(STATS_TOP_PAGES).all()]
+
+    blocks = blocks_for("org")
+    return {
+        "org": blocks.get(ORG_NAME_KEY, "") or "This website",
+        "charity_number": blocks.get(ORG_CHARITY_NO_KEY, "").strip(),
+        "start": start, "end": end, "days": length,
+        "views": views, "visits": visits,
+        "previous": {"start": prev_start, "end": prev_end,
+                     "views": prev_views, "visits": prev_visits,
+                     "phrase": _change_phrase(views, prev_views,
+                                              "the previous %d days"
+                                              % length)},
+        "last_year": ({"start": ly_start, "end": ly_end,
+                       "views": ly_views, "visits": ly_visits,
+                       "phrase": _change_phrase(views, ly_views,
+                                                "the same period last year")}
+                      if (ly_views or ly_visits) else None),
+        "top": top, "pages_held": pages_held, "kept_from": kept_from,
+        "raw_days": pageview_raw_days(),
+        "produced": utc_as_uk(datetime.utcnow()),
+    }
+
+
+def parse_report_period(args):
+    """(start, end, error) from the query string, defaulting to last month.
+
+    Refuses a backwards range and one longer than five years rather than
+    letting somebody build a query that reads the whole table.
+    """
+    today = utc_as_uk(datetime.utcnow()).date()
+    default_start = _month_before(today.replace(day=1))
+    default_end = _month_end(default_start)
+
+    def parse(name, fallback):
+        raw = (args.get(name) or "").strip()
+        if not raw:
+            return fallback, None
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date(), None
+        except ValueError:
+            return fallback, "Dates go in as YYYY-MM-DD."
+
+    start, err1 = parse("from", default_start)
+    end, err2 = parse("to", default_end)
+    error = err1 or err2
+    if not error and end < start:
+        error = "The end of the period comes before the start."
+    if not error and (end - start).days > 366 * 5:
+        error = "That is more than five years — choose a shorter period."
+    if error:
+        return default_start, default_end, error
+    return start, end, None
+
+
 @app.cli.command("aggregate-pageviews")
 def aggregate_pageviews_command():
     """Roll page views older than the raw window into daily totals.
@@ -8531,7 +8713,8 @@ def aggregate_pageviews_command():
     """
     days, rows = aggregate_page_views()
     if not days:
-        print("Nothing older than %d days to roll up." % PAGEVIEW_RAW_DAYS)
+        print("Nothing older than %d days to roll up."
+              % pageview_raw_days())
         return
     print("Rolled %d day%s into daily totals and deleted %d raw row%s."
           % (days, "" if days == 1 else "s", rows, "" if rows == 1 else "s"))

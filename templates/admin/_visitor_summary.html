@@ -1,3 +1,9 @@
+{#- `sub_head` is the level for the headings below, set by whoever
+    includes this: 3 under a section <h2> on Settings, 2 directly under
+    the <h1> on the visitors page. A skipped level is a best-practice
+    axe finding and, more to the point, a screen reader user's outline
+    with a rung missing. -#}
+{% set hl = sub_head|default(3) %}
 {#- THE VISITOR SUMMARY, shared by the Visitors page and the Settings
     page. One implementation: two copies of a chart is two places to fix
     the next thing found in one of them, and they would drift.
@@ -51,7 +57,7 @@
   {#- THE CHART IS INLINE SVG, BUILT HERE. No charting library, no
       client-side fetch, nothing for the CSP to allow. It is a list of
       rectangles; a bar chart does not need a dependency. -#}
-  <h3 class="stats-chart-head">Page views, last {{ stats.chart|length }} days</h3>
+  <h{{ hl }} class="stats-chart-head">Page views, last {{ stats.chart|length }} days</h{{ hl }}>
   {% set W = 720 %}{% set H = 160 %}{% set GAP = 3 %}
   {% set bw = (W - GAP * (stats.chart|length - 1)) / stats.chart|length %}
   <div class="stats-chart">
@@ -80,7 +86,7 @@
     figures are kept for {{ stats.raw_days }} days and then folded into
     daily totals.</p>
 
-  <h3 class="stats-chart-head">Most visited pages, {{ stats.month_label }}</h3>
+  <h{{ hl }} class="stats-chart-head">Most visited pages, {{ stats.month_label }}</h{{ hl }}>
   {% if stats.top %}
   <div class="table-scroll" tabindex="0" role="region"
        aria-label="Most visited pages, scrollable">

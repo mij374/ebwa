@@ -136,6 +136,54 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Retention setting and the period report
+
+**THREE NEW BLOCKS, NO SCHEMA CHANGE.** `init-db` is idempotent and
+inserts only missing keys:
+
+```bash
+flask --app app init-db
+flask --app app check-schema     # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+The Blocks are `stats_raw_days` (hidden from the content editor, like the
+other settings), plus `org_name` and `org_charity_number` in a new `org`
+group — those two ARE editable content, because they appear on the
+report a funder reads.
+
+**SET THE CHARITY NUMBER before anybody produces a report.** It seeds
+empty, and while it is empty the report says so on screen — a note that
+is deliberately not printed, so a document cannot go out carrying a
+message to its own admin. Page content → Organisation.
+
+**How long per-page detail is kept is now a setting**, 30 to 365 days,
+seeded at the 62 it was fixed at, so nothing changes on upgrade. It
+governs the roll-up only: `aggregate_page_views()` folds anything older
+into daily totals and deletes the raw rows. At 200 page views a day that
+is about 2.6MB of database at 30 days and 32MB at 365.
+
+**Shortening it takes effect on the next roll-up, not immediately**, and
+what it prunes has already been counted into the daily totals — the
+figures do not change, only how far back "most visited pages" can look.
+
+**The daily totals themselves have no setting and must not get one.**
+They are what the year-on-year comparison is made of, they cost about
+70KB a year, and a control that can delete them is a control somebody
+will use by accident.
+
+**New page: /admin/visitors/report, open to EVERY admin**, like the
+visitor summary — a grant application is EBWA's work. It is a
+print-friendly HTML document rather than a generated PDF: no new Python
+dependency to install, and the browser's own "Save as PDF" gives
+selectable text and the site's real fonts.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-26 — Monthly report and the Visitors page
 
 **THREE NEW BLOCKS, NO SCHEMA CHANGE.** `init-db` is idempotent and

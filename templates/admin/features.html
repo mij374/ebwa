@@ -597,6 +597,24 @@
       <small>From the brief: {{ "{:,}".format(default_target) }}. The
         report says whether the month met it.</small>
     </div>
+    <div class="field">
+      <label for="raw_days">Days of per-page detail to keep</label>
+      <input type="number" id="raw_days" name="raw_days"
+             min="{{ raw_min }}" max="{{ raw_max }}" step="1"
+             value="{{ raw_days }}">
+      <small>How far back <b>“most visited pages”</b> can look. Longer
+        keeps more detail and a bigger database; shorter prunes sooner.
+        At this site's rate a day of detail is roughly
+        {{ "{:,}".format(row_bytes) }} bytes a page view — about
+        <b>{{ storage_low }}</b> at {{ raw_min }} days and
+        <b>{{ storage_high }}</b> at {{ raw_max }}, for a site seeing
+        200 page views a day.
+        <br><b>The day-by-day totals are not affected either way.</b>
+        They are kept for ever — they cost about 70KB a year and they
+        are what the year-on-year comparison is made of, so there is
+        deliberately no setting that can delete them. That is a decision,
+        not an omission.</small>
+    </div>
     <div class="form-actions">
       <button class="btn btn-green" type="submit">Save report settings</button>
     </div>

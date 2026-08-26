@@ -191,6 +191,8 @@ PAGES = [
     ("/admin/features", ".admin-table"),
     ("/admin/audit", ".admin-table"),
     ("/admin/account", ".admin-form"),
+    ("/admin/visitors", ".stats-chart"),
+    ("/admin/visitors/report", ".report-doc"),
 ]
 
 server = make_server("127.0.0.1", PORT, app, threaded=True)

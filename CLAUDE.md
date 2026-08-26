@@ -1343,13 +1343,30 @@ Built and maintained by Netbus IT Support.
     non-GET, non-200, obvious bots by user-agent substring, and
     **anybody signed in** — staff looking at their own site are not an
     audience, and the Settings page must not count itself.
-  - `PAGEVIEW_RAW_DAYS` (62) is how long per-page rows live;
+  - How long per-page rows live is a SUPER-ADMIN SETTING,
+    `pageview_raw_days()` — 30 to 365 days, `PAGEVIEW_RAW_DAYS` (62) the
+    default and the fallback for anything out of range or unparseable;
     `aggregate-pageviews` then folds a day into `PageViewDaily` and
     deletes it, from cron. Both tables are queried and added for any
     range, or the figures would fall off a cliff at the boundary. The
     daily totals hold no paths: per-page figures are only ever shown for
     the current month.
-  - **`PageViewDaily` IS KEPT FOR EVER. Never add a prune to it.** The
+    - It governs the ROLL-UP only, never the totals. Shortening it
+      prunes more on the next run and changes no figure — the rows it
+      removes were counted into `PageViewDaily` first — it only shortens
+      how far back "most visited pages" can look. Measured at 460 bytes
+      a raw row including its three indexes: at 200 views a day, 2.6MB
+      of database at 30 days, 5.4MB at 62 and 32MB at 365.
+    - The field's step is 1 with `min` 30, so the 62-day default is on
+      the grid. See the number-input rules above for why that sentence
+      is not pedantry.
+  - **`PageViewDaily` IS KEPT FOR EVER. Never add a prune to it, and
+    never give it a setting either.** A range control on the raw window
+    is a tidiness knob; the same control over the totals is a button
+    that deletes the year-on-year history, and it would be used by
+    accident by somebody trying to save space. The helper text beside
+    the raw setting says so in as many words, so the absence reads as a
+    decision rather than an oversight. The
     raw rows are the disposable half; the daily totals are the point of
     keeping anything, and the year-on-year figure is the one number that
     cannot be recovered once it is gone — the rows it would be
@@ -1398,6 +1415,41 @@ Built and maintained by Netbus IT Support.
       says so in words rather than printing a zero.
     - The address is never in the audit summary. Which field changed is
       enough; somebody's email is not.
+  - The period report (`/admin/visitors/report`, `period_report()`) is a
+    DOCUMENT, and every rule about it follows from that: it goes into
+    grant applications, where it is read a year later by somebody with no
+    access to the admin. So it carries EBWA's name and charity number,
+    the period, the figures, the person-days caveat beside the figure it
+    qualifies, the comparison, and the date it was produced.
+    - **Print-friendly HTML, not a generated PDF.** reportlab is not in
+      `requirements.txt` and would be a server install plus hand-placed
+      text; the browser's own "Save as PDF" gives selectable text, the
+      site's real fonts (self-hosted, so a print fetches nothing) and a
+      page that is readable on screen and by a screen reader first. If a
+      real PDF is ever wanted, that is the trade being proposed.
+    - `@media print` hides everything that is the ADMIN — sidebar, the
+      period picker, flashes, the skip link — and the on-screen note
+      about a missing charity number, which must never print: on a
+      funding application it reads as the charity not knowing its own
+      number.
+    - `tests/check_visitor_report.py` is the proof, and it has to be a
+      browser check: nothing in the HTML says what comes out of the
+      printer. It emulates print media at every shared viewport and
+      asserts what is gone, what is left, that no link dragged its URL
+      into a sentence, and that the big figures print in dark ink rather
+      than the green they are on screen.
+    - Open to EVERY admin, like the visitor summary.
+  - **The public stylesheet styles BARE `header`, `footer` and
+    `section`**, and those rules reach any admin page using one of them
+    semantically. `.admin-body :where(header,footer,section)` neutralises
+    them, deliberately placed BEFORE the admin rules so anything after it
+    still wins (`.admin-attention` keeps its own box). Found the hard
+    way: the report's masthead rendered sticky and blurred, its colophon
+    as a band of dark green with grey text at 1.79:1, and every section
+    carried the public bands' 80px of padding — 160px of white between
+    two short paragraphs on the printed page. Reach for a semantic
+    element on an admin page and check what the public shell already
+    says about it.
   - The chart is **inline SVG built in the template** — no charting
     library, no client-side fetch, nothing new for the CSP. It carries
     an `aria-label` listing every day and figure, because a bar chart is

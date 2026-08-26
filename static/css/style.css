@@ -671,6 +671,79 @@ header{
 .health-auto{display:inline-flex;align-items:center;gap:8px;margin-left:6px;font-size:13.5px}
 .health-auto input{width:auto}
 
+/* ---------- The downloadable visitor report ----------
+   Print-friendly HTML rather than a generated PDF: the browser's own
+   Save as PDF gives selectable text and the site's real fonts (which
+   are ours now, so nothing is fetched while printing), with no
+   dependency and no deploy step. What prints is .report-doc and
+   nothing else — see the @media print block. */
+/* THE PUBLIC SHELL STYLES BARE <header>, <footer> AND <section>, and
+   those rules reach any admin page that uses one of them semantically.
+   The report's masthead came out sticky, blurred and sitting on
+   translucent paper; its colophon came out as a band of dark green with
+   grey text on it, 1.79:1 and unreadable; and every <section> carried
+   the public page bands' 80px of padding top and bottom, which on the
+   printed report was 160px of white between one short paragraph and the
+   next. All three are the right elements for a document, so the fix
+   belongs here rather than in the markup — and it covers the next admin
+   page to reach for them.
+   Kept at .admin-body specificity and placed BEFORE the rules below, so
+   it outranks the bare element selectors and anything after it outranks
+   this. */
+.admin-body :where(header,footer,section){
+  position:static;background:none;backdrop-filter:none;
+  border:0;color:inherit;padding:0;margin:0;z-index:auto;
+}
+
+.report-tools{margin-bottom:26px}
+.report-period{max-width:520px}
+.report-doc{
+  background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:44px 48px;max-width:820px;
+  color:var(--ink);
+}
+.report-head{border-bottom:2px solid var(--green);padding-bottom:18px;margin-bottom:26px}
+.report-head h2{font-size:26px;color:var(--green);margin-bottom:2px}
+.report-org{font-size:14px;color:var(--ink-soft);margin-bottom:14px}
+.report-missing{color:var(--red-ink)}
+.report-head h3{font-size:18px;margin:0 0 4px}
+.report-period-line{font-size:15px;color:var(--ink-soft)}
+.report-period-line span{color:var(--ink-muted)}
+.report-figures{display:flex;gap:44px;margin-bottom:14px}
+.report-figure b{display:block;font-family:var(--font-display);font-size:42px;color:var(--green);line-height:1.05}
+.report-figure span{font-size:14px;color:var(--ink-soft)}
+.report-caveat{
+  font-size:13.5px;line-height:1.6;color:var(--ink-soft);
+  border-left:3px solid var(--line);padding-left:14px;margin-bottom:30px;
+  max-width:68ch;
+}
+.report-doc h4{font-size:15px;margin:0 0 10px;color:var(--green)}
+.report-doc section{margin-bottom:28px}
+.report-table{width:100%;border-collapse:collapse;font-size:14.5px}
+.report-table th,.report-table td{
+  text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);
+  vertical-align:top;font-weight:400;
+}
+.report-table thead th{font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft)}
+.report-table th small{display:block;color:var(--ink-muted);font-size:12.5px}
+.report-foot{border-top:1px solid var(--line);padding-top:14px;font-size:13px;color:var(--ink-soft)}
+
+@media print{
+  /* Everything that is the ADMIN goes; what is left is the document. */
+  .admin-side,.report-tools,.flash,.skip-link,.report-missing{display:none !important}
+  .admin-shell{display:block}
+  .admin-main{padding:0}
+  .admin-body{background:var(--white)}
+  .report-doc{border:none;border-radius:0;padding:0;max-width:none}
+  .report-figure b{color:#000}
+  .report-head{border-bottom-color:#000}
+  .report-head h2,.report-doc h4{color:#000}
+  /* A table split across a page break is a table somebody has to read
+     twice to be sure of. */
+  .report-table,.report-figures,.report-caveat{break-inside:avoid}
+  a[href]::after{content:""}      /* no printed URLs: this is a record */
+}
+
 /* ---------- Visitor statistics ---------- */
 .stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:18px 0 8px}
 /* WHITE, like .health-card and .admin-stat, and for the same reason:

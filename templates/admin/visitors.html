@@ -10,8 +10,11 @@
 </div>
 
 <div class="admin-form">
-{% include "admin/_visitor_summary.html" %}
-  <p class="admin-sub" style="margin-top:22px">The monthly target is
+{% with sub_head = 2 %}{% include "admin/_visitor_summary.html" %}{% endwith %}
+  <p class="admin-sub" style="margin-top:22px">
+    <a class="btn btn-ghost" href="{{ url_for('admin_visitor_report') }}">Report for a period</a>
+  </p>
+  <p class="admin-sub">The monthly target is
     <b>{{ "{:,}".format(target) }}</b> page views. Netbus can change it,
     switch the monthly email on or off, and choose where it goes.</p>
 </div>
