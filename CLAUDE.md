@@ -854,6 +854,43 @@ Built and maintained by Netbus IT Support.
     iOS ignores transparency). Regenerate by trimming the mark to its
     alpha bounding box and scaling with LANCZOS; the 16px one gets its
     edge opacity lifted (alpha gamma ~0.7) or the thin strokes wash out.
+- **The fonts are SELF-HOSTED, and that removed the last third-party
+  request the site itself makes.** Linking `fonts.googleapis.com` meant
+  every visitor's browser announced their IP address to Google before a
+  word of the page was drawn — no cookie, nothing stored, but the site
+  tells people there is no tracking of any kind, and a request to a
+  third party on every page load is what makes a reader right to be
+  sceptical of that. The font hosts are out of the CSP too, and the two
+  must stay in step: leaving the domains in the policy would quietly
+  re-permit what was removed.
+  - **One file per family per SUBSET, not per weight.** All three are
+    variable fonts and Google was serving the identical file for every
+    weight requested — 30 downloads, 9 distinct files, verified by
+    sha256. The `font-weight` ranges in `@font-face` are the real axis
+    ranges read out of the files with fontTools, so the browser
+    interpolates rather than synthesising a bold.
+  - Google's own `unicode-range` lines are kept verbatim. They are what
+    stops a visitor reading English ever downloading the Bengali subset
+    — 187KB that only somebody reading Bengali needs.
+  - **The version token is in the FILENAME** (`name.<sha8>.woff2`),
+    because a `url()` inside a static stylesheet is not Jinja and cannot
+    carry `asset_version()`. nginx serves /static with `expires 30d`,
+    which is only safe while a changed file means a changed URL.
+    `python tools/hash-fonts.py` re-stamps them and rewrites the CSS;
+    run it after adding or replacing a face.
+  - `tests/check_fonts.py` proves both halves in a browser, because
+    neither can be read off the templates: that NOTHING leaves this
+    server on 14 public and 3 admin pages, and that the Bengali face is
+    loaded and usable for the actual eyebrow text at every viewport. A
+    missing Bengali face does not error — it falls back to whatever
+    serif has the glyphs, or to tofu — so it is measured with
+    `document.fonts.check()` and a width, not eyeballed.
+  - **THE MAP ON /contact IS STILL A THIRD PARTY**, and the check says
+    so on purpose rather than hiding it: Google's iframe loads its own
+    fonts from inside itself. Those are requests the MAP makes, not the
+    page, and they are the one remaining off-site request on the site.
+    If that ever needs to go too, the answer is the video's
+    click-to-load treatment, not another allow-list entry.
 - **Every reference to one of the site's own static files carries a
   version**: `url_for('static', filename='css/style.css',
   v=asset_version('css/style.css'))`. nginx serves `/static/` with

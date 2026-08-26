@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}EBWA — Enfield Bangladesh Welfare Association{% endblock %}</title>
 <meta name="description" content="{% block meta_description %}EBWA is a community-driven organisation enhancing the quality of life for the Bangladeshi and wider communities in the London Borough of Enfield.{% endblock %}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version('css/style.css')) }}">
 {% include "_icons.html" %}
 <meta property="og:image" content="{{ url_for('static', filename='img/ebwa-logo.png', _external=True) }}">

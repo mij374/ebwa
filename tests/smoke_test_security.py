@@ -54,9 +54,16 @@ for path in ("/", "/donate", "/admin/login"):
     r = client.get(path)
     csp = r.headers.get("Content-Security-Policy", "")
     check("%s has CSP" % path, "default-src 'self'" in csp)
-    check("%s CSP allows Google Fonts" % path,
-          "https://fonts.googleapis.com" in csp
-          and "https://fonts.gstatic.com" in csp)
+    # The fonts are ours now, and the policy has to say so — leaving the
+    # domains in after removing the links would quietly re-permit the
+    # thing that was removed.
+    check("%s CSP no longer allows a font host" % path,
+          "fonts.googleapis.com" not in csp
+          and "fonts.gstatic.com" not in csp, csp)
+    check("%s CSP says fonts come from here" % path,
+          "font-src 'self';" in csp, csp)
+    check("%s CSP says styles come from here" % path,
+          "style-src 'self' 'unsafe-inline';" in csp, csp)
     check("%s CSP allows the maps embed" % path,
           "frame-src https://www.google.com" in csp)
     check("%s has nosniff" % path,

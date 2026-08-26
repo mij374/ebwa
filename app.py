@@ -2812,12 +2812,18 @@ def inject_globals():
 
 
 # Security headers on every response. CSP allows exactly what the
-# templates use: inline scripts/styles, Google Fonts, and the Google
-# Maps embed on the contact page.
+# templates use: inline scripts and styles, and the Google Maps embed on
+# the contact page.
+#
+# THE FONT HOSTS ARE GONE FROM HERE because the fonts are ours now, and
+# the two must stay in step: leaving the domains in the policy after
+# removing the links would quietly re-permit the thing that was removed.
+# `font-src 'self'` is the assertion — if a stylesheet ever links a
+# hosted face again, the browser refuses it rather than fetching it.
 CSP = ("default-src 'self'; "
        "script-src 'self' 'unsafe-inline'; "
-       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-       "font-src 'self' https://fonts.gstatic.com; "
+       "style-src 'self' 'unsafe-inline'; "
+       "font-src 'self'; "
        "img-src 'self' data:; "
        # The map, and the two video players — and ONLY on the player
        # hosts, which are the no-cookie/do-not-track ones. Nothing here

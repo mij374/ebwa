@@ -136,6 +136,38 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-26 — Self-hosted fonts
+
+**NO SCHEMA CHANGE.** New static files and a changed stylesheet:
+
+```bash
+cd /opt/ebwa && git pull
+sudo systemctl restart ebwa
+```
+
+`static/fonts/` gains nine `.woff2` files, about 400KB in total. They are
+committed, so a `git pull` brings them — but **check they arrived**,
+because a missing font file is not an error, it is a page that silently
+falls back to a system serif:
+
+```bash
+ls /opt/ebwa/static/fonts/*.woff2 | wc -l    # expect 9
+```
+
+The `fonts.googleapis.com` links are gone from all four templates that
+own a `<head>`, and both font domains are out of the CSP. Nothing else
+changes: no new dependency, no environment variable, no cookie.
+
+Worth knowing for the nginx side: the filenames carry a content hash, so
+`expires 30d` on /static stays correct — replacing a font changes its
+name.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## (pending) — 2026-08-26 — Visitor statistics
 
 **THREE NEW TABLES AND THREE NEW INDEXES.** No columns move on any
