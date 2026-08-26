@@ -136,7 +136,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-26 — Retention setting and the period report
+## 1993a37 — 2026-08-26 — Retention setting and the period report
 
 **THREE NEW BLOCKS, NO SCHEMA CHANGE.** `init-db` is idempotent and
 inserts only missing keys:
