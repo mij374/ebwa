@@ -26,3 +26,9 @@ desktop.ini
 # all, plus every upload. They belong on the server and in whatever the
 # nightly job copies them to — never in the repository.
 backups/
+
+# The guide screenshotter's scratch database. It holds only the demo
+# content that script invents, but it is a database in a source folder
+# and has no business being committed. The PNGs it produces
+# (static/img/guide/) ARE committed — they are part of the site.
+tools/guide-shots-scratch/

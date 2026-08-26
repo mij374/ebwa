@@ -1879,3 +1879,81 @@ input.money{-moz-appearance:textfield;appearance:textfield}
 @media (max-width: 640px){
   .quote-grid,.partner-grid{grid-template-columns:1fr}
 }
+
+/* ---------- The admin guide at /admin/help ----------
+   A document inside the admin, so it borrows the report's habits: a
+   readable measure, screenshots that sit beside the step they
+   illustrate, and a print stylesheet that drops the furniture. */
+.guide{max-width:none}
+.guide-toc{
+  background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:22px 26px;margin-bottom:34px;
+}
+.guide-toc h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-soft);margin-bottom:12px}
+.guide-toc ol{margin:0;padding-left:20px;columns:2;column-gap:34px}
+.guide-toc li{margin-bottom:7px;break-inside:avoid}
+.guide-toc a{color:var(--green);text-decoration:none}
+.guide-toc a:hover{text-decoration:underline}
+
+.guide-section{
+  background:var(--white);border:1px solid var(--line);
+  border-radius:var(--radius);padding:28px 30px;margin-bottom:26px;
+}
+/* h2 and h3 here are inside a page that already has an h1, so they are
+   sized down from the public scale rather than shouting. */
+.guide-section h2{font-size:23px;margin:0 0 14px;color:var(--green)}
+.guide-section h3{font-size:17px;margin:26px 0 8px}
+.guide-section p,.guide-section li{max-width:68ch;line-height:1.65}
+.guide-section p{margin-bottom:12px}
+.guide-section ul{margin:0 0 14px 20px}
+.guide-section li{margin-bottom:8px}
+.guide-section code{
+  background:var(--paper);border:1px solid var(--line);border-radius:5px;
+  padding:1px 6px;font-size:.92em;
+}
+
+/* THE SCREENSHOTS. Capped so a wide one cannot dominate the page, and
+   given a border because most of them are pale grey admin screens on a
+   white card and would otherwise bleed into it. */
+.guide-shot{margin:20px 0 24px;max-width:640px}
+.guide-shot img{
+  display:block;width:100%;height:auto;
+  border:1px solid var(--line);border-radius:10px;background:var(--paper);
+}
+.guide-shot figcaption{
+  font-size:13.5px;color:var(--ink-soft);line-height:1.55;
+  margin-top:9px;padding-left:2px;max-width:60ch;
+}
+
+.guide-faq dt{font-weight:700;margin-top:18px}
+.guide-faq dd{margin:5px 0 0;max-width:68ch;line-height:1.65;
+  color:var(--ink-soft)}
+.guide-end{margin-top:26px;padding-top:16px;border-top:1px solid var(--line)}
+
+@media (max-width: 900px){
+  .guide-toc ol{columns:1}
+  .guide-section{padding:22px 20px}
+}
+
+@media print{
+  /* What is left on the paper is the guide. */
+  .guide-print-hint{display:none !important}
+  .guide-section,.guide-toc{
+    border:none;border-radius:0;padding:0;margin-bottom:26px;
+    background:none;
+  }
+  .guide-section{border-top:1px solid #999;padding-top:16px}
+  .guide-section h2{color:#000}
+  /* A heading at the foot of a page with its text overleaf is the usual
+     way a printed manual goes wrong. */
+  .guide-section h2,.guide-section h3{break-after:avoid}
+  /* AND THE PICTURES MUST NOT BLOW OUT THE PAGE. A 916px screenshot on
+     A4 is wider than the printable area, so it is capped in real units
+     rather than percentages, and kept with its caption. */
+  .guide-shot{max-width:100%;break-inside:avoid}
+  .guide-shot img{max-width:15.5cm;border:1px solid #999}
+  .guide-shot figcaption{color:#333}
+  .guide-faq dd{color:#000}
+  .guide-toc{break-after:page}
+}

@@ -8111,6 +8111,25 @@ def backup_started_flash():
         flash("Backup started.", "ok")
 
 
+@app.route("/admin/help")
+@login_required
+def admin_help():
+    """The written guide to running the site, with screenshots.
+
+    Every role, deliberately: it is EBWA's manual for their own website,
+    and the pages it explains are the ones a client admin uses all day.
+    The handful of super-admin-only screens it mentions are labelled as
+    Netbus's rather than hidden, so a trustee reading it knows the
+    feature exists and who to ask.
+
+    The pictures come from `tools/capture-guide-shots.py`, which drives
+    the real admin in a browser — so when a screen changes the guide is
+    brought back into line by re-running it rather than by somebody
+    noticing.
+    """
+    return render_template("admin/help.html")
+
+
 @app.route("/admin/settings/backup.json")
 @super_admin_required
 def admin_backup_json():

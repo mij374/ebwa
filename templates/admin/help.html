@@ -1,0 +1,581 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Help — EBWA admin{% endblock %}
+
+{#
+  The written guide to running the site.
+
+  The screenshots come from tools/capture-guide-shots.py, which signs in
+  to the real admin against a scratch database of demo content and
+  photographs each screen. When a screen changes, re-run it — do not
+  edit an image by hand, because a hand-made picture is right once and
+  then quietly wrong for ever.
+
+  Every <img> carries alt text describing WHAT THE SCREEN SHOWS, not
+  "screenshot of the events page". The guide has to work read aloud, and
+  printed in black and white, where a colour is not a distinguishing
+  feature.
+#}
+{% macro shot(name, alt, caption) %}
+<figure class="guide-shot">
+  <img src="{{ url_for('static', filename='img/guide/' ~ name ~ '.png') }}"
+       alt="{{ alt }}" loading="lazy">
+  <figcaption>{{ caption }}</figcaption>
+</figure>
+{% endmacro %}
+
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Help</h1>
+    <p class="admin-sub">How to run the EBWA website. Written for whoever
+      is doing it today, not for whoever built it.</p>
+  </div>
+  <div class="guide-print-hint">
+    <button class="btn btn-ghost" type="button" onclick="window.print()">Print
+      or save as PDF</button>
+  </div>
+</div>
+
+<div class="guide">
+
+<nav class="guide-toc" aria-labelledby="tocHead">
+  <h2 id="tocHead">What is in here</h2>
+  <ol>
+    <li><a href="#signing-in">Signing in</a></li>
+    <li><a href="#dashboard">The dashboard, and “needs attention”</a></li>
+    <li><a href="#golden-rules">Four things worth knowing first</a></li>
+    <li><a href="#events">Events</a></li>
+    <li><a href="#photos-layout">Photos, layout and video on a page</a></li>
+    <li><a href="#news">News &amp; Projects</a></li>
+    <li><a href="#gallery">The gallery and its albums</a></li>
+    <li><a href="#page-content">Page content — the words on the site</a></li>
+    <li><a href="#testimonials">Testimonials</a></li>
+    <li><a href="#collections">Collections and donations</a></li>
+    <li><a href="#enquiries">Enquiries and members</a></li>
+    <li><a href="#visitors">Visitors — how many people read the site</a></li>
+    <li><a href="#account">Your account and password</a></li>
+    <li><a href="#netbus">What Netbus looks after</a></li>
+    <li><a href="#stuck">If something looks wrong</a></li>
+  </ol>
+</nav>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="signing-in" class="guide-section">
+  <h2>1. Signing in</h2>
+  <p>The admin lives at <b>/admin</b> — so if the website is
+    <code>ebwa.org.uk</code>, the address is
+    <code>ebwa.org.uk/admin</code>. Sign in with the email address and
+    password Netbus set up for you.</p>
+
+  {{ shot("sign-in",
+          "The sign-in page: a white card headed EBWA Admin with an
+           Email address box, a Password box and a green Sign in button.",
+          "The sign-in page. If you have two-factor sign-in switched on,
+           a second screen asks for the six-digit code from your phone
+           after this one.") }}
+
+  <ul>
+    <li><b>You are signed out after 20 minutes of doing nothing.</b> That
+      is deliberate — an admin left open on a shared computer is an admin
+      anyone can use. If it happens, the page says so and you simply sign
+      in again.</li>
+    <li><b>There is no “forgotten password” link.</b> A reset link sent by
+      email is another way in for somebody who should not have one, so
+      instead you ring Netbus and they reset it on the server.</li>
+    <li>You can change your own password at any time — see
+      <a href="#account">Your account</a>.</li>
+  </ul>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="dashboard" class="guide-section">
+  <h2>2. The dashboard, and “needs attention”</h2>
+  <p>The first page after signing in is the dashboard. It answers one
+    question: <b>is there anything waiting for me today?</b></p>
+
+  {{ shot("dashboard-attention",
+          "The Needs attention panel. A red heading reads LAUNCH BLOCKER —
+           the privacy notice and terms are still the placeholder wording,
+           with a Write them link. Below it, one line each for enquiries
+           nobody has read, a membership application waiting, events now
+           past, and published items with no photo — each with a link on
+           the right.",
+          "“Needs attention” only appears when there is something in it.
+           An empty panel is not shown at all, so if you cannot see this
+           box there is nothing outstanding.") }}
+
+  <p>Each line is one sentence and a link straight to where the fix
+    happens. The things it watches for are:</p>
+  <ul>
+    <li><b>Enquiries nobody has read</b> — somebody used the contact form
+      and is waiting for a reply.</li>
+    <li><b>Membership applications waiting</b> — shown as the one red
+      card, because a person is waiting on a decision.</li>
+    <li><b>Events now past</b> — still published, so still on the site
+      under “Past events”. That is often right; the line is a reminder,
+      not a telling-off.</li>
+    <li><b>Published items with no photo</b> — a page with no picture
+      looks unfinished.</li>
+    <li><b>Placeholder text</b> — wording that came with the site and was
+      never replaced. The privacy notice and terms are flagged as a
+      <b>launch blocker</b>: they are a legal requirement, and EBWA has to
+      supply the real text.</li>
+  </ul>
+
+  {{ shot("dashboard-cards",
+          "Rows of dashboard cards grouped under headings, each showing a
+           figure — events, news posts, gallery photographs, testimonials
+           and so on — with the number of unpublished items noted
+           underneath, and each card linking to its own admin page.",
+          "Below the attention panel, a card for every part of the site.
+           The small grey line under a figure tells you how many are not
+           published yet.") }}
+
+  <p>The dashboard only ever shows <b>totals</b>. It never shows a
+    person's name, address or the amount they gave — for that you go to
+    the page that holds it, and the site records that you looked.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="golden-rules" class="guide-section">
+  <h2>3. Four things worth knowing first</h2>
+  <p>These four come up on nearly every screen, so they are worth reading
+    once rather than discovering one at a time.</p>
+
+  <h3>Published means “on the website”</h3>
+  <p>Almost everything you can add has a <b>Published</b> tick-box.
+    Ticked, it is on the public site. Unticked, it is saved here and
+    nobody outside can see it — which is how you write something now and
+    put it up later.</p>
+
+  {{ shot("event-form-published",
+          "A single form row: a tick-box, ticked, labelled Published
+           (visible on the website).",
+          "The Published tick-box, at the bottom of every form that has
+           one. If it is ticked when you open the form, that item is
+           currently live — leave it ticked unless you mean to take it
+           down.") }}
+
+  <h3>Sort order: lowest number first</h3>
+  <p>Lists that you arrange yourself have a <b>Sort order</b> box. Lower
+    numbers come first. Leaving them all at 0 is fine — things then fall
+    back to newest first — and you only need to touch it when you want
+    something pinned to the top.</p>
+
+  {{ shot("sort-field",
+          "A form row labelled Sort order with a number box containing 0,
+           and a note underneath explaining that lower numbers appear
+           first and a negative number pins an item to the top.",
+          "Sort order. A negative number, like -1, pins something above
+           everything else — useful for one item you want first without
+           renumbering the rest.") }}
+
+  <h3>Delete really does delete</h3>
+  <p>Every delete asks you to confirm, and then it is gone. There is no
+    undo and no wastebasket. If you are not sure, <b>untick Published
+    instead</b> — that takes it off the website and keeps it here.</p>
+  <p>One thing is deliberately safe: <b>deleting a photo album does not
+    delete the photographs.</b> They move to “All photos” and you can put
+    them in another album. An album is an arrangement; a photograph of
+    somebody's grandmother is not.</p>
+
+  <h3>Photographs are made smaller and stripped of location data</h3>
+  <p>When you upload a photo the site shrinks it, so pages load quickly on
+    a phone, and <b>removes the hidden information the camera put in it</b>
+    — including where it was taken. Photos taken on a phone usually carry
+    GPS coordinates, often somebody's home, and the site publishes the
+    picture and not that. You do not have to do anything; it is automatic.</p>
+  <p>Every photo asks for <b>a short description</b>. That is what a blind
+    visitor's screen reader reads out, and it is what shows if the picture
+    fails to load. Describe what is in it — “Children at the Saturday
+    Bengali class”, not “photo1”.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="events" class="guide-section">
+  <h2>4. Events</h2>
+  <p><b>Events</b> in the sidebar lists everything, soonest first. The
+    site sorts events into “Upcoming” and “Past” by their date on its own
+    — you never have to move one.</p>
+
+  {{ shot("events-list",
+          "The events list as a table with columns for date, title, venue
+           and status, each row ending in Edit and Delete links, and a
+           green Add event button above the table.",
+          "The events list. The status column tells you at a glance
+           whether each one is on the website.") }}
+
+  <p>To add one, press <b>Add event</b> and fill in the form.</p>
+
+  {{ shot("event-form-top",
+          "The top of the event form, showing boxes for Title, Date,
+           Start time, Venue, a short Summary and a longer Description,
+           followed by a button to choose a photograph.",
+          "The top half of the event form. Only the title and date are
+           required; everything else can be added later.") }}
+
+  <ul>
+    <li><b>Date</b> is a real date, so the site knows when the event has
+      passed.</li>
+    <li><b>Start time</b> is just words — “6:30 pm”, “after Maghrib”,
+      “doors 6.45”. It prints exactly as you type it, so write what you
+      would say.</li>
+    <li><b>Summary</b> is the line that appears on the card in listings.
+      Keep it to a sentence.</li>
+    <li><b>Description</b> is the full page. Leave a blank line between
+      paragraphs and they come out as paragraphs.</li>
+    <li><b>Photo</b> is the picture used on the card and at the top of the
+      page.</li>
+  </ul>
+  <p>Save it, and it is on the website straight away — assuming
+    <b>Published</b> is ticked.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="photos-layout" class="guide-section">
+  <h2>5. Photos, layout and video on a page</h2>
+  <p>Once an event or news post has been saved, more options appear
+    underneath the form: how the page is arranged, a video, and as many
+    extra photographs as you like. These work the same way on events,
+    news posts, Our Journey entries and the About page.</p>
+
+  {{ shot("event-form-photos",
+          "A section headed Page layout with a drop-down currently reading
+           Classic — a lead photo beside the text, the rest in a strip
+           underneath — and a Save layout button. Below it a section
+           headed Video explaining that a video is only contacted when a
+           visitor presses play.",
+          "Page layout and Video, below the main form. Choose a layout,
+           save, then look at the public page — you can change it back at
+           any time.") }}
+
+  <p>There are three layouts, and the quickest way to choose is to try one
+    and look at the page:</p>
+  <ul>
+    <li><b>Classic</b> — one lead photo beside the words, any others in a
+      strip underneath.</li>
+    <li><b>Gallery</b> — the words, then all the photographs together in a
+      grid.</li>
+    <li><b>Alternating</b> — photo, words, photo, words down the page,
+      side to side.</li>
+  </ul>
+  <p>Gallery and Alternating need photographs to show their shape. With
+    none, the page falls back to Classic on its own.</p>
+
+  {{ shot("event-form-photo-list",
+          "A section headed Photos with a file chooser, a box for a short
+           description of the picture, a sort-order box, and beneath them
+           the photographs already added, each with its own caption and
+           description boxes and a Remove link.",
+          "The photo manager. Add photographs one at a time; the short
+           description is required, because a picture nobody can describe
+           is one a blind visitor simply loses.") }}
+
+  <p>For <b>video</b>, paste the ordinary link to a YouTube or Vimeo page —
+    the one in the address bar. You do not need any embed code, and if you
+    paste one the site quietly takes just the video out of it.</p>
+  <p>The page shows a still picture with a play button, and
+    <b>only contacts YouTube if a visitor actually presses play</b>. That
+    is why the site can honestly say it does not track anybody. You can
+    also choose where the video sits: at the top, after the words, or at
+    the very end.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="news" class="guide-section">
+  <h2>6. News &amp; Projects</h2>
+  <p>News works exactly like events, minus the date and venue. The three
+    most recent published posts appear on the homepage.</p>
+
+  {{ shot("news-form",
+          "The news post form, with boxes for Title, a short Summary, the
+           main Body text, and a photograph chooser.",
+          "The news form. As with events, layout, video and extra photos
+           appear underneath once the post has been saved once.") }}
+
+  <p>Use news for things that happened or are happening — a grant awarded,
+    a term starting, a trip report. Use <b>events</b> for something with a
+    date people can come to.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="gallery" class="guide-section">
+  <h2>7. The gallery and its albums</h2>
+  <p>The gallery has two screens: the <b>photographs</b>, and the
+    <b>albums</b> they are arranged into.</p>
+
+  {{ shot("gallery-albums",
+          "The albums list as a table: three albums named Eid at the
+           centre, Summer day out 2026 and Weekend school, each showing
+           how many photographs it holds, with Edit and Delete links.",
+          "Albums. The count beside each is how many photographs are
+           filed in it.") }}
+
+  {{ shot("gallery-photos",
+          "A grid of photograph thumbnails, each with a tick-box in the
+           corner for selecting it, and a drop-down above for moving the
+           selected photographs into an album.",
+          "The photographs themselves. Tick several and use the drop-down
+           above to move them into an album in one go.") }}
+
+  <p>Things worth knowing:</p>
+  <ul>
+    <li><b>A photograph does not have to be in an album.</b> Anything
+      unfiled still appears under “All photos” on the website, so nothing
+      is ever lost or unreachable.</li>
+    <li><b>Deleting an album never deletes photographs</b> — they go back
+      to being unfiled.</li>
+    <li><b>Hiding an album hides its photographs everywhere</b>, including
+      “All photos”. You will still see them here.</li>
+    <li>Portrait photos stay portrait. The gallery uses each picture's
+      real shape rather than cropping everything into squares.</li>
+  </ul>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="page-content" class="guide-section">
+  <h2>8. Page content — the words on the site</h2>
+  <p><b>Page content</b> is where the fixed wording lives: the homepage
+    headings, the About text, the address and phone number in the footer,
+    the words on the contact page. Anything a visitor reads that is not an
+    event, a news post or a photograph is probably here.</p>
+
+  {{ shot("page-content-tabs",
+          "A row of tabs across the top of the page content screen —
+           Home, About, Contact, Site, Journey, Legal — with one
+           highlighted as the current tab.",
+          "The tabs group the wording by where it appears. Pick a tab,
+           change the boxes, press Save.") }}
+
+  <p>Each box is one piece of text on the site, with its own label. Change
+    it, save, and refresh the public page to see it.</p>
+  <p>Two of these matter more than the rest: <b>Legal</b> holds the privacy
+    notice and the terms, and both ship with placeholder wording that
+    <b>EBWA must replace before the site goes live</b>. The dashboard nags
+    about it for exactly that reason.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="testimonials" class="guide-section">
+  <h2>9. Testimonials</h2>
+  <p>Short quotes from members, shown in a moving row on the homepage.
+    Add the person's name, what they are (“Member”, “Volunteer”), and what
+    they said.</p>
+
+  {{ shot("testimonials-notice",
+          "A Needs attention box on the testimonials page reading: you
+           have 14 published testimonials, the homepage shows the first
+           12, and the other 2 are published but not visible anywhere. It
+           goes on to explain that the sort order decides which appear.",
+          "This notice appears once you have more than twelve published
+           quotes. It is the one place where “published” does not mean
+           “somebody can see it”.") }}
+
+  <p>The homepage shows the first <b>twelve</b>. There is no page listing
+    all the testimonials, so a thirteenth quote is published but not
+    actually anywhere. To bring one onto the homepage, give it a
+    <b>lower sort number</b> than the ones already showing.</p>
+  <p>A testimonial is somebody else's words, so <b>edit rather than
+    retype</b>. Fixing a typo by deleting and re-adding means typing their
+    quote from memory.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="collections" class="guide-section">
+  <h2>10. Collections and donations</h2>
+  <p>A <b>collection</b> is money raised for one specific thing — a coach
+    trip, an appeal — with its own page, a running total and an optional
+    target. A <b>donation</b> is a plain gift to EBWA through /donate.</p>
+
+  {{ shot("collection-form",
+          "The collection form, with boxes for the title, a description,
+           the fee per place in pounds, a fundraising target, and a
+           photograph.",
+          "The collection form. The fee is what one place costs; leave it
+           empty for an appeal that is donations only.") }}
+
+  <p>The most important control here is <b>what the collection is
+    doing</b>, because it separates two different questions: is this page
+    on the website, and is it taking money?</p>
+
+  {{ shot("collection-state",
+          "A drop-down labelled What this collection is doing, set to
+           Taking payments, with the three choices explained underneath:
+           Taking payments — on the website with the payment form; Closed
+           — still on the website, shown with its final total and a line
+           saying it has finished, nobody can pay; Hidden — off the public
+           website entirely, with contributor lists and Gift Aid records
+           still available in the admin.",
+          "The three states. When a trip has happened, set it to
+           Closed — not Hidden — so the record of it stays on the site
+           with its final total.") }}
+
+  <ul>
+    <li><b>Taking payments</b> — the normal state.</li>
+    <li><b>Closed</b> — the trip has happened. The page stays up with its
+      final total and a line saying it has finished. Nobody can pay, and
+      that is enforced properly, not just by hiding the form.</li>
+    <li><b>Hidden</b> — off the public site altogether. Use it for
+      something you are still writing.</li>
+  </ul>
+  <p>Whichever state it is in, the <b>contributor list, the CSV export and
+    the Gift Aid records stay available here</b> — the treasurer needs them
+    most once a collection has finished.</p>
+
+  <h3>Gift Aid — the rule that must not be bent</h3>
+  <p>Gift Aid can only be claimed on a <b>genuine gift</b>. A payment for a
+    place on a trip is not a gift: the person gets a seat on a coach for
+    it. So on a collection page the money is split in two — the
+    <b>fee</b> for the place, which can <em>never</em> carry Gift Aid, and
+    an <b>optional extra donation</b> on top, which can.</p>
+  <p>You do not have to police this. The site will not let Gift Aid be
+    attached to a fee, and the <b>Gift Aid</b> page exports only the
+    donation parts that carry a valid declaration, in the layout HMRC
+    asks for. But it is worth understanding, because somebody will ask.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="enquiries" class="guide-section">
+  <h2>11. Enquiries and members</h2>
+  <p><b>Enquiries</b> holds messages sent through the contact form. The
+    sidebar shows a badge with how many nobody has read.</p>
+
+  {{ shot("enquiries-list",
+          "The enquiries list as a table with columns for when it was
+           received, who from with their email address, the subject and
+           message, a status pill reading New, and links to reply, mark as
+           read and delete.",
+          "Enquiries. Reply opens your normal email program with the
+           address filled in — replies do not go out from the website.") }}
+
+  <p>These are real people's names, addresses and questions, so:</p>
+  <ul>
+    <li>They are <b>admin-only</b> and never appear anywhere public.</li>
+    <li>There is <b>no export</b>. There is no good reason to bulk-download
+      somebody's question about a lunch club.</li>
+    <li><b>Opening the list is recorded</b> in the audit log, as is
+      deleting one. That is normal and expected — it is a record of who
+      looked at people's personal information, which is what the law
+      expects a charity to be able to show.</li>
+  </ul>
+
+  <p><b>Membership</b> works the same way, with a status you move along:
+    new → contacted → approved or declined. One field there is
+    <b>special-category data</b> under data protection law — the question
+    about Bangladeshi origin, which is a question about ethnicity. Treat
+    that screen accordingly: do not copy it into a spreadsheet, and do not
+    email it around.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="visitors" class="guide-section">
+  <h2>12. Visitors — how many people read the site</h2>
+  <p><b>Visitors</b> shows how many people are reading the website. The
+    figures are counted on EBWA's own server: there is no Google
+    Analytics, no third-party service and no extra cookie, and nothing is
+    stored that identifies anybody.</p>
+
+  {{ shot("visitors-figures",
+          "Four figures side by side — today, this week, this month, and
+           the same month last year — each with the number of page views
+           above and a short label below.",
+          "The headline figures. “This month last year” fills in once the
+           site has been running a year.") }}
+
+  {{ shot("visitors-chart",
+          "A bar chart of page views for the last thirty days, one bar per
+           day, with the most recent day picked out, and the dates
+           labelled along the bottom.",
+          "The last thirty days. The chart is drawn by the site itself,
+           so no data about your visitors leaves the server.") }}
+
+  <p><b>What a “visit” means, because the number gets quoted:</b> one
+    person on one day. Somebody who comes back next week is counted again.
+    So a month's figure is not a count of different people — it is closer
+    to “person-days”. Only the “today” figure is people.</p>
+  <p><b>Report for a period</b> produces a printable document with the
+    figures, the comparison with last year and EBWA's charity number on
+    it — meant for grant applications. Use your browser's Print and save
+    it as a PDF.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="account" class="guide-section">
+  <h2>13. Your account and password</h2>
+  <p><b>Account</b> in the sidebar is where you change your own password.
+    You need your current one to set a new one.</p>
+  <p>It is also where you can switch on <b>two-factor sign-in</b>: after
+    your password, the site asks for a six-digit code from an app on your
+    phone. It is worth doing. You are shown a set of
+    <b>recovery codes once</b> when you set it up — print them or write
+    them down, because if you lose the phone they are the way back in, and
+    they cannot be shown again.</p>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="netbus" class="guide-section">
+  <h2>14. What Netbus looks after</h2>
+  <p>A few screens are Netbus's rather than EBWA's, and are only visible
+    to them. They are listed here so you know what exists and what to
+    ask for.</p>
+
+  {{ shot("help-sidebar",
+          "The admin sidebar, listing Dashboard, Page content, What we do,
+           Events, News and Projects, Gallery, Testimonials, Partners,
+           FAQ, Resources, Our Journey, Enquiries, Subscribers,
+           Membership, Collections, Gift Aid, Account, Help and
+           Visitors.",
+          "The sidebar. What you see depends on which parts of the site
+           are switched on and whether you are an EBWA admin or Netbus.") }}
+
+  <ul>
+    <li><b>Settings</b> — switching whole sections of the site on and off,
+      the email settings, the backups, and the order of the homepage.</li>
+    <li><b>Users</b> — adding and removing admin accounts.</li>
+    <li><b>Audit log</b> — a record of everything anybody changed. It can
+      never be edited or switched off, which is what makes it worth
+      having.</li>
+    <li><b>Backups</b> — taken automatically every night and copied to a
+      second machine. Nobody at EBWA needs to do anything.</li>
+  </ul>
+</section>
+
+<!-- ------------------------------------------------------------------ -->
+<section id="stuck" class="guide-section">
+  <h2>15. If something looks wrong</h2>
+  <dl class="guide-faq">
+    <dt>I changed something and the website looks the same</dt>
+    <dd>Refresh the public page — your browser may be showing you the copy
+      it already had. If it is still wrong, check the item is
+      <b>Published</b>.</dd>
+
+    <dt>A whole section has vanished from the website</dt>
+    <dd>Most sections can be switched off in Settings. Nothing is deleted
+      when that happens and switching it back on restores it exactly. Ask
+      Netbus.</dd>
+
+    <dt>A photograph shows as a broken box</dt>
+    <dd>The picture file is missing from the server, usually after a
+      restore. Signed in, you see a note naming the missing file; a
+      visitor sees the page close up neatly around it. Upload the photo
+      again, or tell Netbus.</dd>
+
+    <dt>I deleted something by mistake</dt>
+    <dd>Ring Netbus the same day. There is a backup from every night, so
+      it can usually be recovered — but the sooner the better.</dd>
+
+    <dt>Somebody's testimonial is not on the homepage</dt>
+    <dd>You probably have more than twelve published. See
+      <a href="#testimonials">Testimonials</a>.</dd>
+
+    <dt>An event has finished but is still on the site</dt>
+    <dd>That is normal — it moves to “Past events” on its own. Untick
+      Published to take it off entirely.</dd>
+  </dl>
+
+  <p class="guide-end">Anything not covered here, or anything that looks
+    broken rather than confusing: <b>Netbus IT Support</b>.</p>
+</section>
+
+</div>
+{% endblock %}

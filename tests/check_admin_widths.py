@@ -191,6 +191,7 @@ PAGES = [
     ("/admin/features", ".admin-table"),
     ("/admin/audit", ".admin-table"),
     ("/admin/account", ".admin-form"),
+    ("/admin/help", ".guide-toc"),
     ("/admin/visitors", ".stats-chart"),
     ("/admin/visitors/report", ".report-doc"),
 ]

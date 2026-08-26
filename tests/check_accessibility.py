@@ -96,7 +96,8 @@ ADMIN = ["/admin/login", "/admin", "/admin/content", "/admin/events",
          "/admin/campaigns/new", "/admin/gift-aid",
          "/admin/gift-aid/declarations", "/admin/subscribers",
          "/admin/users", "/admin/features", "/admin/audit",
-         "/admin/account", "/admin/visitors", "/admin/visitors/report"]
+         "/admin/account", "/admin/visitors", "/admin/visitors/report",
+         "/admin/help"]
 
 SEVERITIES = ["critical", "serious", "moderate", "minor"]
 PW = "a11y-audit-password"

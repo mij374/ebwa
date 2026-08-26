@@ -1430,6 +1430,48 @@ Built and maintained by Netbus IT Support.
     is a FLOOR, not a pass: reading order, whether alt text says the
     right thing, and whether the site can be operated with a screen
     reader are not answered by any of it.
+- The admin guide at `/admin/help` (`templates/admin/help.html`) is
+  EBWA's manual for their own site: every role, linked from the sidebar,
+  with a table of contents of in-page anchors and a print stylesheet so
+  it saves as a PDF. The few super-admin screens it mentions are
+  LABELLED as Netbus's rather than hidden — a trustee should know the
+  feature exists and who to ask.
+  - **THE SCREENSHOTS ARE CAPTURED, NEVER DRAWN.**
+    `tools/capture-guide-shots.py` signs in to the real admin in
+    Chromium against a scratch database of demo content and photographs
+    each screen into `static/img/guide/`. Re-run it when a screen
+    changes; never touch an image by hand, because a hand-made picture
+    is right once and then quietly wrong for ever.
+    - It **refuses to run against `instance/ebwa.db`**, and after seeding
+      it ASSERTS that every name and address in the tables a screenshot
+      could show is one of its own fixtures — `.invalid` addresses, and
+      no Payment rows at all. "The scratch database was empty when we
+      started" is not the same claim, and it is the one that fails
+      quietly.
+    - Shots are CROPPED to the thing being described: a form's top half,
+      the photo manager, one tick-box (`region` + `up` walks to the
+      enclosing `.field`, so a close-up frames the label and helper text
+      with the control). A full-page screenshot of a long form is
+      unreadable at the width it is displayed.
+    - A section is anchored on its HEADING TEXT, because these admin
+      pages give their section headings no ids and adding some just so
+      the camera can aim would be the tail wagging the dog.
+    - `page.screenshot(clip=...)` is VIEWPORT-relative unless
+      `full_page=True`; without it, anything below the fold fails with
+      "clipped area is outside the resulting image".
+    - `.admin-main` is capped at 900px, so a wider window buys nothing —
+      a wide admin table scrolls inside its own box at every size, which
+      is what an admin really sees and therefore what the guide shows.
+  - Every image needs **alt text describing what is ON the screen**, not
+    "screenshot of the events page": the guide has to work read aloud and
+    printed in black and white, where a colour is not a distinguishing
+    feature. `tests/check_help_guide.py` rejects alt text under 40
+    characters or starting with "screenshot", checks every image loads,
+    every contents link lands on a section and every section is listed,
+    and — the one only a browser can answer — measures the images under
+    PRINT emulation in centimetres against A4's printable width. A
+    percentage width looks right on screen and runs off the paper, and
+    nobody finds out until it is printed.
 - Copy/tone: British English. Public-facing text should read warmly and
   plainly — this is a community charity, not a SaaS product.
 - Visitor statistics (`PageView`, `PageViewDaily`, `VisitorSalt`),

@@ -37,6 +37,8 @@
       <a href="{{ url_for('admin_gift_aid') }}" class="{{ 'active' if request.endpoint and 'gift_aid' in request.endpoint }}">Gift Aid</a>
       {% endif %}
       <a href="{{ url_for('admin_account') }}" class="{{ 'active' if request.endpoint == 'admin_account' }}">Account</a>
+      {#- Every role. It is EBWA's manual for EBWA's website. -#}
+      <a href="{{ url_for('admin_help') }}" class="{{ 'active' if request.endpoint == 'admin_help' }}">Help</a>
       {#- Visitors is for EVERY admin, not just Netbus. The figures are
           EBWA's own and the point of counting them is that EBWA can see
           them; the Settings panel next to them stays super-admin because
