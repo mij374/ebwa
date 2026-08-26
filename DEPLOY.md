@@ -136,7 +136,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-26 — Backup schedule in British time
+## b30bee9 — 2026-08-26 — Backup schedule in British time
 
 **ONE NEW BLOCK AND A ONE-OFF COMMAND. No schema change.**
 
