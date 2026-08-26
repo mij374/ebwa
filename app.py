@@ -26,6 +26,7 @@ import socket
 import sqlite3
 import subprocess
 import ssl
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -2810,15 +2811,45 @@ def save_summary(noun, name, is_new, changed):
     return "Edited %s “%s” (%s)." % (noun, name, describe_changes(changed))
 
 
-def log_action(action, entity=None, summary=""):
+def current_actor():
+    """Who is acting, as a plain tuple, for work that outlives the request.
+
+    The backup runs in a background thread, where there is no request and
+    no `current_user` — and an entry reading "anonymous" for something a
+    named super admin pressed a button to start is an audit trail that
+    has lost the only fact worth keeping. Capture this IN the request and
+    hand it to the thread.
+    """
+    if has_request_context() and current_user.is_authenticated:
+        return (current_user.id, current_user.email,
+                request.remote_addr or "")
+    return (None, "anonymous", "")
+
+
+def log_action(action, entity=None, summary="", actor=None):
     """Append one entry to the audit log, and commit it.
 
     `entity` is a model instance, or a (type_name, id) pair for a row
     that no longer exists — capture those values BEFORE deleting it.
     Recording is not conditional on any feature flag: the flag only
     decides who may read the log back.
+
+    `actor` is a `current_actor()` tuple, for a caller running outside
+    the request that started it.
     """
     entry = AuditLog()
+    if actor is not None:
+        entry.user_id, entry.user_email, entry.ip = actor
+        entry.action = action
+        entry.summary = summary
+        if isinstance(entity, tuple):
+            entry.entity_type, entry.entity_id = entity
+        elif entity is not None:
+            entry.entity_type = type(entity).__name__
+            entry.entity_id = entity.id
+        db.session.add(entry)
+        db.session.commit()
+        return
     if has_request_context() and current_user.is_authenticated:
         entry.user_id = current_user.id
         entry.user_email = current_user.email
@@ -2917,6 +2948,21 @@ BACKUP_MANUAL_PER_HOUR = 10
 # abandoned rather than active — a process killed mid-backup must not
 # block every future backup with a row that says "running" for ever.
 BACKUP_STALE_MINUTES = 30
+
+# One place deciding what each state is CALLED and how it is painted, so
+# the panel rendered on the page and the one the poll repaints cannot
+# drift apart into two vocabularies.
+BACKUP_STATE_LABELS = {
+    "none": "Never run",
+    "running": "Running",
+    "interrupted": "Interrupted",
+    "ok": "Finished",
+    "failed": "Failed",
+}
+BACKUP_STATE_PILLS = {
+    "none": "grey", "running": "amber", "interrupted": "amber",
+    "ok": "green", "failed": "red",
+}
 
 RATE_LIMITS = {          # scope -> (max attempts, window seconds)
     "login": (5, 600),
@@ -3434,19 +3480,25 @@ def _dir_size(path):
     return total, files
 
 
-def run_backup(reason="manual"):
+def run_backup(reason="manual", run=None):
     """Write one archive and record it. Returns the BackupRun row.
 
     Every outcome is recorded, including a failure — a backup you believe
     in but that never ran is worse than none at all.
+
+    `run` is an already-claimed row (see `claim_backup_slot`), for the
+    manual backup, which claims its slot in the request and does the work
+    in a thread. The CLI passes nothing and gets the old behaviour: claim
+    and run in one go, synchronously.
     """
     paths = backup_paths()
-    run = BackupRun()
-    run.started_at = datetime.utcnow()
-    run.status = "running"
-    run.reason = reason
-    db.session.add(run)
-    db.session.commit()
+    if run is None:
+        run = BackupRun()
+        run.started_at = datetime.utcnow()
+        run.status = "running"
+        run.reason = reason
+        db.session.add(run)
+        db.session.commit()
 
     stamp = utc_as_uk(run.started_at).strftime("%Y%m%d-%H%M%S")
     name = "%s%s.zip" % (BACKUP_PREFIX, stamp)
@@ -3565,6 +3617,193 @@ def backup_in_progress():
                     BackupRun.started_at >= cutoff)
             .order_by(BackupRun.started_at.desc(),
                               BackupRun.id.desc()).first())
+
+
+def backup_stale_cutoff():
+    """Before this, a row still saying "running" is a row nobody is on."""
+    return datetime.utcnow() - timedelta(minutes=BACKUP_STALE_MINUTES)
+
+
+def claim_backup_slot(reason="manual"):
+    """Take the one backup slot, or return None if somebody else has it.
+
+    `backup_in_progress()` is a read, and a read is not a claim: two
+    requests could both see nothing running and both start. That window
+    used to be small in practice because the button held the browser for
+    the whole backup, so nobody clicked twice. Now the button returns
+    immediately, and two clicks a moment apart can land on the two
+    gunicorn workers at the same time.
+
+    So the row is INSERTED and then the race is settled on the rows
+    themselves: whoever holds the lowest id among the live "running" rows
+    has the slot, and everybody else stands down. Both sides see the same
+    two rows and reach the same answer, with no lock and nothing to leak
+    if a process dies mid-decision.
+    """
+    run = BackupRun()
+    run.started_at = datetime.utcnow()
+    run.status = "running"
+    run.reason = reason
+    db.session.add(run)
+    db.session.commit()
+
+    winner = (BackupRun.query
+              .filter(BackupRun.status == "running",
+                      BackupRun.started_at >= backup_stale_cutoff())
+              .order_by(BackupRun.id.asc()).first())
+    if winner is not None and winner.id != run.id:
+        # We lost. Take our row back out rather than leaving a phantom
+        # "running" that the panel would show and the stale rule would
+        # take half an hour to forget.
+        db.session.delete(run)
+        db.session.commit()
+        return None
+    return run
+
+
+def backup_job(run_id, actor=None):
+    """Write the archive and send it to the NAS. Runs in a THREAD.
+
+    Everything it needs is passed by value — a row id and who asked for
+    it — because a background thread has no request, no `current_user`
+    and no session belonging to the request that started it. Flask-SQLAl-
+    chemy's session is thread-local, so this gets its own; the app
+    context is pushed here for the same reason.
+
+    It NEVER raises out of the thread. An exception escaping here would
+    go to stderr and leave the row saying "running" until the stale rule
+    forgot it half an hour later — the panel would show a backup in
+    progress that nothing was working on. Anything unexpected is recorded
+    on the row as a failure, which is what the panel and the audit log
+    are for.
+    """
+    with app.app_context():
+        try:
+            run = db.session.get(BackupRun, run_id)
+            if run is None:
+                return
+            run = run_backup(reason=run.reason, run=run)
+            if run.status != "ok":
+                log_action("backup", summary="Backup from the Settings page "
+                                             "failed — %s." % run.error,
+                           actor=actor)
+                return
+            log_action("backup",
+                       summary="Ran a backup from the Settings page: %s (%s)."
+                               % (run.filename,
+                                  filesize_filter(run.size_bytes)),
+                       actor=actor)
+            if sftp_ready():
+                # Same button, whole job: an archive that has not left the
+                # server is only half a backup.
+                transfer_with_retry(run)
+        except Exception as exc:               # noqa: BLE001 - see above
+            try:
+                run = db.session.get(BackupRun, run_id)
+                if run is not None and run.status == "running":
+                    run.status = "failed"
+                    run.error = "%s: %s" % (type(exc).__name__, exc)
+                    run.finished_at = datetime.utcnow()
+                    db.session.commit()
+                log_action("backup",
+                           summary="Backup from the Settings page failed — "
+                                   "%s: %s" % (type(exc).__name__, exc),
+                           actor=actor)
+            except Exception:
+                pass
+        finally:
+            # Hand the connection back rather than leaving one checked out
+            # per backup for the life of the worker.
+            db.session.remove()
+
+
+def start_backup(reason="manual", actor=None):
+    """Claim the slot and hand the work to a thread. Returns the row or None.
+
+    A DAEMON thread, deliberately. On a deploy or a restart gunicorn
+    gives its workers a moment and then kills them; a non-daemon thread
+    would hold the shutdown open for that moment and be killed anyway,
+    turning a restart into a wait for no gain. What it leaves behind is a
+    row still saying "running", and that case is already handled: the
+    guard ignores such a row after BACKUP_STALE_MINUTES, and the panel
+    shows it as interrupted rather than in progress.
+    """
+    run = claim_backup_slot(reason)
+    if run is None:
+        return None
+    # LOGGED BEFORE THE THREAD STARTS, not after. A backup that fails
+    # immediately can finish before the caller gets its next line run,
+    # which put "Started" in the log after "failed" and read as a second
+    # backup nobody asked for.
+    log_action("backup", summary="Started a backup from the Settings page.",
+               actor=actor)
+    worker = threading.Thread(target=backup_job, args=(run.id, actor),
+                              name="ebwa-backup-%d" % run.id, daemon=True)
+    worker.start()
+    return run
+
+
+def backup_state():
+    """What the panel says is happening, as plain data for HTML or JSON.
+
+    Driven entirely off the BackupRun row — started, finished, status and
+    error are all already there, so there is no second idea of state to
+    keep in step with the first.
+
+    Four states, because "running" alone cannot tell the difference
+    between a backup in progress and one whose process was killed
+    underneath it:
+
+      running     — started, not finished, and recent enough to believe
+      interrupted — started, never finished, and older than the stale
+                    window: the worker was restarted mid-backup
+      ok / failed — it finished, one way or the other
+    """
+    run = (BackupRun.query
+           .order_by(BackupRun.started_at.desc(), BackupRun.id.desc())
+           .first())
+    if run is None:
+        return {"state": "none", "run": None, "started": "", "finished": "",
+                "detail": "", "busy": False}
+    if run.status == "running":
+        stale = run.started_at < backup_stale_cutoff()
+        return {
+            "state": "interrupted" if stale else "running",
+            "run": run,
+            "started": utc_as_uk(run.started_at).strftime("%H:%M:%S"),
+            "finished": "",
+            "detail": ("The server was restarted while this backup was "
+                       "running, so it did not finish. Nothing was "
+                       "damaged — start another one."
+                       if stale else
+                       "Writing the archive%s."
+                       % (" and sending it to the NAS" if sftp_ready()
+                          else "")),
+            "busy": not stale,
+        }
+    if run.status == "ok":
+        detail = "%s — %s, %d file%s." % (
+            run.filename, filesize_filter(run.size_bytes), run.file_count,
+            "" if run.file_count == 1 else "s")
+        if run.transfer_status == "ok":
+            detail += " Sent to the NAS as %s." % run.remote_filename
+        elif run.transfer_status == "failed":
+            detail += (" It could not be sent to the NAS — %s. It is safe "
+                       "on the server; the next scheduled run will try "
+                       "again." % run.transfer_error)
+        elif sftp_ready():
+            detail += " Sending to the NAS."
+        return {"state": "ok", "run": run,
+                "started": utc_as_uk(run.started_at).strftime("%H:%M:%S"),
+                "finished": (utc_as_uk(run.finished_at).strftime("%H:%M:%S")
+                             if run.finished_at else ""),
+                "detail": detail, "busy": False}
+    return {"state": "failed", "run": run,
+            "started": utc_as_uk(run.started_at).strftime("%H:%M:%S"),
+            "finished": (utc_as_uk(run.finished_at).strftime("%H:%M:%S")
+                         if run.finished_at else ""),
+            "detail": run.error or "No reason was recorded.",
+            "busy": False}
 
 
 def backup_status():
@@ -7519,6 +7758,9 @@ def admin_features():
         storage_high=human_bytes(200 * PAGEVIEW_RAW_MAX * PAGEVIEW_ROW_BYTES),
         health=server_health(), backup_limit=BACKUP_MANUAL_PER_HOUR,
         backup=backup_status(), alerts_on=security_alerts_on(),
+        backup_state=backup_state(),
+        backup_labels=BACKUP_STATE_LABELS, backup_pills=BACKUP_STATE_PILLS,
+        backup_stale_minutes=BACKUP_STALE_MINUTES,
         sftp=sftp_settings(), sftp_ready=sftp_ready(),
         last_transfer=(BackupRun.query
                        .filter(BackupRun.transfer_status.in_(("ok", "failed")))
@@ -7660,19 +7902,28 @@ def admin_test_mail():
 @app.route("/admin/settings/backup", methods=["POST"])
 @super_admin_required
 def admin_backup_now():
-    """Run a backup from the Settings page.
+    """START a backup from the Settings page, and return straight away.
 
-    Calls the same Python that the CLI does — no shell, no command built
-    from anything a request supplied, nothing on this page that could
+    IT USED TO DO THE WHOLE JOB INSIDE THE REQUEST, and that was not
+    merely slow to look at. gunicorn's sync worker sends the arbiter a
+    heartbeat between requests, not during one, so a request that blocks
+    past `--timeout` (30 seconds by default, and the unit sets no other)
+    has its worker killed and restarted underneath it. At 6MB the archive
+    beat that; with a real uploads folder plus a minute of SFTP it would
+    not, and what the super admin would see is a 502 from a backup that
+    may well have been written — with nginx's own 60-second read timeout
+    behind it and a BackupRun stuck at "running". So the page now starts
+    the work and reports on it, which is both the visible-progress
+    feature and the fix for that.
+
+    Still the same Python the CLI runs — no shell, no command built from
+    anything a request supplied, and nothing on this page that could
     become one.
 
     Refuses while another run is in progress, and beyond
     BACKUP_MANUAL_PER_HOUR an hour. Both refusals are logged: the audit
     trail should show that somebody tried, not just the runs that
-    happened. The in-progress check is not a lock — two workers could
-    still pass it in the same instant — but the button is one person
-    clicking, and the real overlap it prevents is a click landing on top
-    of the nightly cron run.
+    happened.
     """
     # Concurrency before counting: one running backup is a real reason to
     # refuse, where "you have pressed this a lot" is only a brake.
@@ -7686,7 +7937,7 @@ def admin_backup_now():
         flash("A backup is already running (started %s). Wait for it to "
               "finish rather than starting a second one alongside it."
               % utc_as_uk(running.started_at).strftime("%H:%M"), "error")
-        return redirect(url_for("admin_features"))
+        return redirect(url_for("admin_features") + "#backups")
     if rate_limited("backup"):
         log_action("backup",
                    summary="Refused a backup from the Settings page: more "
@@ -7694,37 +7945,41 @@ def admin_backup_now():
         flash("That is %d backups in an hour, which is the limit for this "
               "button. The nightly job is what keeps them current."
               % BACKUP_MANUAL_PER_HOUR, "error")
-        return redirect(url_for("admin_features"))
-    run = run_backup(reason="manual")
-    if run.status == "ok":
-        log_action("backup",
-                   summary="Ran a backup from the Settings page: %s (%s)."
-                           % (run.filename,
-                              filesize_filter(run.size_bytes)))
-        if sftp_ready():
-            # Same button, whole job: an archive that has not left the
-            # server is only half a backup.
-            if transfer_with_retry(run):
-                flash("Backup written and sent to the NAS: %s (%s, %d "
-                      "file(s))." % (run.filename,
-                                     filesize_filter(run.size_bytes),
-                                     run.file_count), "ok")
-            else:
-                flash("Backup written (%s), but it could not be sent to "
-                      "the NAS — %s. It is safe on the server; the next "
-                      "scheduled run will try again."
-                      % (run.filename, run.transfer_error), "error")
-        else:
-            flash("Backup written: %s (%s, %d file(s)). Remember this is on "
-                  "the same server — the nightly copy off the machine is "
-                  "what protects against losing it."
-                  % (run.filename, filesize_filter(run.size_bytes),
-                     run.file_count), "ok")
-    else:
-        log_action("backup", summary="Backup from the Settings page failed "
-                                     "— %s." % run.error)
-        flash("The backup failed: %s" % run.error, "error")
-    return redirect(url_for("admin_features"))
+        return redirect(url_for("admin_features") + "#backups")
+
+    # Who pressed it, captured HERE: the thread has no request to ask.
+    run = start_backup(reason="manual", actor=current_actor())
+    if run is None:
+        # Lost the claim to another click in the same instant.
+        flash("A backup was already starting, so this one was not begun. "
+              "The panel below shows the one that is running.", "error")
+        return redirect(url_for("admin_features") + "#backups")
+    flash("Backup started. It runs on the server, so you can leave this "
+          "page — the panel below shows how it is getting on.", "ok")
+    return redirect(url_for("admin_features") + "#backups")
+
+
+@app.route("/admin/settings/backup.json")
+@super_admin_required
+def admin_backup_json():
+    """What the backup panel shows, for its poll while one is running.
+
+    Super admins only and rate limited, like the health panel's. READ-
+    ONLY and parameterless: it starts nothing, and there is nothing from
+    the request to sanitise.
+    """
+    if rate_limited("health"):
+        return jsonify({"error": "Too many refreshes — slow down."}), 429
+    state = backup_state()
+    return jsonify({
+        "state": state["state"],
+        "busy": state["busy"],
+        "started": state["started"],
+        "finished": state["finished"],
+        "detail": state["detail"],
+        "label": BACKUP_STATE_LABELS.get(state["state"], ""),
+        "pill": BACKUP_STATE_PILLS.get(state["state"], "grey"),
+    })
 
 
 @app.route("/admin/settings/security-alerts", methods=["POST"])

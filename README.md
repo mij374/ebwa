@@ -695,6 +695,16 @@ sudo chown -R www-data:www-data /opt/ebwa/instance /opt/ebwa/static/uploads
 sudo systemctl enable --now ebwa
 ```
 
+**Two workers, and no `--timeout` set — so no request may be slow.** A
+gunicorn sync worker only heartbeats to the arbiter *between* requests,
+so anything blocking past the 30-second default has its worker killed
+mid-request and the caller gets a 502 (nginx gives up at 60 seconds of
+its own). That is why "Back up now" starts a thread and returns
+immediately rather than writing the archive inside the request, and why
+anything else long-running added later must do the same — or be a CLI
+command run from cron, which is a different process with no timeout over
+it at all.
+
 nginx server block (then certbot for HTTPS):
 
 ```nginx

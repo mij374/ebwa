@@ -24,6 +24,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timedelta
 
@@ -233,6 +234,9 @@ body = r.data.decode("utf-8")
 check("client admin is shown NO backup directory", ARCHIVES not in body)
 check("client admin is shown no upload path", UPLOADS not in body)
 for path, method in (("/admin/settings/backup", "POST"),
+                     # The panel's poll reads the same machine the panel
+                     # does, so it is gated exactly as the page is.
+                     ("/admin/settings/backup.json", "GET"),
                      ("/admin/settings/security-alerts", "POST")):
     r = client.open(path, method=method)
     check("client admin refused %s" % path, r.status_code == 403,
@@ -276,9 +280,40 @@ check("panel says plainly when nothing is leaving the server",
 check("panel never shows the SMTP password", SECRET_PASSWORD not in page)
 
 # ---- the button works, is logged, and is rate limited
+# THE BUTTON STARTS THE WORK AND RETURNS; the archive is written by a
+# thread. So "did it work?" is no longer answerable from the response —
+# it is answered by the BackupRun row a moment later, which is what the
+# panel reads too.
+def press_and_wait(seconds=20):
+    """Press Back up now, then wait for the run to finish. (row, response)"""
+    response = client.post("/admin/settings/backup", follow_redirects=True)
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        with app.app_context():
+            row = (BackupRun.query.filter_by(reason="manual")
+                   .order_by(BackupRun.id.desc()).first())
+            if row is not None and row.status != "running":
+                return row, response
+        time.sleep(0.05)
+    with app.app_context():
+        return ((BackupRun.query.filter_by(reason="manual")
+                 .order_by(BackupRun.id.desc()).first()), response)
+
+
 appmod._rate_buckets.clear()
-r = client.post("/admin/settings/backup", follow_redirects=True)
-check("backup from the page succeeds", b"Backup written" in r.data)
+run, r = press_and_wait()
+check("THE BUTTON RETURNS AT ONCE, saying the backup has started",
+      b"Backup started" in r.data,
+      r.data.decode("utf-8", "replace")[:300])
+check("...and does not wait for the archive to be written",
+      b"Backup written" not in r.data)
+check("the backup then actually runs, in the background",
+      run is not None and run.status == "ok",
+      run.status + " / " + (run.error or "") if run else "no run")
+check("...and writes a real archive",
+      run is not None and run.filename
+      and os.path.isfile(os.path.join(ARCHIVES, run.filename)),
+      run.filename if run else "none")
 with app.app_context():
     entry = (AuditLog.query.filter_by(action="backup")
              .order_by(AuditLog.id.desc()).first())
@@ -293,8 +328,8 @@ check("the panel states the real limit",
 
 accepted = 1
 for _i in range(LIMIT + 2):
-    r = client.post("/admin/settings/backup", follow_redirects=True)
-    if b"Backup written" in r.data:
+    _run, r = press_and_wait()
+    if b"Backup started" in r.data:
         accepted += 1
 check("the button allows the stated number an hour", accepted == LIMIT,
       "%d accepted, limit %d" % (accepted, LIMIT))
@@ -312,6 +347,273 @@ with app.app_context():
           and str(LIMIT) in refusal.summary,
           refusal.summary if refusal else "none")
 appmod._rate_buckets.clear()
+
+# ---- THE BUTTON IS ASYNCHRONOUS ---------------------------------------
+# The request starts the work and returns; a thread writes the archive.
+# What matters is that the panel can say what is happening at every point
+# of that, and that a second press is still refused.
+print()
+print("---- starting a backup without waiting for it")
+import threading                                                # noqa: E402
+from app import (backup_state, claim_backup_slot,               # noqa: E402
+                 start_backup, backup_job, BACKUP_STATE_LABELS,
+                 BACKUP_STATE_PILLS, BACKUP_STALE_MINUTES, current_actor)
+
+appmod._rate_buckets.clear()
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+    check("with no runs at all, the panel says so rather than breaking",
+          backup_state()["state"] == "none"
+          and backup_state()["busy"] is False)
+
+# THE RESPONSE MUST COME BACK BEFORE THE WORK IS DONE. Timing a request
+# would be a flaky assertion, so this proves it structurally: the archive
+# is held shut until we let go, and the response has to arrive anyway.
+gate = threading.Event()
+real_run_backup = appmod.run_backup
+
+
+def slow_run_backup(reason="manual", run=None):
+    gate.wait(20)
+    return real_run_backup(reason=reason, run=run)
+
+
+appmod.run_backup = slow_run_backup
+try:
+    r = client.post("/admin/settings/backup", follow_redirects=True)
+    check("THE PAGE COMES BACK WHILE THE BACKUP IS STILL RUNNING",
+          b"Backup started" in r.data,
+          r.data.decode("utf-8", "replace")[:200])
+    with app.app_context():
+        state = backup_state()
+        check("...and the panel says it is running", state["state"] == "running"
+              and state["busy"] is True, str(state["state"]))
+        check("...with the time it started", state["started"] != "")
+        check("...and no finish time yet", state["finished"] == "")
+        check("...described in words a trustee can read",
+              "Writing the archive" in state["detail"], state["detail"])
+
+    # The page itself, mid-run, is what an admin actually sees.
+    page = client.get("/admin/features").data.decode("utf-8")
+    check("the page shows the running state on load",
+          'id="backupState"' in page and 'data-busy="1"' in page)
+    check("...with the pill saying Running",
+          BACKUP_STATE_LABELS["running"] in page)
+
+    # THE JSON THE PANEL POLLS.
+    data = client.get("/admin/settings/backup.json").get_json()
+    check("the JSON endpoint reports it running",
+          data["state"] == "running" and data["busy"] is True, str(data))
+    check("...and hands over the label and colour, not just a code",
+          data["label"] == "Running" and data["pill"] == "amber", str(data))
+
+    # A SECOND PRESS WHILE ONE RUNS IS STILL REFUSED.
+    r2 = client.post("/admin/settings/backup", follow_redirects=True)
+    check("A SECOND BACKUP IS REFUSED WHILE ONE IS RUNNING",
+          b"already running" in r2.data,
+          r2.data.decode("utf-8", "replace")[:200])
+    with app.app_context():
+        check("...and no second run was started",
+              BackupRun.query.filter_by(status="running").count() == 1,
+              str(BackupRun.query.filter_by(status="running").count()))
+        entry = (AuditLog.query.filter_by(action="backup")
+                 .order_by(AuditLog.id.desc()).first())
+        check("...and the refusal is logged",
+              entry is not None and "Refused" in entry.summary,
+              entry.summary if entry else "none")
+finally:
+    gate.set()
+    appmod.run_backup = real_run_backup
+
+deadline = time.time() + 20
+while time.time() < deadline:
+    with app.app_context():
+        if backup_state()["state"] != "running":
+            break
+    time.sleep(0.05)
+
+with app.app_context():
+    done = backup_state()
+check("IT FINISHES ON ITS OWN, with nobody watching",
+      done["state"] == "ok", str(done["state"]) + " " + str(done["detail"]))
+check("...and the panel then shows a finish time",
+      done["finished"] != "" and done["busy"] is False)
+check("...and names the archive and its size",
+      ".zip" in done["detail"], done["detail"])
+
+data = client.get("/admin/settings/backup.json").get_json()
+check("THE POLL SEES THE CHANGE WITHOUT A PAGE REFRESH",
+      data["state"] == "ok" and data["busy"] is False, str(data))
+check("...so the script knows to stop polling", data["busy"] is False)
+
+# WHO PRESSED IT SURVIVES THE THREAD. A background thread has no
+# current_user, and an audit entry reading "anonymous" for something a
+# named super admin did is the one fact worth keeping, lost.
+with app.app_context():
+    entries = (AuditLog.query.filter_by(action="backup")
+               .order_by(AuditLog.id.desc()).limit(6).all())
+    ran = [e for e in entries if "Ran a backup" in e.summary]
+    check("THE COMPLETION IS LOGGED AGAINST THE PERSON WHO PRESSED IT",
+          ran and ran[0].user_email == "netbus@example.com",
+          ran[0].user_email if ran else "no completion entry")
+    started = [e for e in entries if "Started a backup" in e.summary]
+    check("...and so is the start", bool(started),
+          str([e.summary for e in entries]))
+
+# ---- A FAILURE SHOWS THE REASON ---------------------------------------
+print()
+print("---- when it fails")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+appmod._rate_buckets.clear()
+
+
+def broken_run_backup(reason="manual", run=None):
+    raise RuntimeError("the disk went away")
+
+
+appmod.run_backup = broken_run_backup
+try:
+    r = client.post("/admin/settings/backup", follow_redirects=True)
+    check("a backup that will fail still starts cheerfully",
+          b"Backup started" in r.data)
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        with app.app_context():
+            if backup_state()["state"] != "running":
+                break
+        time.sleep(0.05)
+finally:
+    appmod.run_backup = real_run_backup
+
+with app.app_context():
+    bad = backup_state()
+check("AN EXCEPTION IN THE THREAD BECOMES A FAILED RUN, not a stuck one",
+      bad["state"] == "failed", str(bad["state"]))
+check("...and the panel shows the reason",
+      "the disk went away" in bad["detail"], bad["detail"])
+data = client.get("/admin/settings/backup.json").get_json()
+check("...which the poll reports too, in red",
+      data["state"] == "failed" and data["pill"] == "red"
+      and "disk went away" in data["detail"], str(data))
+with app.app_context():
+    entry = (AuditLog.query.filter_by(action="backup")
+             .order_by(AuditLog.id.desc()).first())
+    check("...and the failure is logged against the person",
+          entry is not None and "failed" in entry.summary
+          and entry.user_email == "netbus@example.com",
+          entry.summary if entry else "none")
+    check("a failed run does not go on blocking the next one",
+          appmod.backup_in_progress() is None)
+
+# ---- A WORKER KILLED MID-BACKUP ---------------------------------------
+# gunicorn is restarted on every deploy, and the thread dies with the
+# process, leaving a row saying "running" that nothing is working on.
+print()
+print("---- a backup interrupted by a restart")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.add(BackupRun(status="running", reason="manual",
+                             started_at=datetime.utcnow()
+                             - timedelta(minutes=BACKUP_STALE_MINUTES + 1)))
+    db.session.commit()
+    stale = backup_state()
+check("A ROW LEFT 'RUNNING' BY A RESTART READS AS INTERRUPTED, not running",
+      stale["state"] == "interrupted", str(stale["state"]))
+check("...and is NOT busy, so the panel stops polling for ever",
+      stale["busy"] is False)
+check("...and says what happened, in plain words",
+      "restarted" in stale["detail"] and "start another" in stale["detail"],
+      stale["detail"])
+with app.app_context():
+    check("...and the guard has let go, so another can be started",
+          appmod.backup_in_progress() is None)
+appmod._rate_buckets.clear()
+_run, r = press_and_wait()
+check("...which it can be", b"Backup started" in r.data)
+
+# A row that is running and RECENT is still busy — the stale rule must
+# not be so eager that it declares a live backup dead.
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.add(BackupRun(status="running", reason="manual",
+                             started_at=datetime.utcnow()
+                             - timedelta(minutes=BACKUP_STALE_MINUTES - 1)))
+    db.session.commit()
+    fresh = backup_state()
+check("a backup still inside the stale window is left alone",
+      fresh["state"] == "running" and fresh["busy"] is True,
+      str(fresh["state"]))
+
+# ---- THE CLAIM IS A CLAIM, not a look ---------------------------------
+# Two clicks landing on the two gunicorn workers at the same instant both
+# pass the "is one running?" read. Only one may come away with the slot.
+print()
+print("---- two presses at the same instant")
+with app.app_context():
+    BackupRun.query.delete()
+    db.session.commit()
+
+claimed = []
+barrier = threading.Barrier(4)
+
+
+def claim():
+    barrier.wait(10)
+    with app.app_context():
+        got = claim_backup_slot("manual")
+        claimed.append(got.id if got is not None else None)
+
+
+# The barrier is the size of the racing threads and nothing else — the
+# main thread must NOT wait on it, or it is a fifth party to a
+# four-party rendezvous and everybody waits for somebody who is late.
+racers = [threading.Thread(target=claim) for _ in range(4)]
+for t in racers:
+    t.start()
+for t in racers:
+    t.join(20)
+
+check("FOUR SIMULTANEOUS CLAIMS PRODUCE EXACTLY ONE WINNER",
+      len([c for c in claimed if c is not None]) == 1, str(claimed))
+with app.app_context():
+    check("...and exactly one row is left behind",
+          BackupRun.query.count() == 1, str(BackupRun.query.count()))
+    check("...still saying running, for the winner to work on",
+          BackupRun.query.first().status == "running")
+    BackupRun.query.delete()
+    db.session.commit()
+
+# ---- THE ENDPOINT IS SUPER-ADMIN ONLY ---------------------------------
+print()
+print("---- who may read it")
+anon = app.test_client()
+check("an anonymous visitor gets the login page, not the JSON",
+      anon.get("/admin/settings/backup.json").status_code == 302)
+check("...and cannot start one either",
+      anon.post("/admin/settings/backup").status_code == 302)
+
+# It READS and never acts: a GET must not start anything.
+with app.app_context():
+    before = BackupRun.query.count()
+client.get("/admin/settings/backup.json")
+client.get("/admin/settings/backup.json")
+with app.app_context():
+    check("READING THE PANEL STARTS NOTHING",
+          BackupRun.query.count() == before, str(BackupRun.query.count()))
+
+# ---- the page tells somebody without JavaScript what to do ------------
+page = client.get("/admin/features").data.decode("utf-8")
+check("the page says to refresh if it is not updating on its own",
+      "refresh it to see where the backup has got to" in page)
+check("...and that the panel is driven from the run, not a guess",
+      'id="backupState"' in page and 'id="backupPill"' in page)
+check("...and explains what an interrupted backup means",
+      "Interrupted" in page and str(BACKUP_STALE_MINUTES) in page)
+check("the button is a plain POST form, working without the script",
+      'action="/admin/settings/backup"' in page and 'method="post"' in page)
 
 # ---- the concurrency guard: the real reason not to start a second run
 with app.app_context():
@@ -347,9 +649,9 @@ with app.app_context():
     check("a stale 'running' row stops counting",
           appmod.backup_in_progress() is None)
 appmod._rate_buckets.clear()
-r = client.post("/admin/settings/backup", follow_redirects=True)
+_run, r = press_and_wait()
 check("so a backup can still be run after a crash",
-      b"Backup written" in r.data)
+      b"Backup started" in r.data)
 with app.app_context():
     for row in BackupRun.query.filter_by(status="running").all():
         db.session.delete(row)

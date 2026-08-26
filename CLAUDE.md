@@ -307,6 +307,34 @@ Built and maintained by Netbus IT Support.
   every upload into one timestamped zip in `BACKUP_DIR`, and records a
   `BackupRun` either way — a backup that failed silently is worse than
   none. `prune_backups()` keeps the newest `BACKUP_KEEP`.
+  - **The Settings button RUNS IT IN A THREAD and returns at once**
+    (`start_backup()` → `backup_job()`), and that is a correctness fix as
+    much as a comfort one. It used to do the whole job inside the
+    request: gunicorn's sync worker heartbeats to the arbiter BETWEEN
+    requests, not during one, so a request blocking past `--timeout` (30
+    seconds by default, and the unit sets none) has its worker killed
+    underneath it — with nginx's 60-second read timeout behind that. At
+    6MB the archive beat both; a real uploads folder plus a minute of
+    SFTP would not, and what a super admin would get is a 502 from a
+    backup that may well have succeeded, plus a `BackupRun` stuck at
+    "running".
+    - **A thread does NOT occupy a worker.** A sync worker handles one
+      request at a time in its main thread; once the view returns it is
+      back accepting connections while the thread runs alongside it. The
+      cost is real but different: memory in that process, and the GIL
+      during the zip's CPU-bound stretches (SFTP and file I/O release
+      it). At this site's traffic — which the visitor statistics now
+      measure — one of two workers being a little slower for a minute is
+      an easy trade against every long backup returning a 502.
+    - **A DAEMON thread**, so a deploy is not held open waiting for it.
+      gunicorn gives a worker a moment on SIGTERM and then kills it, so a
+      non-daemon thread would delay the restart and be killed anyway.
+    - This is not a scheduler and must not become one. The NIGHTLY backup
+      is still cron calling `run-scheduled-backup` in its own process
+      (see below) — the rule against a background thread there stands,
+      for a different reason: a thread per worker means several backups
+      at once. Here there is exactly one, started by one person pressing
+      one button, and guarded.
   - Two runs must never overlap: they write archives and upload at the
     same time, and the second prunes the first's archive out from under
     it. `backup_in_progress()` is the shared guard — the Settings button
@@ -317,6 +345,54 @@ Built and maintained by Netbus IT Support.
     scopes) is only a brake on a leaned-on button; the guard is the part
     that matters, so keep them both and do not swap the guard for a
     tighter count.
+    - **`backup_in_progress()` IS A READ, AND A READ IS NOT A CLAIM.**
+      That was tolerable while the button held the browser for the whole
+      backup — nobody clicked twice — and stopped being so the moment it
+      returned instantly. `claim_backup_slot()` is the claim: it INSERTS
+      the row and then settles the race on the rows themselves, lowest id
+      among the live "running" rows taking the slot and everybody else
+      deleting their row and standing down. Both sides see the same rows
+      and reach the same answer, with no lock and nothing left behind if
+      a process dies mid-decision. The smoke test races four threads
+      through it and requires exactly one winner; put the old read back
+      and all four win.
+  - **The panel's state is READ OFF THE `BackupRun` ROW** — started,
+    finished, status and error are all already there, so there is no
+    second idea of "what is happening" to keep in step with the first.
+    `backup_state()` is the one place that turns those columns into what
+    a person sees, and the page and the JSON poll both use it, so they
+    cannot drift into two vocabularies.
+    - FOUR states, not three: "running" alone cannot tell a backup in
+      progress from one whose process was killed underneath it. Past
+      `BACKUP_STALE_MINUTES` a row still saying "running" is reported as
+      **interrupted** — not busy, so the panel stops polling, and worded
+      so the admin knows nothing was damaged and another can be started.
+      The guard already forgave such a row; before this the PANEL did
+      not, and would have shown a backup running for days.
+  - `/admin/settings/backup.json` is the poll, built like the health
+    panel's: super admins only, rate limited, parameterless, and READ-
+    ONLY. It starts nothing — the button is the only thing that acts, and
+    it is a plain POST form that works with the script absent. The script
+    polls only while the server says a run is BUSY and stops the moment
+    it is not, so Settings left open is not a question every two seconds
+    for the rest of the day.
+    - With no script the page says to refresh to see progress, and that
+      sentence is in the PAGE and hidden BY the script rather than sitting
+      in a `<noscript>`: a script that is present but broken leaves the
+      page exactly as delivered, and that is the case a `<noscript>` gets
+      wrong.
+    - `tests/check_backup_panel.py` is the browser half, and the part
+      that makes it worth anything is the reload proof: it stamps a value
+      on `window` before waiting and asserts the same value is still
+      there when the panel has changed. Without that, a check would pass
+      against a page that simply reloaded — or against no script at all.
+  - Work that outlives the request needs `current_actor()`, captured IN
+    the request and passed to the thread, because there is no
+    `current_user` there. An audit entry reading "anonymous" for
+    something a named super admin pressed a button to start has lost the
+    only fact worth keeping. The start is logged BEFORE the thread is
+    spawned: a backup that fails immediately can finish first, which put
+    "Started" in the log after "failed".
   - Every attempt is audit-logged INCLUDING refusals. "Somebody tried to
     back up and was told no" is exactly what you want to see when asking
     why there is no archive from that afternoon.

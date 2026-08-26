@@ -184,7 +184,7 @@
   {% endif %}
 </div>
 
-<h2 class="admin-stats-head">Backups</h2>
+<h2 class="admin-stats-head" id="backups">Backups</h2>
 <div class="admin-form" style="margin-bottom:22px">
   {#- Keyboard-scrollable, for the reason spelled out on the dashboard's
       activity table: nothing in this box is focusable, so with no tab
@@ -194,6 +194,25 @@
        aria-label="Backup status, scrollable">
   <table class="admin-table">
     <tbody>
+      {#- THE LIVE ROW. Everything in it comes from the newest BackupRun:
+          started, finished, status and error are already on that row, so
+          there is no second idea of "what is happening" to keep in step
+          with the first. The script below repaints these three nodes
+          from the JSON endpoint while a backup is running; with no
+          script they are simply what the page said when it loaded, and
+          the note underneath says how to see more. -#}
+      <tr id="backupState" data-state="{{ backup_state.state }}"
+          data-busy="{{ 1 if backup_state.busy else 0 }}">
+        <td class="nowrap"><b>Backup now</b></td>
+        <td>
+          <span class="pill pill-{{ backup_pills[backup_state.state] }}"
+                id="backupPill">{{ backup_labels[backup_state.state] }}</span>
+          <span id="backupWhen">{% if backup_state.started %}
+            started {{ backup_state.started }}{% if backup_state.finished %},
+            finished {{ backup_state.finished }}{% endif %}{% endif %}</span>
+          <span id="backupDetail">{{ backup_state.detail }}</span>
+        </td>
+      </tr>
       <tr>
         <td class="nowrap"><b>Last backup</b></td>
         <td>
@@ -273,12 +292,22 @@
   </div>
 
   <form method="post" action="{{ url_for('admin_backup_now') }}"
-        style="margin-top:18px"
+        style="margin-top:18px" id="backupForm"
         onsubmit="return confirm('Write a backup archive now?');">
-    <button class="btn btn-green" type="submit">Back up now</button>
+    <button class="btn btn-green" type="submit" id="backupButton">Back up
+      now</button>
     <small style="display:block;margin-top:8px;color:var(--ink-soft)">
-      Up to {{ backup_limit }} an hour, and never two at once. The site
-      keeps working while one runs.</small>
+      Up to {{ backup_limit }} an hour, and never two at once. It runs on
+      the server, so you can leave this page while it does — the row
+      above says how it is getting on.
+      {#- Said in the page rather than only in a <noscript>, because a
+          script can also be present and broken, and then the row is
+          simply the state at page load with nothing to say so. -#}
+      <span id="backupManual">If this page is not updating on its own,
+        refresh it to see where the backup has got to.</span>
+      A backup interrupted by a restart shows as
+      <b>Interrupted</b>; another can be started
+      {{ backup_stale_minutes }} minutes after it began.</small>
   </form>
 </div>
 
@@ -803,6 +832,82 @@
       timer = null;
     }
   });
+})();
+
+/* THE BACKUP PANEL, while one is running.
+
+   The work happens in a thread on the server; this only ever READS the
+   BackupRun row through a parameterless JSON endpoint and writes three
+   pieces of text into the row above. It starts nothing and stops
+   nothing — the button is the only thing that acts, and it is a plain
+   POST form that works with this script absent.
+
+   It polls only while the server says a backup is BUSY, and stops the
+   moment it is not, so an admin who leaves Settings open is not asking
+   the server a question every two seconds for the rest of the day. */
+(function () {
+  var row = document.getElementById('backupState');
+  var pill = document.getElementById('backupPill');
+  var when = document.getElementById('backupWhen');
+  var detail = document.getElementById('backupDetail');
+  var manual = document.getElementById('backupManual');
+  var button = document.getElementById('backupButton');
+  if (!row || !pill || !when || !detail) { return; }
+
+  /* The script is here and running, so the sentence telling somebody to
+     refresh by hand is not true for them. Hidden here rather than shown
+     in a <noscript>, because a broken script leaves the page exactly as
+     it was delivered — with the advice still on it. */
+  if (manual) { manual.style.display = 'none'; }
+
+  var POLL_MS = 2000;
+  var timer = null;
+  var misses = 0;
+
+  function stop() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (button) { button.disabled = false; }
+  }
+
+  function paint(data) {
+    pill.className = 'pill pill-' + data.pill;
+    pill.textContent = data.label;
+    var line = '';
+    if (data.started) {
+      line = ' started ' + data.started;
+      if (data.finished) { line += ', finished ' + data.finished; }
+    }
+    when.textContent = line;
+    detail.textContent = ' ' + data.detail;
+    row.setAttribute('data-state', data.state);
+    row.setAttribute('data-busy', data.busy ? '1' : '0');
+    /* A running backup is the one moment the button must not be pressed
+       again. The server refuses a second one anyway — this only saves
+       somebody the round trip and the telling-off. */
+    if (button) { button.disabled = !!data.busy; }
+    if (!data.busy) { stop(); }
+  }
+
+  function poll() {
+    fetch('{{ url_for("admin_backup_json") }}', {credentials: 'same-origin'})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && !data.error) { misses = 0; paint(data); return; }
+        /* A rate-limited or failed read is not proof the backup stopped.
+           Give up only after several in a row, and leave the row saying
+           what it last knew rather than blanking it. */
+        if (++misses >= 5) { stop(); if (manual) { manual.style.display = ''; } }
+      })
+      .catch(function () {
+        if (++misses >= 5) { stop(); if (manual) { manual.style.display = ''; } }
+      });
+  }
+
+  if (row.getAttribute('data-busy') === '1') {
+    if (button) { button.disabled = true; }
+    timer = setInterval(poll, POLL_MS);
+    poll();
+  }
 })();
 </script>
 {% endblock %}
