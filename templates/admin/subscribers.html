@@ -5,7 +5,8 @@
     <h1 class="admin-h1">Newsletter subscribers</h1>
     <p class="admin-sub">{{ rows|length }} subscriber{{ 's' if rows|length != 1 }}. Export as CSV to import into your newsletter tool.</p>
   </div>
-  <a class="btn btn-green" href="{{ url_for('admin_subscribers_csv') }}">Download CSV</a>
+  <a class="btn btn-green" data-busy="Building the CSV…" data-busy-restore="8000"
+   href="{{ url_for('admin_subscribers_csv') }}">Download CSV</a>
 </div>
 
 {% if rows %}

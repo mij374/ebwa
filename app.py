@@ -1213,30 +1213,35 @@ def process_image(raw, ext):
     return best_ext, best, thumb
 
 
-def save_upload(file_storage):
+def store_upload(file_storage):
     """Validate, optimise and store an uploaded image.
 
-    Returns the stored filename, or None having flashed why not. The UUID
-    naming is unchanged; the extension is whatever the optimised image
-    ended up as, and the thumbnail sits beside it as <uuid>-thumb.<ext>.
+    Returns `(filename, None)`, or `(None, "why not")` — the reason as a
+    sentence somebody can act on, and NOT flashed here.
+
+    `save_upload()` below is the flashing wrapper every ordinary admin
+    form uses, and is unchanged from its callers' point of view. This
+    half exists because the gallery's one-photo-per-request upload has to
+    REPORT each failure back to a script: a flash is written for a page
+    that is about to be drawn, and in that path no page is drawn until
+    every file has been through here. A failure that only flashes is a
+    failure the person watching a progress bar never hears about.
     """
     if not file_storage or not file_storage.filename:
-        return None
+        return None, None
     ext = file_storage.filename.rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXT:
-        flash("Image must be one of: " + ", ".join(sorted(ALLOWED_EXT)), "error")
-        return None
+        return None, ("Image must be one of: "
+                      + ", ".join(sorted(ALLOWED_EXT)))
 
     raw = file_storage.read()
     if not raw:
-        flash("That file was empty — please choose an image.", "error")
-        return None
+        return None, "That file was empty — please choose an image."
 
     processed = process_image(raw, "jpg" if ext == "jpeg" else ext)
     if processed is None:
-        flash("That file could not be read as an image. Please upload a "
-              "JPG, PNG, WebP or GIF photo.", "error")
-        return None
+        return None, ("That file could not be read as an image. Please "
+                      "upload a JPG, PNG, WebP or GIF photo.")
 
     final_ext, data, thumb = processed
     stem = uuid.uuid4().hex
@@ -1247,6 +1252,19 @@ def save_upload(file_storage):
         with open(os.path.join(UPLOAD_DIR,
                                secure_filename(thumb_name(name))), "wb") as fh:
             fh.write(thumb)
+    return name, None
+
+
+def save_upload(file_storage):
+    """Store an uploaded image, flashing the reason when it will not go.
+
+    The signature every admin form has always used: the stored filename,
+    or None with the reason already on its way to the next page. An empty
+    field is not a failure and says nothing.
+    """
+    name, why = store_upload(file_storage)
+    if why:
+        flash(why, "error")
     return name
 
 
@@ -6308,18 +6326,159 @@ def album_arg(name="album_id"):
     return album.id if album else None
 
 
+# ---- uploading photographs, one at a time or twelve at once
+#
+# TWO PATHS INTO ONE ROUTE, and the plain one is the one that must never
+# break. With no JavaScript the form posts every chosen file in a single
+# multipart request, exactly as it always has, and the page it lands on
+# says how it went. With JavaScript the script posts the SAME form one
+# file at a time so it can draw a bar, and asks for JSON back.
+#
+# Per-file requests are not only about the bar. MAX_CONTENT_LENGTH is 8MB
+# PER REQUEST, so a dozen photographs straight off a phone can be refused
+# as one batch and go through one at a time — and a file Pillow cannot
+# read no longer sits in the middle of eleven good ones with nothing on
+# screen to say which one it was.
+GALLERY_UPLOAD_FIELDS = ("images", "image")
+
+# The claim "one at a time" is kept by the CLIENT, which does not start a
+# request until the last one has answered. This lock is the backstop
+# inside a worker: it stops a second script, a hand-made parallel POST or
+# a stale tab putting two Pillow encodes through the same process at
+# once. It cannot see the OTHER gunicorn worker, and saying so is the
+# point — nothing here should be read as a site-wide limit.
+_gallery_upload_lock = threading.Lock()
+GALLERY_UPLOAD_WAIT = 45          # seconds; a long photo, not for ever
+
+# What a run of one-file-at-a-time uploads is remembered as, between the
+# requests that did the work and the page that reports it.
+GALLERY_UPLOAD_KEY = "gallery_upload"
+GALLERY_UPLOAD_NAMES = 8          # failures NAMED in the summary
+
+
+def uploaded_files():
+    """Every image file on this request, whichever field carried it.
+
+    The plain form posts `images` and may hold twelve; the progress
+    script posts one, under the same name, so nothing downstream has to
+    know which path it is on. `image` is accepted as well, so a
+    single-file POST from anywhere else works without a second route.
+    """
+    files = []
+    for field in GALLERY_UPLOAD_FIELDS:
+        files += [f for f in request.files.getlist(field)
+                  if f and f.filename]
+    return files
+
+
+def store_gallery_files(files, album_id, caption):
+    """Save each file and record the row. Returns (added, [(name, why)])."""
+    added, failed = 0, []
+    for f in files:
+        name, why = store_upload(f)
+        if name:
+            db.session.add(GalleryImage(filename=name, album_id=album_id,
+                                        caption=caption))
+            added += 1
+        elif why:
+            failed.append((f.filename, why))
+    db.session.commit()
+    if added:
+        album = db.session.get(GalleryAlbum, album_id) if album_id else None
+        log_action("create", entity=("GalleryImage", None),
+                   summary="Uploaded %d gallery image(s)%s."
+                           % (added, " to album “%s”" % album.title
+                              if album else ""))
+    return added, failed
+
+
+def note_gallery_upload(added, failed):
+    """Remember one request's outcome for the page that comes next.
+
+    A run of per-file uploads has no request that knows how it ended, so
+    each one adds its own line to a tally in the session and the next
+    render of the gallery turns the tally into one sentence. Only a
+    bounded number of failures is NAMED — a hundred rejected files must
+    not try to travel back in a cookie — but every one is COUNTED, so the
+    sentence can never quietly under-report.
+    """
+    tally = flask_session.get(GALLERY_UPLOAD_KEY) or {}
+    tally["added"] = tally.get("added", 0) + added
+    tally["failed"] = tally.get("failed", 0) + len(failed)
+    named = tally.get("why", [])
+    for name, why in failed:
+        if len(named) < GALLERY_UPLOAD_NAMES:
+            named.append([(name or "a file")[:60], why])
+    tally["why"] = named
+    flask_session[GALLERY_UPLOAD_KEY] = tally
+
+
+def gallery_upload_flash():
+    """Flash the summary of a per-file upload run, if one just finished.
+
+    COMPOSED WHEN THE PAGE IS DRAWN, not in any of the POSTs that did the
+    work — the same rule as `backup_started_flash()`, for a plainer
+    reason here: no single one of those requests knows the totals. The
+    last file cannot say "11 photos added" because it only ever saw its
+    own, and a sentence written by each of them in turn would be eleven
+    flashes all counting to one.
+    """
+    tally = flask_session.pop(GALLERY_UPLOAD_KEY, None)
+    if not tally:
+        return
+    added, failed = tally.get("added", 0), tally.get("failed", 0)
+    if not added and not failed:
+        return
+    parts = ["%d photo%s added" % (added, "" if added == 1 else "s")
+             if added else "No photos added"]
+    if failed:
+        named = ["%s — %s" % (name, (why or "").rstrip("."))
+                 for name, why in tally.get("why", [])]
+        if failed > len(named):
+            named.append("and %d more" % (failed - len(named)))
+        parts.append("%d failed: %s" % (failed, "; ".join(named)))
+    flash(", ".join(parts) + ".", "error" if failed else "ok")
+
+
 @app.route("/admin/gallery", methods=["GET", "POST"])
 @login_required
 def admin_gallery():
     if request.method == "POST":
         album_id = album_arg()
+        caption = request.form.get("caption", "").strip()
+        files = uploaded_files()
+
+        # The script's path: one photograph, one answer, no page drawn.
+        # It says so in a form field rather than in an Accept header —
+        # a field is visible in the request somebody is reading back.
+        if request.form.get("ajax") == "1":
+            if not files:
+                return jsonify(added=0, failed=[
+                    {"name": "", "error": "No file reached the server."}])
+            if not _gallery_upload_lock.acquire(timeout=GALLERY_UPLOAD_WAIT):
+                # Reported as this file failing, which is exactly what
+                # happened, and the run carries on with the rest.
+                return jsonify(added=0, failed=[
+                    {"name": files[0].filename,
+                     "error": "The server was still busy with another "
+                              "upload."}])
+            try:
+                added, failed = store_gallery_files(files, album_id, caption)
+            finally:
+                _gallery_upload_lock.release()
+            note_gallery_upload(added, failed)
+            return jsonify(added=added,
+                           failed=[{"name": n, "error": w} for n, w in failed])
+
+        # The plain form, unchanged: every file in one request, every
+        # refusal flashed as it happens by save_upload(), and a count on
+        # the page it redirects to.
         added = 0
-        for f in request.files.getlist("images"):
+        for f in files:
             name = save_upload(f)
             if name:
                 db.session.add(GalleryImage(
-                    filename=name, album_id=album_id,
-                    caption=request.form.get("caption", "").strip()))
+                    filename=name, album_id=album_id, caption=caption))
                 added += 1
         db.session.commit()
         if added:
@@ -6332,6 +6491,7 @@ def admin_gallery():
         return redirect(url_for("admin_gallery",
                                 album=album_id or None))
 
+    gallery_upload_flash()
     albums = album_choices()
     # Which photos to show: one album, the unfiled ones, or everything.
     view = (request.args.get("album") or "").strip()

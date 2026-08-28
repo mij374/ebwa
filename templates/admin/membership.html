@@ -5,7 +5,8 @@
     <h1 class="admin-h1">Membership applications</h1>
     <p class="admin-sub">Applications from the "Become a member" form. Personal data — handle with care.</p>
   </div>
-  <a class="btn btn-ghost" href="{{ url_for('admin_membership_csv') }}">Export CSV</a>
+  <a class="btn btn-ghost" data-busy="Building the CSV…" data-busy-restore="8000"
+   href="{{ url_for('admin_membership_csv') }}">Export CSV</a>
 </div>
 
 {% if rows %}

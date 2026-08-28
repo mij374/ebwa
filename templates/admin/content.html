@@ -9,7 +9,8 @@
   {% endfor %}
 </div>
 
-<form method="post" enctype="multipart/form-data" class="admin-form">
+<form method="post" enctype="multipart/form-data" class="admin-form"
+      data-busy="Saving…">
   {% for b in blocks %}
   <div class="field">
     <label for="block_{{ b.id }}">{{ b.label }}</label>

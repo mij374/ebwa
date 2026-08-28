@@ -28,7 +28,12 @@
       </div>
 
       {% if form_on %}
-      <form class="contact-form" method="post" novalidate>
+      {#- The message is saved before anything is emailed, so this never
+    hangs on the mail server — but the send is still inside the
+    request, and on a slow SMTP host that is a few seconds of a
+    button that looks like it did nothing. -#}
+<form class="contact-form" method="post" novalidate
+      data-busy="Sending your message…">
         <h2>Send us a message</h2>
         <input type="hidden" name="started" value="{{ started }}">
         <div class="field-row">

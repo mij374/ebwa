@@ -138,6 +138,64 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-28 — Busy states and gallery upload progress
+
+**NO SCHEMA CHANGE, NO NEW BLOCKS, NO NEW PACKAGE.** `git pull` and
+restart is the whole of it:
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app check-schema     # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+**One new static file**, `static/js/busy.js`, served from `/static/`
+like everything else there. It is linked from both shells with
+`asset_version()`, so nginx's `expires 30d` is safe for it exactly as it
+is for the stylesheet — no nginx change, and nothing to purge.
+
+**What changed.** Anything that takes a moment now says so. A form or
+link opts in with `data-busy="Uploading photos…"`; the button's label
+becomes that message, gains a spinner and `aria-busy`, and a second
+press does nothing. With JavaScript off, `data-busy` is an attribute
+nobody reads and every form behaves exactly as it did.
+
+**The gallery upload now posts one photograph per request** when the
+browser can, showing a determinate bar and the filename, then lands back
+on the album with one sentence: *"11 photos added, 1 failed: beach.heic
+— Image must be one of: gif, jpeg, jpg, png, webp."* The plain
+multipart form is untouched and is still what a browser with no
+JavaScript uses.
+
+**A SIDE EFFECT WORTH KNOWING ABOUT ON A REAL DEPLOY.**
+`MAX_CONTENT_LENGTH` is 8MB **per request**, so a dozen photographs
+straight off a phone were refused as one batch — a bare 413 page, no
+flash, nothing stored. One file per request goes under the cap, so that
+upload now works. The plain form still hits it, unchanged: this makes
+the common case work rather than raising the cap.
+
+**Nothing to run afterwards, and nothing to undo.** If the script is
+ever a problem on a client's browser, deleting the two `<script>` lines
+from `templates/base.html` and `templates/admin/base_admin.html` puts
+every form back exactly as it was — that is what "progressive
+enhancement" is being claimed here, and it is worth knowing the exit
+exists.
+
+**Checks for it:** `python tests/smoke_test_gallery_upload.py` (both
+paths through the route) and `python tests/check_upload_progress.py`
+(Chromium at 1440x900 and 390x740: twelve photographs one at a time,
+sequential, one invalid file named and survived, a double click that
+uploads once, and the whole thing with JavaScript switched off). The
+browser one writes into the REAL `static/uploads/` — a sandbox would
+404 every thumbnail — and sweeps up after itself.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## b30bee9 — 2026-08-26 — Backup schedule in British time
 
 **ONE NEW BLOCK AND A ONE-OFF COMMAND. No schema change.**

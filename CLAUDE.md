@@ -137,6 +137,72 @@ Built and maintained by Netbus IT Support.
     About's copy makes sense to a visitor. Everywhere else a piece of
     content with no photo simply shows its words at full reading width
     (`.rc-classic-top.is-textonly`).
+- Busy states: anything that makes somebody wait says so, through ONE
+  implementation — `static/js/busy.js`, linked from both shells
+  (`base.html` and `admin/base_admin.html`) and versioned with
+  `asset_version()` like every other static reference. A form, link or
+  button opts in with `data-busy="Uploading photos…"`: the label becomes
+  that message, a spinner appears, `aria-busy` goes on and a second
+  press does nothing.
+  - **With JavaScript off nothing changes.** `data-busy` is an attribute
+    nothing else reads, so every form posts and every link navigates
+    exactly as before. It adds a STATE, never a step. A page driving its
+    own long job calls `window.ebwaBusy.start/stop` rather than painting
+    a button itself, so there is one idea of "busy" and not two.
+  - **The submit button is disabled ONE TICK LATE**, never inside the
+    submit handler: the form's entry list is built after that event, and
+    a disabled control contributes nothing to it — so disabling
+    immediately would silently drop a submit button's own name and value
+    from the POST. None carry one today, which is exactly why the next
+    one would break quietly.
+  - **A cancelled `confirm()` must leave the button alone.** Several
+    admin forms carry `onsubmit="return confirm(…)"`; that handler runs
+    first and calls preventDefault, so busy.js checks
+    `event.defaultPrevented`. Without it, answering No left a
+    permanently dead button.
+  - **A download link never navigates**, so nothing ever tells the
+    script the work finished — the CSV exports pass
+    `data-busy-restore="8000"` and come back on a timer. Everything else
+    restores on `pageshow`, because the back button serves the page out
+    of the bfcache exactly as it was left.
+  - NO DIMMING. `opacity` on a busy button dims its text and its
+    background together, which is how the footer Donate button reached
+    3.98:1 — see the colour rules below. The changed label and the
+    spinner are the signal; the colours do not move.
+  - `data-backup-busy` on the Settings backup row is a DIFFERENT thing
+    (is a backup running?) and was renamed for that reason. One
+    attribute name meaning two things in one file is how the wrong
+    script ends up reading it.
+- Gallery upload: TWO PATHS INTO ONE ROUTE, and the plain one is the
+  fallback that must never break. With no JavaScript the form posts
+  every chosen file in a single multipart request exactly as it always
+  has; with JavaScript the same form is posted ONE FILE PER REQUEST, in
+  sequence, so a determinate bar can be drawn.
+  - **The unit of progress is a PHOTOGRAPH, never a byte.** The server
+    re-encodes each upload through Pillow AFTER its last byte arrives,
+    so a byte meter reaches 100% and then sits there for the part that
+    actually takes the time.
+  - **SEQUENTIAL, never parallel.** The client does not start a request
+    until the last has answered; twelve at once means twelve Pillow
+    encodes on a small VPS at the same moment. `_gallery_upload_lock` is
+    the backstop INSIDE a worker and cannot see the other one — do not
+    read it as a site-wide limit.
+  - **A failure names its file and the run carries on.** `store_upload()`
+    is `save_upload()` without the flash, returning `(name, why)`,
+    because a flash is written for a page that this path never draws.
+    Nothing already uploaded is discarded.
+  - **The summary sentence is composed WHEN THE PAGE IS DRAWN**
+    (`gallery_upload_flash()`, off a session tally), the same rule as
+    `backup_started_flash()` and for a plainer reason: no single request
+    in a run of twelve knows the totals, so a sentence written in the
+    POST would be twelve flashes each counting to one.
+  - It also gets under `MAX_CONTENT_LENGTH`, which is 8MB PER REQUEST —
+    a dozen photographs off a phone were refused outright as one batch.
+    That is a side effect worth keeping, not the reason for the design.
+  - **`flask --app app reprocess-images` is still CLI ONLY** and has no
+    web control, deliberately: it rewrites every file in the uploads
+    folder and belongs where it is visible, like the other commands.
+    There is nothing on a page to put `data-busy` on.
 - Image uploads: always use the existing `save_upload()` /
   `delete_upload()` helpers (extension whitelist, UUID rename, 8 MB cap).
   When replacing an image, delete the old file after a successful save.

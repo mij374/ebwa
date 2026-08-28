@@ -7,7 +7,8 @@
   </div>
   <div>
     <button class="btn btn-ghost" type="button" id="printBtn">Print</button>
-    <a class="btn btn-ghost" href="{{ url_for('admin_campaign_contributors_csv', campaign_id=camp.id) }}">Export CSV</a>
+    <a class="btn btn-ghost" data-busy="Building the CSV…" data-busy-restore="8000"
+       href="{{ url_for('admin_campaign_contributors_csv', campaign_id=camp.id) }}">Export CSV</a>
     <a class="btn btn-ghost" href="{{ url_for('admin_campaigns') }}">Back</a>
   </div>
 </div>

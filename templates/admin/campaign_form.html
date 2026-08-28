@@ -3,7 +3,8 @@
 <h1 class="admin-h1">{{ 'Edit collection' if camp else 'New collection' }}</h1>
 <p class="admin-sub">A collection that is taking payments gets its own page where people can pay for a place and add an optional donation. Gift Aid is only ever offered on the donation part — never the place fee. Closing one keeps the page as a record of what was raised; hiding it takes it off the website altogether.</p>
 
-<form method="post" enctype="multipart/form-data" class="admin-form">
+<form method="post" enctype="multipart/form-data" class="admin-form"
+      data-busy="Saving…">
   <div class="field">
     <label for="title">Title *</label>
     <input type="text" id="title" name="title" required value="{{ camp.title if camp else '' }}"

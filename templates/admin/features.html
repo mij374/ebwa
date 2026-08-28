@@ -103,8 +103,13 @@
   <button class="btn btn-green" type="submit">Save email settings</button>
 </form>
 
+{#- A mail server that is down, slow or wrong is exactly what this
+    button exists to find out about, so it is the one most likely
+    to sit there. The confirm() runs first; answering No leaves the
+    button alone. -#}
 <form method="post" class="admin-form" style="margin-bottom:34px"
       action="{{ url_for('admin_test_mail') }}"
+      data-busy="Sending the test email…"
       onsubmit="return confirm('Send a test email now?');">
   <h2 class="admin-stats-head" style="margin-top:0">Send a test email</h2>
   {% if not mail_ready %}
@@ -202,7 +207,13 @@
           script they are simply what the page said when it loaded, and
           the note underneath says how to see more. -#}
       <tr id="backupState" data-state="{{ backup_state.state }}"
-          data-busy="{{ 1 if backup_state.busy else 0 }}">
+          {#- data-BACKUP-busy, not data-busy: that name belongs to
+              static/js/busy.js, which paints a control while it
+              waits. This says whether a backup is RUNNING, which is
+              a different fact about a different thing, and one
+              attribute meaning two things in one file is how the
+              wrong script ends up reading it. -#}
+          data-backup-busy="{{ 1 if backup_state.busy else 0 }}">
         <td class="nowrap"><b>Backup now</b></td>
         <td>
           <span class="pill pill-{{ backup_pills[backup_state.state] }}"
@@ -291,8 +302,13 @@
   </table>
   </div>
 
-  <form method="post" action="{{ url_for('admin_backup_now') }}"
+  {#- The work itself happens in a thread and this returns at once, so
+    the busy state lasts only as long as the redirect — which is
+    the truth: what is running afterwards is reported by the panel,
+    not by the button. -#}
+<form method="post" action="{{ url_for('admin_backup_now') }}"
         style="margin-top:18px" id="backupForm"
+        data-busy="Starting the backup…"
         onsubmit="return confirm('Write a backup archive now?');">
     <button class="btn btn-green" type="submit" id="backupButton">Back up
       now</button>
@@ -407,10 +423,12 @@
 
   <div class="admin-quick" style="margin-top:18px">
     <form method="post" action="{{ url_for('admin_sftp_test') }}"
+          data-busy="Testing the connection…"
           onsubmit="return confirm('Test the connection to the NAS now?');">
       <button class="btn btn-ghost" type="submit">Test connection</button>
     </form>
     <form method="post" action="{{ url_for('admin_backup_now') }}"
+          data-busy="Starting the backup…"
           onsubmit="return confirm('Back up now and send it to the NAS?');">
       <button class="btn btn-ghost" type="submit">Backup now</button>
     </form>
@@ -888,7 +906,7 @@
     when.textContent = line;
     detail.textContent = ' ' + data.detail;
     row.setAttribute('data-state', data.state);
-    row.setAttribute('data-busy', data.busy ? '1' : '0');
+    row.setAttribute('data-backup-busy', data.busy ? '1' : '0');
     /* A running backup is the one moment the button must not be pressed
        again. The server refuses a second one anyway — this only saves
        somebody the round trip and the telling-off. */
@@ -911,7 +929,7 @@
       });
   }
 
-  if (row.getAttribute('data-busy') === '1') {
+  if (row.getAttribute('data-backup-busy') === '1') {
     if (button) { button.disabled = true; }
     timer = setInterval(poll, POLL_MS);
     poll();

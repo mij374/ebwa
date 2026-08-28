@@ -397,7 +397,7 @@ try:
     # The page itself, mid-run, is what an admin actually sees.
     page = client.get("/admin/features").data.decode("utf-8")
     check("the page shows the running state on load",
-          'id="backupState"' in page and 'data-busy="1"' in page)
+          'id="backupState"' in page and 'data-backup-busy="1"' in page)
     check("...with the pill saying Running",
           BACKUP_STATE_LABELS["running"] in page)
 
@@ -567,7 +567,7 @@ check("...and the panel agrees with it, in the same render",
       'data-state="ok"' in body and "Finished" in body,
       "the words and the panel disagree")
 check("...and the panel is not busy, so nothing is polled for",
-      'data-busy="0"' in body)
+      'data-backup-busy="0"' in body)
 
 # THE MESSAGE IS SHOWN ONCE. It lives in the session between the POST
 # and the render; a later visit to Settings must not repeat it.
@@ -598,7 +598,7 @@ try:
     check("A SLOW BACKUP STILL READS AS RUNNING",
           "it is running now" in slow, slow[:200])
     check("...and the panel agrees, in the same render",
-          'data-state="running"' in slow and 'data-busy="1"' in slow)
+          'data-state="running"' in slow and 'data-backup-busy="1"' in slow)
     check("...and it says the work carries on without the page",
           "carries on if you leave this page" in slow)
     check("...without pointing anywhere the reader may not be looking",

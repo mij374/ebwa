@@ -8,7 +8,19 @@
   <a class="btn btn-ghost" href="{{ url_for('admin_albums') }}">Manage albums</a>
 </div>
 
-<form method="post" enctype="multipart/form-data" class="admin-form" style="margin-bottom:34px">
+{#- The plain multipart form, unchanged and still the whole feature on
+    its own: choose photos, press Upload, land back here with a count.
+    The script in {% block scripts %} below UPGRADES it — same fields,
+    same route, same album and caption — by posting one photograph per
+    request so it can draw a bar. `data-busy` is the fallback for the
+    case where that script cannot run but busy.js can: the button still
+    says what is happening while the one big request goes up.
+    `data-upload-progress` is what the script keys on, and the URL to
+    finish at is an attribute rather than Jinja inside the script. -#}
+<form method="post" enctype="multipart/form-data" class="admin-form"
+      style="margin-bottom:34px" id="uploadForm"
+      data-busy="Uploading photos…" data-upload-progress="1"
+      data-done-url="{{ url_for('admin_gallery') }}">
   <div class="field">
     <label for="images">Add photos</label>
     <input type="file" id="images" name="images" accept="image/*" multiple required>
@@ -30,8 +42,22 @@
       <input type="text" id="caption" name="caption" placeholder="e.g. Eid celebration 2026">
     </div>
   </div>
-  <button class="btn btn-green" type="submit">Upload</button>
+  <button class="btn btn-green" type="submit" id="uploadButton">Upload</button>
 </form>
+
+{#- Drawn empty and hidden; the script reveals it when it has a run to
+    report. A page with no JavaScript never sees it, which is why it
+    holds no text of its own. role="progressbar" rather than <progress>
+    so it can be painted in the site's own green; the sentence beneath
+    is the part that is actually announced, since a bar is a picture. -#}
+<div class="upload-progress is-hidden" id="uploadProgress">
+  <div class="upload-bar" id="uploadBar" role="progressbar"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+       aria-label="Upload progress"><i></i></div>
+  <p class="upload-status" id="uploadStatus" aria-live="polite"></p>
+  <p class="upload-file" id="uploadFile"></p>
+  <ul class="upload-fails is-hidden" id="uploadFails"></ul>
+</div>
 
 <div class="tab-row">
   <a class="tab {{ 'active' if not view }}" href="{{ url_for('admin_gallery') }}">Every photo</a>
@@ -98,4 +124,212 @@
 {% else %}
 <p class="admin-sub">No photos here yet.</p>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ONE PHOTOGRAPH PER REQUEST, IN SEQUENCE.
+
+   Progressive enhancement over the plain form above, and it has to stay
+   that way: with this script absent, blocked or thrown out by an engine
+   that has no FormData, the form posts every file in one multipart
+   request exactly as it always has. Nothing here is required for a
+   photograph to reach the server.
+
+   Why one at a time rather than one request with twelve files:
+
+     * PROGRESS. A single request can only report bytes sent, and bytes
+       are not the work. The server re-encodes every photograph through
+       Pillow AFTER the last byte arrives, so a byte-level bar reaches
+       100% and then sits there for the part that actually takes the
+       time. A photograph finished is the honest unit, and it is the one
+       a person counts in anyway.
+     * A FAILURE CAN BE NAMED. In one big request a file Pillow cannot
+       read is a line on the next page with eleven others; here it is
+       reported against its own filename, the remaining photographs
+       still go up, and nothing already uploaded is thrown away.
+     * MAX_CONTENT_LENGTH IS 8MB PER REQUEST. A dozen photographs off a
+       phone can exceed that as one batch and go through one at a time.
+
+   SEQUENTIAL, never parallel: the next request is not started until the
+   last one has answered. Twelve at once would put twelve Pillow encodes
+   through a small VPS at the same moment, which is slower for everybody
+   and hurts the site being served alongside it. */
+(function () {
+  var form = document.getElementById('uploadForm');
+  if (!form || !form.getAttribute('data-upload-progress')) { return; }
+  var input = document.getElementById('images');
+  var button = document.getElementById('uploadButton');
+  var panel = document.getElementById('uploadProgress');
+  var bar = document.getElementById('uploadBar');
+  var fill = bar ? bar.querySelector('i') : null;
+  var status = document.getElementById('uploadStatus');
+  var current = document.getElementById('uploadFile');
+  var fails = document.getElementById('uploadFails');
+  if (!input || !panel || !bar || !fill || !status || !current || !fails) {
+    return;
+  }
+  /* An engine without either of these keeps the plain form. Checked
+     BEFORE the submit listener goes on, so there is no half-upgraded
+     state to get wrong. */
+  if (!window.FormData || !window.XMLHttpRequest || !window.FileList) {
+    return;
+  }
+
+  /* busy.js would otherwise paint the Upload button as a plain submit
+     and never hear that the run had finished. From here the button is
+     this script's to drive — through the same helper, so there is one
+     idea of "busy" on the site and not two. */
+  form.removeAttribute('data-busy');
+
+  var running = false;
+
+  function busyStart(message) {
+    if (window.ebwaBusy) { window.ebwaBusy.start(button, message); }
+    else { button.disabled = true; }
+  }
+
+  function busyStop() {
+    if (window.ebwaBusy) { window.ebwaBusy.stop(button); }
+    else { button.disabled = false; }
+  }
+
+  /* THE UNIT IS A PHOTOGRAPH, not a percentage and not a byte. The bar
+     is painted as a percentage because that is what a bar is, but what
+     it COUNTS is announced as "photo 4 of 12" — and that is the honest
+     unit, because the server re-encodes each one through Pillow after
+     its last byte has arrived. A byte meter would reach the end and
+     then sit there for the part that actually takes the time. */
+  function paint(done, total, name) {
+    var percent = total ? Math.round(done * 100 / total) : 0;
+    fill.style.width = percent + '%';
+    bar.setAttribute('aria-valuenow', String(done));
+    bar.setAttribute('aria-valuetext',
+                     done + ' of ' + total + ' photos uploaded');
+    status.textContent = done >= total
+        ? 'Finishing…'
+        : 'Uploading photo ' + (done + 1) + ' of ' + total;
+    /* The photograph just finished stays named until the next one
+       starts: a blank line under a moving bar reads as something
+       having gone wrong. */
+    if (name) { current.textContent = name; }
+  }
+
+  function reportFailure(name, why) {
+    fails.classList.remove('is-hidden');
+    var li = document.createElement('li');
+    li.textContent = name + ' — ' + why;
+    fails.appendChild(li);
+  }
+
+  /* One file, one request, carrying every OTHER field of the form as it
+     stands — the album, the caption, and anything added to this form
+     later (a CSRF token, the day one is introduced) without this script
+     needing to be told about it. The file input itself is the one field
+     rebuilt by hand, because the whole point is to send one of them. */
+  function sendOne(file, done) {
+    var data = new FormData();
+    var fields = form.elements;
+    for (var i = 0; i < fields.length; i++) {
+      var field = fields[i];
+      if (!field.name || field.type === 'file' || field.disabled) { continue; }
+      if ((field.type === 'checkbox' || field.type === 'radio')
+          && !field.checked) { continue; }
+      data.append(field.name, field.value);
+    }
+    data.append('images', file, file.name);
+    data.append('ajax', '1');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', form.getAttribute('action') || window.location.pathname);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.onload = function () {
+      var answer = null;
+      try { answer = JSON.parse(xhr.responseText); } catch (e) { answer = null; }
+      if (xhr.status === 413) {
+        /* Refused by Flask before the route ran, so there is no JSON to
+           read — only the status says what happened. */
+        done(false, 'the file is too large (8 MB is the limit)');
+        return;
+      }
+      if (!answer || typeof answer.added !== 'number') {
+        done(false, 'the server gave an answer this page could not read');
+        return;
+      }
+      if (answer.added) { done(true, ''); return; }
+      var first = (answer.failed && answer.failed[0]) || null;
+      done(false, first && first.error ? first.error
+                                       : 'the server did not accept it');
+    };
+    xhr.onerror = function () {
+      done(false, 'the connection to the server failed');
+    };
+    xhr.send(data);
+  }
+
+  form.addEventListener('submit', function (e) {
+    var files = input.files;
+    if (!files || !files.length) { return; }   /* let the browser object */
+    e.preventDefault();
+    if (running) { return; }                   /* a second press, ignored */
+    running = true;
+
+    var total = files.length;
+    var at = 0;
+    var failed = 0;
+
+    panel.classList.remove('is-hidden');
+    fails.textContent = '';
+    fails.classList.add('is-hidden');
+    bar.setAttribute('aria-valuemax', String(total));
+    busyStart('Uploading…');
+    paint(0, total, files[0].name);
+
+    function next() {
+      if (at >= total) { finish(); return; }
+      var file = files[at];
+      paint(at, total, file.name);
+      sendOne(file, function (ok, why) {
+        if (!ok) {
+          failed++;
+          /* THE RUN CARRIES ON. One unreadable file must not cost the
+             other eleven their upload, and the ones already stored stay
+             stored — nothing here undoes anything. */
+          reportFailure(file.name, why);
+        }
+        at++;
+        paint(at, total, '');
+        next();
+      });
+    }
+
+    function finish() {
+      /* The summary sentence is composed by the SERVER when the gallery
+         is next drawn, from a tally each of those requests added to —
+         see gallery_upload_flash(). No request knew the totals, and a
+         sentence written here would be a second version of them, free
+         to disagree with the photographs actually on the page. */
+      status.textContent = failed
+          ? 'Finished. Taking you to the gallery…'
+          : 'All done. Taking you to the gallery…';
+      current.textContent = '';
+      var album = form.elements.album_id ? form.elements.album_id.value : '';
+      var url = form.getAttribute('data-done-url');
+      window.location.href = album ? url + '?album=' + encodeURIComponent(album)
+                                   : url;
+    }
+
+    next();
+  });
+
+  /* The back button hands this page back exactly as it was left — bar
+     part-filled, button dead. busy.js restores the button; the panel is
+     this script's to clear. */
+  window.addEventListener('pageshow', function () {
+    running = false;
+    panel.classList.add('is-hidden');
+    busyStop();
+  });
+})();
+</script>
 {% endblock %}

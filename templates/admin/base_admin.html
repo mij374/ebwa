@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Admin — EBWA{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version('css/style.css')) }}">
+{#- Busy state for the handful of things that are not instant.
+    `defer` so it runs after the page is parsed and after any
+    inline script that drives its own long job; with it absent
+    or broken every form and link behaves exactly as before. -#}
+<script src="{{ url_for('static', filename='js/busy.js', v=asset_version('js/busy.js')) }}" defer></script>
 {% include "_icons.html" %}
 </head>
 <body class="admin-body">

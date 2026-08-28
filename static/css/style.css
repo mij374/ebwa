@@ -1266,6 +1266,54 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
 .msg-cell{width:46%}
 .msg-body{display:block;color:var(--ink-soft);font-size:14.5px;white-space:pre-wrap}
 
+/* ---------- Busy state, and the gallery's upload progress ----------
+   static/js/busy.js swaps a control's label for a message and adds the
+   spinner below; nothing here is needed for the page to work, and with
+   the script absent none of it is ever on screen. */
+
+/* NO DIMMING. The obvious way to say "this button is inert" is
+   opacity, and opacity dims an element's TEXT AND ITS BACKGROUND
+   TOGETHER — which is how the footer Donate button reached 3.98:1, the
+   worst contrast on the public site. White on --green at .7 goes the
+   same way. The label has already changed to a sentence and there is a
+   spinner beside it, which says far more than a faded button; so the
+   colours stay exactly as they are and only the cursor and the hover
+   lift change. */
+.is-busy{cursor:progress}
+.btn.is-busy:hover{transform:none}
+.busy-spin{
+  display:inline-block;flex:none;width:14px;height:14px;border-radius:50%;
+  border:2px solid currentColor;border-top-color:transparent;
+  animation:busy-spin .7s linear infinite;
+}
+/* Under prefers-reduced-motion the rule at the top of this file stops
+   it turning, leaving a plain ring. That is fine and deliberate: the
+   spinner was never the message, the words are. */
+@keyframes busy-spin{to{transform:rotate(360deg)}}
+
+/* The gallery's per-file upload. Hidden until the script has a run to
+   report, so a page with no JavaScript never shows an empty bar. */
+.upload-progress{
+  /* Same width as the form it belongs to (.admin-form is 680px), and
+     pulled up under it, so the two read as one panel rather than as a
+     second thing that has appeared on the page. */
+  background:var(--white);border:1px solid var(--line);border-radius:12px;
+  padding:16px 18px;margin:-16px 0 26px;display:grid;gap:10px;
+  max-width:680px;
+}
+.upload-bar{
+  height:10px;border-radius:999px;background:var(--green-tint);
+  overflow:hidden;
+}
+.upload-bar i{
+  display:block;height:100%;width:0;background:var(--green);
+  border-radius:999px;transition:width .2s ease;
+}
+.upload-status{font-size:14.5px;color:var(--ink);font-weight:600}
+.upload-file{font-size:13.5px;color:var(--ink-muted);word-break:break-word}
+.upload-fails{margin:0;padding-left:18px;display:grid;gap:4px;
+  font-size:13.5px;color:var(--red-ink)}
+
 .admin-gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .admin-gallery-item{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:8px}
 .admin-gallery-item img{border-radius:8px;aspect-ratio:1/1;object-fit:cover;width:100%}

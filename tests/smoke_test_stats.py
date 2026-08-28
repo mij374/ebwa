@@ -13,6 +13,7 @@ raw rows go — it checks the properties that make the counting honest:
 
 Run:  python tests/smoke_test_stats.py
 """
+import re
 import os
 import sys
 from datetime import date, datetime, timedelta
@@ -44,6 +45,20 @@ def check(name, cond, detail=""):
                         (" [%s]" % detail) if detail and not cond else ""))
     if not cond:
         failures.append(name)
+
+
+def offsite_scripts(html):
+    """Every <script src> on the page that is not one of our own files.
+
+    This used to be `"<script src" not in html`, which meant "no
+    library" only while every script here was inline. static/js/busy.js
+    is linked from both shells now, and it is ours; the claim worth
+    keeping is that NOTHING on this page comes off somebody else's
+    server. A CDN link still fails, and the failure names it.
+    """
+    return [src for src in re.findall(r'<script[^>]+src="([^"]+)"', html)
+            if not src.startswith("/static/")]
+
 
 
 with app.app_context():
@@ -345,7 +360,7 @@ page = boss.get("/admin/features").data.decode("utf-8")
 check("a super admin sees the panel", "Visitors" in page
       and 'id="visitorStats"' in page)
 check("the chart is inline SVG, not a library",
-      "<svg" in page and "<script src" not in page)
+      "<svg" in page and not offsite_scripts(page))
 check("...and has a text description for a screen reader",
       'role="img"' in page and "Page views per day" in page)
 check("the panel says plainly what is stored",

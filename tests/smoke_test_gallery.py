@@ -51,6 +51,20 @@ def check(name, cond, detail=""):
         failures.append(name)
 
 
+def offsite_scripts(html):
+    """Every <script src> on the page that is not one of our own files.
+
+    This used to be `"<script src" not in html`, which meant "no
+    library" only while every script here was inline. static/js/busy.js
+    is linked from both shells now, and it is ours; the claim worth
+    keeping is that NOTHING on this page comes off somebody else's
+    server. A CDN link still fails, and the failure names it.
+    """
+    return [src for src in re.findall(r'<script[^>]+src="([^"]+)"', html)
+            if not src.startswith("/static/")]
+
+
+
 def get(path):
     return client.get(path).data.decode("utf-8")
 
@@ -316,7 +330,9 @@ check("keyboard handling shipped", "ArrowLeft" in album_html
 check("swipe handling shipped", "touchstart" in album_html
       and "touchend" in album_html)
 check("no JS library loaded",
-      "<script src" not in album_html and "cdn" not in album_html.lower())
+      not offsite_scripts(album_html)
+      and "cdn" not in album_html.lower(),
+      str(offsite_scripts(album_html)))
 check("script uses var, per house style",
       "var links" in album_html and "const " not in album_html
       and "let " not in album_html)

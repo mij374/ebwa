@@ -19,6 +19,7 @@ so the real instance/ebwa.db is never touched. Deletes the db afterwards.
 
 Run:  python tests/smoke_test_rich_journey.py
 """
+import re
 import base64
 import io
 import os
@@ -61,6 +62,20 @@ def check(name, cond, detail=""):
                         (" [%s]" % detail) if detail and not cond else ""))
     if not cond:
         failures.append(name)
+
+
+def offsite_scripts(html):
+    """Every <script src> on the page that is not one of our own files.
+
+    This used to be `"<script src" not in html`, which meant "no
+    library" only while every script here was inline. static/js/busy.js
+    is linked from both shells now, and it is ours; the claim worth
+    keeping is that NOTHING on this page comes off somebody else's
+    server. A CDN link still fails, and the failure names it.
+    """
+    return [src for src in re.findall(r'<script[^>]+src="([^"]+)"', html)
+            if not src.startswith("/static/")]
+
 
 
 
@@ -398,7 +413,8 @@ check("the viewer ships hidden, so there is nothing to tab into "
 check("keyboard and swipe come with it",
       all(k in html for k in ("ArrowLeft", "ArrowRight", "Escape",
                               "touchstart", "touchend")))
-check("no library, still", "<script src" not in html)
+check("no library, still", not offsite_scripts(html),
+      str(offsite_scripts(html)))
 
 # The gallery must be unchanged by the extraction — same page, same
 # viewer, same fallback.

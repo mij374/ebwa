@@ -31,7 +31,13 @@
 
 {% if rows %}
 <p style="margin:14px 0">
-  <a class="btn btn-green" href="{{ url_for('admin_gift_aid_csv') }}?from={{ date_from.isoformat() if date_from else '' }}&to={{ date_to.isoformat() if date_to else '' }}">Download HMRC schedule CSV</a>
+  {#- data-busy-restore because a download does not navigate: this
+    page stays exactly where it is, so nothing ever arrives to put
+    the button back. Eight seconds is long enough to read and short
+    enough not to strand it. -#}
+<a class="btn btn-green" data-busy="Building the CSV…"
+   data-busy-restore="8000"
+   href="{{ url_for('admin_gift_aid_csv') }}?from={{ date_from.isoformat() if date_from else '' }}&to={{ date_to.isoformat() if date_to else '' }}">Download HMRC schedule CSV</a>
 </p>
 {#- Keyboard-scrollable: nothing in this table is focusable, so
     without a tab stop of its own its right-hand end cannot be

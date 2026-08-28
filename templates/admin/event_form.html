@@ -3,7 +3,8 @@
 <h1 class="admin-h1">{{ 'Edit event' if ev else 'New event' }}</h1>
 <p class="admin-sub">Each event gets its own page on the website automatically.</p>
 
-<form method="post" enctype="multipart/form-data" class="admin-form">
+<form method="post" enctype="multipart/form-data" class="admin-form"
+      data-busy="Saving…">
   <div class="field">
     <label for="title">Event title *</label>
     <input type="text" id="title" name="title" required value="{{ ev.title if ev else '' }}"

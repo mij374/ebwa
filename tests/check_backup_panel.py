@@ -142,7 +142,7 @@ STATE = """() => {
   const button = document.getElementById('backupButton');
   if (!row) return null;
   return {
-    busy: row.getAttribute('data-busy'),
+    busy: row.getAttribute('data-backup-busy'),
     state: row.getAttribute('data-state'),
     pill: (document.getElementById('backupPill').textContent || '').trim(),
     detail: (document.getElementById('backupDetail').textContent || '').trim(),

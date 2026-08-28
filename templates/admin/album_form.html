@@ -3,7 +3,8 @@
 <h1 class="admin-h1">{{ 'Edit album' if album else 'New album' }}</h1>
 <p class="admin-sub">Each album gets its own page in the gallery automatically.</p>
 
-<form method="post" enctype="multipart/form-data" class="admin-form">
+<form method="post" enctype="multipart/form-data" class="admin-form"
+      data-busy="Saving…">
   <div class="field">
     <label for="title">Title *</label>
     <input type="text" id="title" name="title" required

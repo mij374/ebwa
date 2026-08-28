@@ -3,7 +3,8 @@
 <h1 class="admin-h1">{{ 'Edit milestone' if m else 'New milestone' }}</h1>
 <p class="admin-sub">Shown on the public Our Journey page, grouped by year. Funder fields are optional — institutional funders only, never an individual donor without documented consent.</p>
 
-<form method="post" enctype="multipart/form-data" class="admin-form">
+<form method="post" enctype="multipart/form-data" class="admin-form"
+      data-busy="Saving…">
   <div class="field">
     <label for="title">Title *</label>
     <input type="text" id="title" name="title" required value="{{ m.title if m else '' }}"
