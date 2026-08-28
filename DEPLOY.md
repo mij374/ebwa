@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-28 — Busy states and gallery upload progress
+## 408a9b1 — 2026-08-28 — Busy states and gallery upload progress
 
 **NO SCHEMA CHANGE, NO NEW BLOCKS, NO NEW PACKAGE.** `git pull` and
 restart is the whole of it:
