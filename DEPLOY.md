@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-28 — "How to add a domain" on Settings
+## f9164af — 2026-08-28 — "How to add a domain" on Settings
 
 **NO SCHEMA CHANGE, NO NEW PACKAGE, NOTHING TO RUN.** `git pull` and
 restart:
