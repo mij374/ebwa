@@ -379,6 +379,36 @@ Built and maintained by Netbus IT Support.
     answers them directly. There is deliberately NO auto-reply to the
     enquirer yet: it needs a decision on wording and on what happens
     when it bounces. Worth adding — ask before building it.
+- Deployment instructions on Settings: read-only boxes that tell a
+  super admin how to do a thing on the server, never a control that
+  does it. Today that is **"How to add a domain to this site"** (DNS A
+  record, `server_name`, `nginx -t` and reload, certbot).
+  - **It is guidance BECAUSE it cannot safely be a button.** nginx
+    belongs to root and a bad config takes the whole site down —
+    including the page somebody would then be looking at for the undo.
+    Same boundary as the health panel below; if anyone asks for a
+    "add domain" button, this is the answer and the reason.
+  - Every path comes from the `DEPLOY_*` constants and the domain from
+    `request.host`, so an install somewhere else prints its own and does
+    not confidently tell somebody the wrong path. **Nothing reads or
+    writes those paths** — they exist only to be printed. A new one goes
+    in `.env.example` in the same commit, like any other variable.
+  - **The box has two branches and both are tested.** A server reached
+    by its IP address is not an edge case — it is what a server with no
+    domain on it yet looks like, which is exactly who opens these
+    instructions, so `is_hostname()` decides whether to print
+    `dig +short <name>` or "that is the address, use it". Telling that
+    person to look up an IP would be nonsense at the one moment the page
+    is most likely to be believed.
+  - The markup is the FAQ accordion reused (`.faq-item.admin-help`),
+    shipped CLOSED — a once-a-year job, not something to scroll past
+    every visit — and it contains no form, button or input at all.
+  - `check_admin_widths.py` measures every admin page **twice where it
+    has anything collapsed**: as delivered, and again with every
+    `<details>` forced open. What one hides is the likeliest thing on an
+    admin page to be too wide, and the closed page passes without it.
+    Proved by removing `overflow-x:auto` from `.admin-help pre`: the
+    page passed shut and failed open, at 390 and 360.
 - Server health panel (Settings, super admins only) — **READ-ONLY, and
   that is a hard boundary, not a current state of things**:
   - No restart button, no service control, no log tailing, no shell, no

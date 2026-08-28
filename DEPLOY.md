@@ -138,6 +138,55 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-28 — "How to add a domain" on Settings
+
+**NO SCHEMA CHANGE, NO NEW PACKAGE, NOTHING TO RUN.** `git pull` and
+restart:
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app check-schema     # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+**What changed.** Settings gains a **Domains** section with a collapsed
+box, *How to add a domain to this site*: the DNS A record at the
+registrar, adding the name to `server_name`, `nginx -t` then reload, and
+certbot. It is guidance only — there is no button, no form and nothing
+in it that submits anything, for the same reason there is no restart
+button on that page: nginx belongs to root, and a bad config takes the
+whole site down including the page somebody would then be looking at.
+
+**One optional new environment variable**, `DEPLOY_NGINX_SITE`. Nothing
+reads or writes it; it is printed in those instructions so a deployment
+prints its own path rather than a guess. It defaults to
+`/etc/nginx/sites-available/<DEPLOY_SERVICE>`, which is right for this
+install — **set it only if the site file is somewhere else**:
+
+```bash
+# in /etc/ebwa/env, only if the default is wrong:
+DEPLOY_NGINX_SITE='/etc/nginx/sites-available/ebwa'
+```
+
+Check what the box prints after the restart, on Settings → Domains, and
+correct the variable if the path shown is not the real one. **A wrong
+path here is worse than no path**, because it is printed with the same
+confidence as a right one.
+
+**Worth knowing before anybody follows it:** the box tells you to keep
+website DNS and mail DNS changes on separate days. That is not
+box-ticking — if both move together and mail stops, there are two
+candidate causes and no way to tell them apart, and mail failures are
+noticed late.
+
+- [x] Local
+- [ ] Demo VPS — **check the printed nginx path is the real one** once
+      deployed; it cannot be verified from here.
+- [ ] Production
+
+---
+
 ## c15699a — 2026-08-28 — Tell iPhone users what HEIC is
 
 **NO SCHEMA CHANGE, NO NEW PACKAGE, NOTHING TO RUN.** `git pull` and

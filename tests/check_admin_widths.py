@@ -22,6 +22,12 @@ getting them wrong:
     something narrow. "Nothing overflowed" and "there was nothing to
     overflow" are the same measurement and completely different facts.
 
+Every page is measured twice where it has anything collapsed: as
+delivered, and again with every <details> forced open. What one hides is
+the likeliest thing on an admin page to be too wide — long shell
+commands, wide number fields — and measuring only the delivered page
+measures it with all of that absent.
+
 When something does overflow it names the widest offending element, so
 the next person is not left bisecting a template.
 
@@ -281,6 +287,36 @@ with sync_playwright() as pw:
                     path=os.path.join(SHOTS, "overflow-%d-%s.png"
                                       % (width, url.strip("/").replace("/", "-"))),
                     full_page=True)
+
+            # AND AGAIN WITH EVERYTHING OPEN. What a <details> hides is
+            # the likeliest thing on an admin page to be too wide — long
+            # shell commands in the domain instructions, number fields
+            # in the marquee speeds — and a page measured as delivered is
+            # measured with all of it absent. Only pages that have one
+            # are measured twice.
+            opened = page.evaluate("""() => {
+                const all = [...document.querySelectorAll('details')];
+                all.forEach(d => { d.open = true; });
+                return all.length;
+            }""")
+            if opened:
+                d = page.evaluate(OVERFLOW_JS)
+                results[(width, url + " (opened)")] = d["over"]
+                detail = ""
+                if d["over"] > 0:
+                    detail = "%dpx past a %dpx viewport; widest: %s" % (
+                        d["over"], d["docW"],
+                        ", ".join("%s.%s %dpx wide, %dpx past"
+                                  % (g["tag"], g["cls"], g["w"], g["past"])
+                                  for g in d["guilty"]) or "(nothing measurable)")
+                check("%dpx %s: no sideways scroll with its %d <details> "
+                      "open" % (width, url, opened), d["over"] <= 0, detail)
+                if SHOTS and d["over"] > 0:
+                    page.screenshot(
+                        path=os.path.join(
+                            SHOTS, "overflow-open-%d-%s.png"
+                            % (width, url.strip("/").replace("/", "-"))),
+                        full_page=True)
     ctx.close()
     browser.close()
 

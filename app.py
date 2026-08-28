@@ -15,6 +15,7 @@ import base64
 import hashlib
 import hmac
 import io
+import ipaddress
 import json
 import os
 import re
@@ -85,6 +86,11 @@ DEPLOY_ENV_FILE = os.environ.get("DEPLOY_ENV_FILE", "/etc/ebwa/env")
 DEPLOY_PATH = os.environ.get("DEPLOY_PATH", "/opt/ebwa")
 DEPLOY_SERVICE = os.environ.get("DEPLOY_SERVICE", "ebwa")
 DEPLOY_USER = os.environ.get("DEPLOY_USER", "www-data")
+# The nginx server block for this site, for the "how to add a domain"
+# instructions. Defaults beside the service name rather than being
+# written out again, since Debian's convention is to name them the same.
+DEPLOY_NGINX_SITE = os.environ.get(
+    "DEPLOY_NGINX_SITE", "/etc/nginx/sites-available/" + DEPLOY_SERVICE)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
@@ -3026,6 +3032,23 @@ CSP = ("default-src 'self'; "
 # said in exactly one place, and the flash, the admin form's helper text
 # and the gallery's progress script all take it from there — so raising
 # the cap is one edit and cannot leave a sentence behind saying 8.
+
+
+def is_hostname(host):
+    """Is this a name that can be looked up, or an address (or nothing)?
+
+    Used only to decide which sentence the domain instructions print.
+    `localhost` counts as no: it resolves, but not to anything anybody
+    else can point a domain at, so the advice for it is the same as for
+    a bare IP.
+    """
+    if not host or host == "localhost":
+        return False
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return "." in host          # a bare label is not a public name
+    return False
 
 
 @app.template_global("upload_limit_mb")
@@ -8183,6 +8206,7 @@ def admin_user_delete(user_id):
 @super_admin_required
 def admin_features():
     backup_started_flash()
+    host = request.host.split(":")[0]
     return render_template(
         "admin/features.html", rows=FEATURES, flags=feature_flags(),
         settings=mail_settings(), fields=MAIL_SETTINGS,
@@ -8214,10 +8238,27 @@ def admin_features():
         failed_logins=failed_logins_since(),
         failed_window=FAILED_LOGIN_WINDOW_HOURS,
         alert_threshold=ALERT_IP_THRESHOLD,
-        # For the "how to change the password" instructions: real paths
-        # for THIS deployment, never hardcoded in the template.
+        # For the "how to add a domain" instructions: real paths for THIS
+        # deployment, never hardcoded in the template. A deployment
+        # somewhere else prints its own and does not confidently tell
+        # somebody the wrong one.
         deploy={"env_file": DEPLOY_ENV_FILE, "path": DEPLOY_PATH,
-                "service": DEPLOY_SERVICE, "user": DEPLOY_USER})
+                "service": DEPLOY_SERVICE, "user": DEPLOY_USER,
+                "nginx_site": DEPLOY_NGINX_SITE},
+        # The name this page is being read on, so the commands are real
+        # rather than a worked example with somebody else's domain in
+        # them. Safe to print despite coming from a header: nginx passes
+        # the Host the CLIENT sent, and the only Host an admin's browser
+        # sends is the one they typed into it — a value somebody else
+        # forged reaches only their own screen, not this admin's.
+        site_host=host,
+        # Whether that is a NAME somebody can look up, or an address.
+        # A server reached by its IP is not an edge case here — it is
+        # what a server with no domain on it yet looks like, and that is
+        # precisely who reads "how to add a domain". Telling them to
+        # `dig` an IP address would be nonsense at the one moment the
+        # page is most likely to be believed.
+        site_host_is_name=is_hostname(host))
 
 
 def valid_address(value):

@@ -605,6 +605,102 @@
 <p class="admin-sub" id="healthChecked">Read {{ health.checked_at|uk_datetime }}.
   <label class="health-auto"><input type="checkbox" id="healthAuto"> Refresh every 30 seconds</label></p>
 
+<h2 class="admin-stats-head" id="domains">Domains</h2>
+<p class="admin-sub"><b>This page cannot add a domain, and deliberately
+  does not try.</b> Every step below runs as root: nginx belongs to root,
+  and a mistake in its configuration takes the whole site down —
+  including this page, which is exactly where somebody would then go
+  looking for the undo button. It stays on SSH, where it is visible and
+  reversible, for the same reason there is no restart button above.</p>
+
+{# Same accordion as the public FAQ: plain <details>, so the browser
+   brings the keyboard handling and it works with no script at all. Shut
+   by default — it is a once-a-year job, not something to scroll past
+   every visit. Every path comes from the app's deployment settings and
+   the domain from the address this page was read on, so an install
+   somewhere else prints its own and not these. READ-ONLY: no form, no
+   button, nothing here submits anything. #}
+<details class="faq-item admin-help">
+  <summary>How to add a domain to this site</summary>
+  <div class="faq-answer">
+    <p><b>Do this on a different day from any change to the email
+      records.</b> If the website and the mail records (MX, SPF, DKIM)
+      move together and something stops working, there are two changes
+      that could have caused it and no way to tell which — and mail
+      failures are quiet, so they are often noticed days later. One
+      change, one day, one thing to undo.</p>
+
+    <ol class="admin-steps">
+      <li><b>Point the domain at this server</b>, at the registrar or
+        wherever the domain's DNS is managed. Add an <code>A</code>
+        record for the domain and one for <code>www</code>, both to the
+        address this site already answers on.
+        {%- if site_host_is_name %} To find that address:
+        <pre><code>dig +short {{ site_host }}</code></pre>
+        {%- else %} You are reading this page on
+        <code>{{ site_host }}</code>, which is an address rather than a
+        name, so that is the address to point the record at — there is
+        nothing to look up.
+        {%- endif %}
+        Then wait for it to take effect and check the new name gives the
+        same answer:
+        <pre><code>dig +short newdomain.org</code></pre>
+        It can take anything from a few minutes to a few hours.
+        <b>Nothing below this step will work until that command returns
+        this server's address.</b>
+      </li>
+
+      <li><b>Add the domain to nginx.</b> Connect over SSH and open the
+        site file:
+        <pre><code>sudo nano {{ deploy.nginx_site }}</code></pre>
+        Find the <code>server_name</code> line and add the new names to
+        the end of it, <b>keeping the ones already there</b> — a name
+        removed from this line is a name the site stops answering to:
+        <pre><code>server_name {% if site_host_is_name %}{{ site_host }} {% endif %}newdomain.org www.newdomain.org;</code></pre>
+        Save and exit: <b>Ctrl+O</b>, <b>Enter</b>, <b>Ctrl+X</b>.
+      </li>
+
+      <li><b>Test the configuration, then reload.</b>
+        <pre><code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code></pre>
+        One line on purpose: <code>&amp;&amp;</code> means the reload only
+        happens if the test passed. If <code>nginx -t</code> reports an
+        error, fix it before doing anything else and do not reload —
+        reloading a broken configuration is how the site goes down.
+        <b>Reload, not restart</b>: it picks up the new configuration
+        without dropping anybody mid-request. If the site does not come
+        back, undo the edit from step 2 and reload again.
+      </li>
+
+      <li><b>Issue the certificate</b>, so the new name works over
+        <code>https</code>:
+        <pre><code>sudo certbot --nginx {% if site_host_is_name %}-d {{ site_host }} {% endif %}-d newdomain.org -d www.newdomain.org</code></pre>
+        <b>List every name the certificate should cover, including the
+        ones already working.</b> Certbot takes this list as the whole
+        set, so a name left out of the command is a name left off the
+        certificate — and browsers will warn about it.
+        <p><b>Certbot cannot issue anything until DNS resolves to this
+          server.</b> It proves the domain is yours by fetching a file
+          from it over the public internet, which means step 1 has to
+          have taken effect and step 3 has to have nginx answering for
+          that name. A challenge failure here is almost always DNS not
+          being ready yet: wait, and run the same command again.</p>
+        Renewal is automatic from then on — certbot installs its own
+        timer and it covers the new names too.
+      </li>
+    </ol>
+
+    <p>Check it from your own machine when the four steps are done:</p>
+    <pre><code>curl -I https://newdomain.org</code></pre>
+    <p>Replace <code>newdomain.org</code> throughout with the real
+      domain. The commands above already carry this deployment's own
+      paths{% if site_host_is_name %} and the name you are reading this
+      page on{% endif %}, so the only thing to change is the domain being
+      added.{% if not site_host_is_name %} Certbot cannot issue a certificate
+      for an IP address, so only real names go in that last
+      command.{% endif %}</p>
+  </div>
+</details>
+
 <h2 class="admin-stats-head" id="visitorStats">Visitors</h2>
 <div class="admin-form" style="margin-bottom:22px">
 {% include "admin/_visitor_summary.html" %}
