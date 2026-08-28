@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-28 — Tell iPhone users what HEIC is
+## c15699a — 2026-08-28 — Tell iPhone users what HEIC is
 
 **NO SCHEMA CHANGE, NO NEW PACKAGE, NOTHING TO RUN.** `git pull` and
 restart:
