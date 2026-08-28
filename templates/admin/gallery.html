@@ -20,12 +20,19 @@
 <form method="post" enctype="multipart/form-data" class="admin-form"
       style="margin-bottom:34px" id="uploadForm"
       data-busy="Uploading photos…" data-upload-progress="1"
-      data-done-url="{{ url_for('admin_gallery') }}">
+      data-done-url="{{ url_for('admin_gallery') }}"
+      {#- The size limit is said ONCE, in app.py, and carried here as
+          text rather than as a number this script would have to make a
+          sentence out of. So the flash a no-JS upload gets and the line
+          the bar shows are the same words, and raising the cap changes
+          both. -#}
+      data-too-large="{{ upload_limit_message() }}">
   <div class="field">
     <label for="images">Add photos</label>
     <input type="file" id="images" name="images" accept="image/*" multiple required>
     <small>Straight off a phone is fine — photos are turned the right way
-      up, stripped of location data and resized automatically.</small>
+      up, stripped of location data and resized automatically. Up to
+      {{ upload_limit_mb() }}MB each.</small>
   </div>
   <div class="field-row">
     <div class="field">
@@ -166,6 +173,8 @@
   var status = document.getElementById('uploadStatus');
   var current = document.getElementById('uploadFile');
   var fails = document.getElementById('uploadFails');
+  var tooLarge = form.getAttribute('data-too-large')
+              || 'That file is too large.';
   if (!input || !panel || !bar || !fill || !status || !current || !fails) {
     return;
   }
@@ -243,13 +252,29 @@
     var xhr = new XMLHttpRequest();
     xhr.open('POST', form.getAttribute('action') || window.location.pathname);
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    /* THE NAME HAS TO TRAVEL OUTSIDE THE BODY. If the file is past the
+       server's limit the body is exactly what gets refused, unparsed,
+       so a filename inside it is unreadable — and the summary on the
+       next page would have to count the failure without being able to
+       name it. Percent-encoded: a header is latin-1 and a photograph
+       can be called anything at all. */
+    xhr.setRequestHeader('X-Upload-Name', encodeURIComponent(file.name));
     xhr.onload = function () {
       var answer = null;
       try { answer = JSON.parse(xhr.responseText); } catch (e) { answer = null; }
       if (xhr.status === 413) {
-        /* Refused by Flask before the route ran, so there is no JSON to
-           read — only the status says what happened. */
-        done(false, 'the file is too large (8 MB is the limit)');
+        /* TOO BIG. This is reported like every other per-file failure —
+           against its own filename, with the run carrying on — because
+           that is exactly what it is: one photograph the server would
+           not take, in the middle of eleven it would.
+
+           The sentence is read off the form rather than composed here,
+           and the STATUS is what is trusted rather than the body. Flask
+           does answer this with JSON, but nginx answers its own 413
+           with an HTML page of its own when a request is past
+           client_max_body_size — and on that path there is nothing to
+           parse. One branch, both cases. */
+        done(false, tooLarge);
         return;
       }
       if (!answer || typeof answer.added !== 'number') {

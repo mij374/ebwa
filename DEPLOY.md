@@ -138,6 +138,88 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-28 — An oversized upload explains itself
+
+**NO SCHEMA CHANGE. ONE NGINX SETTING TO CHECK — see below, and check it
+even though nothing in this repository can.**
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app check-schema     # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+**What changed.** A file past `MAX_CONTENT_LENGTH` used to produce a bare
+`413 Request Entity Too Large` page — no heading, no navigation, nothing
+to do next, and the Back button losing whatever else had been typed into
+the form. It now flashes *"That file is too large — the limit is 8MB per
+photo. If you chose several at once, that limit is for the whole upload,
+so add them in smaller batches."* and puts the person back on the form
+they were using. All eight forms that take an image, not just the
+gallery. In the gallery's progress script an oversized photograph is
+reported by name mid-run like any other failure, the rest of the batch
+still goes up, and it is counted in the summary.
+
+The limit in that sentence is READ FROM `MAX_CONTENT_LENGTH`. Raising the
+cap is one edit and every message follows it.
+
+### nginx: `client_max_body_size` MUST BE ABOVE Flask's limit
+
+**This is the part that cannot be checked from the repository, and the
+part that silently undoes the whole change.** nginx enforces its own body
+limit BEFORE the request ever reaches gunicorn. If it is the smaller of
+the two, nginx answers with its own 413 page — plain white, its version
+number on it, no site around it — and the handler added here never runs.
+The site would look exactly as it did before this commit, and the code
+would be word for word correct.
+
+**nginx's default is `1m`, which is EIGHT TIMES SMALLER than Flask's
+8MB.** If the directive is not set at all in the EBWA server block, every
+photograph over 1MB is already being refused that way — which is most
+photographs off a phone.
+
+Set it in the `server` block for the site, comfortably above the 8MB
+Flask enforces, so Flask is always the one that answers:
+
+```nginx
+server {
+    # ...
+    client_max_body_size 12m;   # ABOVE app.py's MAX_CONTENT_LENGTH (8MB)
+}
+```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**12m, not 8m.** A request carrying an 8MB file is a little larger than
+8MB once the multipart boundaries and field names are counted, so an
+exactly-equal limit would have nginx refuse a file Flask would have
+accepted — and refuse it with the page this change exists to avoid. The
+gap is deliberate headroom, not slack.
+
+**Keep the two in step.** If `MAX_UPLOAD_MB` in `app.py` is ever raised,
+raise `client_max_body_size` first and by more. The order matters: raise
+Flask's first and the extra allowance does nothing, because nginx is
+still refusing at the old number.
+
+`proxy_request_buffering` is on by default and should stay on. It is why
+Flask receives the complete request and can answer it properly instead of
+the browser seeing a reset connection part way through a 20MB upload.
+
+**How to tell it is right:** sign in, choose a photograph of about 10MB,
+press Upload. You should get the sentence above on the gallery page. If
+you get a white page saying `413 Request Entity Too Large` with `nginx`
+underneath it, the directive is missing or too small.
+
+- [x] Local (no nginx; verified against the app's own limit)
+- [ ] Demo VPS — **`client_max_body_size` NOT CHECKED.** Cannot be read
+      from here. Check it before assuming this works there.
+- [ ] Production
+
+---
+
 ## 408a9b1 — 2026-08-28 — Busy states and gallery upload progress
 
 **NO SCHEMA CHANGE, NO NEW BLOCKS, NO NEW PACKAGE.** `git pull` and

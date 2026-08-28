@@ -154,6 +154,31 @@ BAD_AT = 4
 CHOSEN.insert(BAD_AT, BAD)
 assert len(CHOSEN) == 12 and CHOSEN[BAD_AT] == BAD
 
+# ONE PHOTOGRAPH FAR OVER THE CAP — about 20MB, which is an ordinary
+# frame off an ordinary camera and the commonest way this form is going
+# to be misused. Blocky noise rather than a gradient, because JPEG
+# compresses a gradient down to nothing and the point here is the SIZE.
+# Built by resizing a small random image with NEAREST, which is instant;
+# generating 20 megapixels a pixel at a time is not.
+def oversized(path, width, height, block=6):
+    small = Image.frombytes("RGB", (width // block, height // block),
+                            os.urandom((width // block) * (height // block) * 3))
+    small.resize((width, height), Image.NEAREST).save(path, "JPEG", quality=96)
+
+
+BIG_NAME = "enormous-20mb.jpg"
+BIG = os.path.join(FILES, BIG_NAME)
+oversized(BIG, 5200, 3900)
+BIG_MB = os.path.getsize(BIG) / (1024.0 * 1024.0)
+
+# Twelve again, with the oversized one FIFTH: the eleven either side of
+# it have to go up regardless, which is the whole claim.
+BIG_AT = 4
+WITH_BIG = [f for f in CHOSEN if f != BAD]
+WITH_BIG.insert(BIG_AT, BIG)
+WITH_BIG = WITH_BIG[:12]
+assert len(WITH_BIG) == 12 and WITH_BIG[BIG_AT] == BIG
+
 # The plain form posts everything in ONE request, and MAX_CONTENT_LENGTH
 # is 8MB for the whole of it. So the no-JS run uses a batch that fits —
 # what is being proved there is that the plain path still works, and the
@@ -233,13 +258,31 @@ class Uploads(object):
         return bad
 
 
+# ONE REAL LOGIN, THEN THE COOKIE. The `login` scope allows five
+# attempts in ten minutes and this file needs eight contexts — four in
+# the runs above and four more for the oversized ones — so signing in
+# each time trips the rate limiter part way through. A rate-limited
+# context lands on the LOGIN page, where there is no upload form at all,
+# and every assertion after it is measuring the wrong page. This is the
+# same trap check_admin_widths.py documents; it needs a different answer
+# here, because these contexts differ in whether JavaScript is on and so
+# cannot be one context resized.
+_session_cookie = []
+
+
 def sign_in(ctx):
     page = ctx.new_page()
+    if _session_cookie:
+        ctx.add_cookies(_session_cookie)
+        page.goto(BASE + "/admin", wait_until="load")
+        return page
     page.goto(BASE + "/admin/login", wait_until="load")
     page.fill("input[name=email]", "progress@example.com")
     page.fill("input[name=password]", PW)
     page.click("button[type=submit]")
     page.wait_for_load_state("load")
+    _session_cookie.extend(c for c in ctx.cookies()
+                           if c["name"] == "session")
     return page
 
 
@@ -430,22 +473,131 @@ with sync_playwright() as pw:
 
         # AND THE CAP THE PER-FILE PATH ROUTES AROUND. MAX_CONTENT_LENGTH
         # is 8MB PER REQUEST, so the same twelve photographs the script
-        # put up one at a time are refused outright as one batch. This is
-        # not a regression — it is what the plain form has always done,
-        # and it is the plainest argument for the other path. Pinned so
-        # the next person meets it here rather than in a client's email.
+        # puts up one at a time are refused outright as one batch. The
+        # cap has not moved; what changed is that meeting it is now a
+        # sentence on the form rather than a bare 413 page, so that is
+        # what is pinned here.
         clear_photos()
-        statuses = []
-        page.on("response", lambda r: statuses.append(r.status)
-                if r.request.method == "POST" else None)
         page.goto(BASE + "/admin/gallery", wait_until="load")
         page.set_input_files("#images", CHOSEN)
         page.click("#uploadButton")
         page.wait_for_load_state("load")
-        check("%d no-JS: twelve at once is over the 8MB request cap" % width,
-              413 in statuses, str(statuses))
-        check("%d no-JS: and nothing was stored from the refused batch"
+        body = page.locator("body").inner_text()
+        check("%d no-JS: twelve at once is still over the 8MB request cap"
               % width, photo_count() == 0, str(photo_count()))
+        check("%d no-JS: and it is explained rather than shown as a 413"
+              % width,
+              "That file is too large" in body
+              and "Request Entity Too Large" not in body, body[:160])
+        check("%d no-JS: the sentence says the batch is what counts" % width,
+              "whole upload" in body, body[:200])
+        ctx.close()
+
+    # ------------------------------------------- an upload that is too big
+    # A BARE 413 IS THE WORST PAGE ON THE SITE and it is the one shown
+    # for the commonest mistake: no heading, no navigation, nothing to
+    # do next, and the Back button losing whatever else was typed. Both
+    # paths have to explain themselves instead — the form with a flash
+    # on the page it came from, the script with a named line on the bar.
+    for width in WIDTHS:
+        height = height_for(width)
+        print()
+        print("---- %dx%d, an oversized photograph (%.1fMB)"
+              % (width, height, BIG_MB))
+        check("%d: the oversized fixture really is oversized" % width,
+              18 <= BIG_MB <= 26, "%.1fMB" % BIG_MB)
+
+        # ---- through the script: photo 5 of 12, and the other eleven
+        # must not pay for it.
+        clear_photos()
+        ctx = new_context(browser, width, height, motion=STILL)
+        page = sign_in(ctx)
+        page.goto(BASE + "/admin/gallery", wait_until="load")
+        watch = Uploads(page)
+        page.set_input_files("#images", WITH_BIG)
+        page.evaluate("() => { window.__uploadPage = 1; }")
+        page.click("#uploadButton")
+
+        page.wait_for_selector("#uploadProgress:not(.is-hidden)",
+                               timeout=10000)
+        failed_text = ""
+        for _ in range(900):
+            try:
+                here = page.evaluate(
+                    "() => ({on: !!window.__uploadPage,"
+                    " fails: (document.getElementById('uploadFails')"
+                    "        ||{}).textContent || ''})")
+            except Exception:
+                break
+            if not here["on"]:
+                break
+            if here["fails"].strip():
+                failed_text = here["fails"]
+            page.wait_for_timeout(40)
+
+        check("%d: the oversized photo is named on the bar" % width,
+              BIG_NAME in failed_text, repr(failed_text))
+        check("%d: and told it was too large, not 'an answer we could "
+              "not read'" % width,
+              "too large" in failed_text, repr(failed_text))
+        check("%d: the limit is in the sentence" % width,
+              "MB" in failed_text, repr(failed_text))
+
+        page.wait_for_function("() => window.__uploadPage === undefined",
+                               timeout=60000)
+        page.wait_for_load_state("load")
+        page.wait_for_selector(".flash", timeout=15000)
+
+        check("%d: still one request per file" % width, watch.count() == 12,
+              "%d POSTs" % watch.count())
+        clashes = watch.overlaps()
+        check("%d: still sequential" % width, not clashes,
+              "%d overlapping" % len(clashes))
+        check("%d: photos 1-4 and 6-12 all stored" % width,
+              photo_count() == 11, str(photo_count()))
+        flash = page.locator(".flash").first.inner_text()
+        check("%d: the summary counts eleven and one" % width,
+              "11 photos added" in flash and "1 failed" in flash, flash)
+        check("%d: and names the oversized one" % width,
+              BIG_NAME in flash and "too large" in flash, flash)
+        ctx.close()
+
+        # ---- and through the plain form, with JavaScript switched off,
+        # where the bare 413 page is what used to appear.
+        clear_photos()
+        ctx = new_context(browser, width, height, motion=STILL,
+                          java_script_enabled=False)
+        page = sign_in(ctx)
+        page.goto(BASE + "/admin/gallery", wait_until="load")
+        page.set_input_files("#images", [BIG])
+        page.click("#uploadButton")
+        page.wait_for_load_state("load")
+
+        # THE TEST THAT MATTERS IS THAT THIS IS STILL THE WEBSITE. A 413
+        # page has no sidebar, no heading and nowhere to go; asserting
+        # only on the message would pass on a page carrying the message
+        # and nothing else.
+        check("%d no-JS: it is still the admin, not an error page" % width,
+              page.locator(".admin-side").count() == 1
+              and page.locator(".admin-h1").count() >= 1, page.url)
+        body = page.locator("body").inner_text()
+        check("%d no-JS: no bare 413 text anywhere on it" % width,
+              "Request Entity Too Large" not in body, body[:120])
+        check("%d no-JS: the reason is on the page in words" % width,
+              "That file is too large" in body,
+              page.locator(".flash").first.inner_text()
+              if page.locator(".flash").count() else "(no flash at all)")
+        check("%d no-JS: it names the limit" % width,
+              "MB" in page.locator(".flash").first.inner_text(),
+              page.locator(".flash").first.inner_text())
+        check("%d no-JS: nothing was stored" % width, photo_count() == 0,
+              str(photo_count()))
+        # And it landed back on the form, not somewhere else.
+        check("%d no-JS: back on the gallery form" % width,
+              page.locator("#uploadForm").count() == 1, page.url)
+        if SHOTS:
+            page.screenshot(path=os.path.join(SHOTS,
+                                              "toolarge-%d.png" % width))
         ctx.close()
 
     # --------------------------------------------------- the shared busy state

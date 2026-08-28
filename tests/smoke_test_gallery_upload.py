@@ -27,6 +27,7 @@ Run:  python tests/smoke_test_gallery_upload.py
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -40,7 +41,8 @@ from PIL import Image                                          # noqa: E402
 
 import app as appmod                                           # noqa: E402
 from app import (app, db, Block, DEFAULT_BLOCKS, FEATURES,     # noqa: E402
-                 FeatureFlag, GalleryAlbum, GalleryImage, AuditLog, User)
+                 FeatureFlag, GalleryAlbum, GalleryImage, AuditLog, User,
+                 upload_limit_mb, upload_limit_message)
 
 app.config["TESTING"] = True
 
@@ -80,6 +82,19 @@ NOT_AN_IMAGE = b"this is not an image, whatever the extension says" * 20
 def photo_count():
     with app.app_context():
         return GalleryImage.query.count()
+
+
+def flashes(html):
+    """Just the flash messages, not the whole page.
+
+    Searching the raw HTML for the sentence is not the same check: the
+    upload form carries that exact sentence in its `data-too-large`
+    attribute for the progress script to use, so "is it on the page?"
+    is TRUE on every gallery page whether or not anything went wrong.
+    Both of those assertions passed with the 413 handler switched off.
+    """
+    return " | ".join(re.findall(
+        r'<div class="flash flash-\w+">(.*?)</div>', html, re.S))
 
 
 with app.app_context():
@@ -272,6 +287,167 @@ check("every upload is audit-logged",
       str(summaries[:3]))
 check("an album upload names the album",
       any("Seaside trip" in s for s in summaries), str(summaries[:3]))
+
+# ------------------------------------------------------- too big to accept
+# Werkzeug refuses a request past MAX_CONTENT_LENGTH before any route
+# runs. Without a handler that is a bare "413 Request Entity Too Large"
+# page — no heading, no navigation, nothing to do next — for what is
+# probably the commonest mistake anybody makes on this form.
+LIMIT = app.config["MAX_CONTENT_LENGTH"]
+OVERSIZE = b"x" * (LIMIT + 1024)
+check("the fixture really is over the limit", len(OVERSIZE) > LIMIT,
+      "%d vs %d" % (len(OVERSIZE), LIMIT))
+
+before = photo_count()
+r = client.post("/admin/gallery",
+                data={"images": (io.BytesIO(OVERSIZE), "enormous.jpg")},
+                content_type="multipart/form-data",
+                headers={"Referer": "http://localhost/admin/gallery?album=2"})
+check("an oversized upload redirects rather than showing a 413 page",
+      r.status_code == 302, str(r.status_code))
+check("and it goes back to the form it came from",
+      r.headers.get("Location", "").startswith("/admin/gallery"),
+      r.headers.get("Location"))
+check("nothing was stored from it", photo_count() == before)
+
+body = client.get("/admin/gallery").data.decode("utf-8")
+check("the reason is flashed in words",
+      "That file is too large" in flashes(body), flashes(body)[:200])
+check("the flash names the limit",
+      "%dMB" % upload_limit_mb() in flashes(body), flashes(body)[:200])
+check("the flash is an error, not a cheerful notice", "flash-error" in body)
+
+# THE LIMIT IS READ, NOT WRITTEN OUT AGAIN. Move the config and the
+# sentence has to move with it, or there is a second copy of the number
+# somewhere waiting to go stale.
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
+check("the message follows the config", "20MB" in upload_limit_message(),
+      upload_limit_message())
+app.config["MAX_CONTENT_LENGTH"] = LIMIT
+check("and back again", "%dMB" % (LIMIT // (1024 * 1024))
+      in upload_limit_message(), upload_limit_message())
+
+# ---- the same thing through the progress script's path
+# IT MUST NOT BE A REDIRECT. XMLHttpRequest follows one silently, so the
+# script would read a 200 and a page of HTML where a 413 had happened,
+# and report the one failure it can explain best as an answer it could
+# not read.
+r = client.post("/admin/gallery",
+                data={"images": (io.BytesIO(OVERSIZE), "enormous.jpg"),
+                      "ajax": "1"},
+                content_type="multipart/form-data",
+                headers={"X-Requested-With": "XMLHttpRequest"})
+check("the script's path gets a 413, not a redirect", r.status_code == 413,
+      "%s -> %s" % (r.status_code, r.headers.get("Location")))
+check("and it is JSON it can read",
+      r.headers.get("Content-Type", "").startswith("application/json"),
+      r.headers.get("Content-Type"))
+answer = json.loads(r.data.decode("utf-8"))
+check("the script is told the same sentence",
+      answer.get("failed") and "too large" in answer["failed"][0]["error"],
+      str(answer))
+check("still nothing stored", photo_count() == before)
+
+# ---- a batch where ONE photo is oversized: the rest must still go up.
+# This is the case the whole per-file design exists for.
+clear = photo_count()
+sent, refused = 0, []
+for i in range(1, 13):
+    raw, name = (LANDSCAPE, "batch-%02d.jpg" % i)
+    if i == 5:
+        raw, name = OVERSIZE, "batch-05-enormous.jpg"
+    r = client.post("/admin/gallery",
+                    data={"images": (io.BytesIO(raw), name), "ajax": "1"},
+                    content_type="multipart/form-data",
+                    headers={"X-Requested-With": "XMLHttpRequest"})
+    if r.status_code == 413:
+        refused.append(name)
+    else:
+        sent += json.loads(r.data.decode("utf-8")).get("added", 0)
+check("photo 5 of 12 was the only one refused", refused ==
+      ["batch-05-enormous.jpg"], str(refused))
+check("the other eleven all stored", sent == 11, str(sent))
+check("and they are really on the table", photo_count() == clear + 11,
+      "%d -> %d" % (clear, photo_count()))
+
+# ---- AND A 413 MUST REACH THE SUMMARY. The route never ran for that
+# file, so nothing recorded it — the run came out as a cheerful
+# "11 photos added." with the twelfth simply absent from the count.
+# note_gallery_upload() promises every failure is COUNTED even when it
+# cannot be named; this is the path that broke that promise.
+clear = photo_count()
+client.get("/admin/gallery")                       # spend anything pending
+for i in (1, 2):
+    client.post("/admin/gallery",
+                data={"images": (io.BytesIO(LANDSCAPE), "fine-%d.jpg" % i),
+                      "ajax": "1"},
+                content_type="multipart/form-data",
+                headers={"X-Requested-With": "XMLHttpRequest"})
+client.post("/admin/gallery",
+            data={"images": (io.BytesIO(OVERSIZE), "enormous.jpg"),
+                  "ajax": "1"},
+            content_type="multipart/form-data",
+            headers={"X-Requested-With": "XMLHttpRequest",
+                     "X-Upload-Name": "enormous.jpg"})
+body = client.get("/admin/gallery").data.decode("utf-8")
+check("a 413 is counted in the summary, not dropped from it",
+      "2 photos added" in flashes(body) and "1 failed" in flashes(body),
+      flashes(body)[:240])
+check("and the header lets it be NAMED",
+      "enormous.jpg" in flashes(body), flashes(body)[:240])
+check("the two good ones were still stored", photo_count() == clear + 2,
+      "%d -> %d" % (clear, photo_count()))
+
+# With no header there is nothing to name it with, and it says so rather
+# than inventing a filename or going quiet.
+client.post("/admin/gallery",
+            data={"images": (io.BytesIO(OVERSIZE), "enormous.jpg"),
+                  "ajax": "1"},
+            content_type="multipart/form-data",
+            headers={"X-Requested-With": "XMLHttpRequest"})
+body = client.get("/admin/gallery").data.decode("utf-8")
+check("an unnamed 413 is still counted", "1 failed" in flashes(body),
+      flashes(body)[:240])
+
+# ---- ALL EIGHT FORMS THAT TAKE AN IMAGE, not just this one. The
+# handler is registered on the app rather than on the route, and the
+# only way to say that is to post an oversized file at each of them.
+UPLOAD_FORMS = [
+    "/admin/content",
+    "/admin/gallery",
+    "/admin/gallery/albums/new",
+    "/admin/events/new",
+    "/admin/news/new",
+    "/admin/journey/new",
+    "/admin/partners/new",
+    "/admin/campaigns/new",
+    "/admin/content-images/about/0/add",
+]
+for url in UPLOAD_FORMS:
+    r = client.post(url,
+                    data={"images": (io.BytesIO(OVERSIZE), "enormous.jpg"),
+                          "image": (io.BytesIO(OVERSIZE), "enormous.jpg")},
+                    content_type="multipart/form-data",
+                    headers={"Referer": "http://localhost" + url})
+    page = client.get(url if url.endswith("new") or url == "/admin/content"
+                      else "/admin/gallery").data.decode("utf-8")
+    check("%s: oversized upload is explained, not a 413 page" % url,
+          r.status_code == 302
+          and "That file is too large" in flashes(page),
+          "%s; flash said: %r" % (r.status_code, flashes(page)[:120]))
+
+# ---- the referrer is not a way out of the site.
+# A form on somebody else's page can post at ours perfectly well, and
+# the Referer it sends is theirs. Redirecting to it unchecked is an open
+# redirect that fires on a signed-in admin.
+r = client.post("/admin/gallery",
+                data={"images": (io.BytesIO(OVERSIZE), "enormous.jpg")},
+                content_type="multipart/form-data",
+                headers={"Referer": "https://example.invalid/collect"})
+where = r.headers.get("Location", "")
+check("an off-site Referer is not followed",
+      "example.invalid" not in where and where.startswith("/"), where)
+client.get("/admin/gallery")          # spend the flash
 
 # ---------------------------------------------------------------- the markup
 body = client.get("/admin/gallery").data.decode("utf-8")

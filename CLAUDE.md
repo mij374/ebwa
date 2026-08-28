@@ -199,6 +199,35 @@ Built and maintained by Netbus IT Support.
   - It also gets under `MAX_CONTENT_LENGTH`, which is 8MB PER REQUEST —
     a dozen photographs off a phone were refused outright as one batch.
     That is a side effect worth keeping, not the reason for the design.
+- Too big to accept: an upload past `MAX_CONTENT_LENGTH` is refused by
+  Werkzeug BEFORE any route runs, so `@app.errorhandler(413)` is the
+  only place that can say anything about it. It flashes
+  `upload_limit_message()` and redirects to `safe_referrer()` — all
+  eight image-upload forms, since it is registered on the app.
+  - **The limit is said ONCE**, in `upload_limit_mb()`, read from the
+    config that enforces it. The flash, the gallery form's helper text
+    and the progress script's `data-too-large` all take it from there.
+    Never write the number into a sentence again.
+  - **The script's path must get JSON, never the redirect.**
+    XMLHttpRequest follows a redirect silently, so the script would read
+    a 200 and a page of HTML where a 413 had happened and report the one
+    failure it can explain best as "an answer this page could not read".
+    It identifies itself with `X-Requested-With`, which is the only way
+    it could — the body is what was refused, so nothing in it is parsed.
+  - **A 413 still goes in the session tally** (`note_gallery_upload`), or
+    a run of twelve with one oversized photograph comes out as a cheerful
+    "11 photos added." with the twelfth missing from the count. Its name
+    travels in `X-Upload-Name`, percent-encoded, for the same reason: a
+    header is readable when the body is not.
+  - **`safe_referrer()` checks the host.** A form on somebody else's page
+    can post at ours and its `Referer` is theirs, so redirecting to it
+    unchecked is an open redirect that fires on a signed-in admin. Path
+    only, never the absolute URL somebody else supplied.
+  - **nginx's `client_max_body_size` MUST be above Flask's limit**, or
+    nginx answers with its own 413 page and none of this runs — its
+    default is `1m`, eight times smaller. See DEPLOY.md; it cannot be
+    checked from this repository, which is exactly why it is written
+    down in both places.
   - **`flask --app app reprocess-images` is still CLI ONLY** and has no
     web control, deliberately: it rewrites every file in the uploads
     folder and belongs where it is visible, like the other commands.

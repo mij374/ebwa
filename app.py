@@ -2948,6 +2948,112 @@ CSP = ("default-src 'self'; "
        "base-uri 'self'")
 
 
+# ---- an upload that is too big to accept
+#
+# Werkzeug refuses a request past MAX_CONTENT_LENGTH before any route
+# runs, so without a handler what somebody gets for choosing a photograph
+# off a good camera is a bare "413 Request Entity Too Large" page: no
+# heading, no navigation, no clue what to do, and the Back button losing
+# whatever else they had typed into the form. That is the least helpful
+# page on the site, and it is the one shown for the commonest mistake.
+#
+# The limit is READ FROM THE CONFIG, never written out again here. It is
+# said in exactly one place, and the flash, the admin form's helper text
+# and the gallery's progress script all take it from there — so raising
+# the cap is one edit and cannot leave a sentence behind saying 8.
+
+
+@app.template_global("upload_limit_mb")
+def upload_limit_mb():
+    """The upload cap in whole megabytes, from the config that enforces it."""
+    limit = app.config.get("MAX_CONTENT_LENGTH") or 0
+    return int(limit / (1024 * 1024)) or 1
+
+
+@app.template_global("upload_limit_message")
+def upload_limit_message():
+    """The one sentence anybody is told about an upload being too big.
+
+    The second half is there because ONE of the eight forms takes
+    several files at once — the gallery's, with no JavaScript — and for
+    that one the cap is the whole batch rather than each photograph. It
+    is written as a conditional so it is true and ignorable on the seven
+    single-file forms rather than wrong on any of them.
+    """
+    return ("That file is too large — the limit is %dMB per photo. If you "
+            "chose several at once, that limit is for the whole upload, so "
+            "add them in smaller batches." % upload_limit_mb())
+
+
+def safe_referrer(default):
+    """The page this request came from, but only if it is OURS.
+
+    `Referer` is set by whatever page held the form, and a form on
+    somebody else's site can post at ours perfectly well — so redirecting
+    to it unchecked is an open redirect, and one that would fire on a
+    signed-in admin. Same host, and the PATH only: never the absolute
+    URL somebody else supplied.
+    """
+    ref = request.referrer or ""
+    if not ref:
+        return default
+    parts = urllib.parse.urlsplit(ref)
+    if parts.netloc and parts.netloc != request.host:
+        return default
+    if not parts.path.startswith("/"):
+        return default
+    return urllib.parse.urlunsplit(("", "", parts.path, parts.query, ""))
+
+
+@app.errorhandler(413)
+def upload_too_large(_e):
+    """Say what happened, and put them back on the form they were using.
+
+    TWO ANSWERS, because two kinds of caller ask. A browser submitting a
+    form gets a flash and a redirect back where it came from. The
+    gallery's progress script gets JSON — and it MUST NOT get the
+    redirect, because XMLHttpRequest follows one silently: the script
+    would read a 200 and a page of HTML where a 413 had happened, and
+    report "the server gave an answer this page could not read" for the
+    one failure it can explain best.
+
+    The script identifies itself by header rather than by a form field,
+    which is the only way it could: the body is exactly what was refused,
+    so nothing in it has been parsed.
+    """
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        # IT STILL HAS TO GO IN THE TALLY. The bar names it either way,
+        # but the summary on the next page is built from the tally alone
+        # — so without this a run of twelve with one oversized
+        # photograph came out as a cheerful "11 photos added." with the
+        # twelfth simply missing from the count. `note_gallery_upload()`
+        # promises the opposite of that.
+        #
+        # The filename comes from a HEADER because it can come from
+        # nowhere else: the body is the thing that was refused, so
+        # nothing in it has been parsed. Percent-encoded, since a header
+        # is latin-1 and a photograph can be called anything.
+        if request.path == url_for("admin_gallery"):
+            raw = request.headers.get("X-Upload-Name", "")
+            try:
+                name = urllib.parse.unquote(raw) or "a photo"
+            except (ValueError, UnicodeError):
+                name = "a photo"
+            note_gallery_upload(0, [(name, upload_limit_message())])
+        return jsonify(added=0,
+                       failed=[{"name": "",
+                                "error": upload_limit_message()}]), 413
+    flash(upload_limit_message(), "error")
+    # Only reached when the Referer is missing or is somebody else's
+    # site. An admin belongs back in the admin; anybody else belongs on
+    # the site, not at a login page they did not ask for.
+    if current_user.is_authenticated:
+        home = url_for("admin_dashboard")
+    else:
+        home = url_for("home")
+    return redirect(safe_referrer(home))
+
+
 @app.after_request
 def security_headers(resp):
     resp.headers.setdefault("Content-Security-Policy", CSP)
