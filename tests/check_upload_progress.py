@@ -104,6 +104,14 @@ def sweep_uploads():
 # files, and nothing to tell them from real uploads but their mtime.
 atexit.register(sweep_uploads)
 
+# The advice this file asserts on contains "→", and a Windows console is
+# cp1252 by default — printing a failure detail would then die with a
+# UnicodeEncodeError and hide the failure it was reporting.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):        # not a real stream, or too old
+    pass
+
 failures = []
 
 
@@ -378,8 +386,16 @@ with sync_playwright() as pw:
         check("%d: the failing file is named on screen, during the run"
               % width,
               BAD_NAME in failed_text, repr(failed_text))
+        # beach.heic is what an iPhone hands somebody, so this is the
+        # end-to-end proof that the HEIC advice — not a list of
+        # extensions — is what appears on the bar.
         check("%d: and it is named with a reason beside it" % width,
-              "Image must be one of" in failed_text, repr(failed_text))
+              "HEIC format" in failed_text, repr(failed_text))
+        check("%d: the reason says an iPhone chose the format" % width,
+              "iPhones take" in failed_text, repr(failed_text))
+        check("%d: and gives both ways out of it" % width,
+              "WhatsApp" in failed_text and "Most Compatible" in failed_text,
+              repr(failed_text))
         # THE RUN CARRIED ON PAST IT. The bad file is fifth of twelve, so
         # a run that stopped there would never have reached these.
         check("%d: the photographs after the bad one still went up" % width,
@@ -411,7 +427,7 @@ with sync_playwright() as pw:
         check("%d: the flash counts and names the failure" % width,
               "1 failed" in flash and BAD_NAME in flash, flash)
         check("%d: the flash says why, in words" % width,
-              "Image must be one of" in flash, flash)
+              "HEIC format" in flash and "Most Compatible" in flash, flash)
         check("%d: it landed on the album it uploaded into" % width,
               "album=" in page.url, page.url)
 

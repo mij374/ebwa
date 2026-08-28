@@ -138,6 +138,51 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-28 — Tell iPhone users what HEIC is
+
+**NO SCHEMA CHANGE, NO NEW PACKAGE, NOTHING TO RUN.** `git pull` and
+restart:
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app check-schema     # unchanged, still clean
+sudo systemctl restart ebwa
+```
+
+**What changed.** An iPhone takes photographs in HEIC unless it has been
+told otherwise, so this is going to be the commonest upload failure EBWA
+meets. What it used to say was *"Image must be one of: gif, jpeg, jpg,
+png, webp"* — true, and to a volunteer it says only that they have done
+something wrong. It now says what the format is, that their phone chose
+it, and how to get a JPEG: share the photo to yourself on WhatsApp or by
+email and upload the copy that arrives, or change Settings → Camera →
+Formats → Most Compatible on the phone.
+
+The same message appears wherever the upload was made — the flash on the
+plain form, and the line under the progress bar in the gallery. A HEIC
+renamed to `.jpg` gets it too, since renaming is what somebody tries
+next; that version answers the renaming first.
+
+The admin guide has a section on it at **Help → Photographs → “If a photo
+from an iPhone is refused”**, which the upload forms link to. **Worth
+mentioning to EBWA directly when handing the site over** — it is the one
+question they are most likely to ring about.
+
+**NO HEIC LIBRARY WAS ADDED, and that is a decision rather than an
+omission.** Reading HEIC needs `pillow-heif`, which needs libheif — a
+system package, and a new image codec running on a server that takes card
+payments. Converting on the phone is one tap for a volunteer and nothing
+at all for the server. If that trade is ever revisited, it is a
+`requirements.txt` change AND an `apt install`, and it belongs in its own
+entry here.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## adbf656 — 2026-08-28 — An oversized upload explains itself
 
 **NO SCHEMA CHANGE. ONE NGINX SETTING TO CHECK — see below, and check it

@@ -199,6 +199,40 @@ Built and maintained by Netbus IT Support.
   - It also gets under `MAX_CONTENT_LENGTH`, which is 8MB PER REQUEST —
     a dozen photographs off a phone were refused outright as one batch.
     That is a side effect worth keeping, not the reason for the design.
+- **HEIC is the commonest upload failure this client will meet**, and
+  the message it gets is the whole feature. An iPhone takes photographs
+  in HEIC unless told otherwise, so a volunteer with an iPhone hits this
+  every time until somebody tells them how to stop it.
+  - **NO HEIC LIBRARY.** Reading it means `pillow-heif`, which needs
+    libheif — a system package, and a new image codec on a server that
+    takes card payments. Converting on the phone costs a volunteer one
+    tap and costs this server nothing. If somebody proposes adding the
+    dependency, that is the trade being proposed.
+  - `heic_advice()` is the message, said once and returned by
+    `store_upload()` so BOTH paths get it without knowing anything: the
+    plain form flashes it, the gallery's progress bar prints it against
+    the filename. It names the format, says the phone chose it, and
+    gives both fixes — sharing through WhatsApp or email FIRST, because
+    that fixes the photo already in their hand, and Settings → Camera →
+    Formats → Most Compatible second, because that fixes the next
+    hundred. "Image must be one of: gif, jpeg, jpg, png, webp" told a
+    volunteer only that they had done something wrong.
+  - **A HEIC renamed to `.jpg` gets the same advice**, sniffed from the
+    ISO-BMFF brand (`looks_like_heic`). Renaming is exactly what
+    somebody does when a website says it only takes JPGs, and the
+    generic "could not be read as an image" is the least useful thing to
+    say to a person who has just tried the obvious fix — so that variant
+    answers the misconception first. AVIF shares the container and is
+    deliberately not in `HEIC_BRANDS`: the advice would be wrong.
+  - **Several files failing the same way say the reason ONCE**, names
+    grouped in front of it — in the summary flash and in the live list.
+    A camera roll with three HEICs in it would otherwise be the same
+    paragraph three times over.
+  - The guide has it too, at `#photos-from-an-iphone`, and the upload
+    forms link to that id — keep the id if the heading is reworded.
+  - The forms say **JPG, PNG, WebP or GIF** up front. They used to open
+    with "Straight off a phone is fine", which is true of orientation,
+    location data and size, and false for the commonest phone there is.
 - Too big to accept: an upload past `MAX_CONTENT_LENGTH` is refused by
   Werkzeug BEFORE any route runs, so `@app.errorhandler(413)` is the
   only place that can say anything about it. It flashes

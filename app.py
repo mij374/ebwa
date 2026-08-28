@@ -89,6 +89,28 @@ DEPLOY_USER = os.environ.get("DEPLOY_USER", "www-data")
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
 ALLOWED_EXT = {"jpg", "jpeg", "png", "webp", "gif"}
+
+# HEIC — the format an iPhone takes photographs in unless it has been told
+# otherwise, and so THE COMMONEST WAY AN UPLOAD HERE WILL FAIL. Not in
+# ALLOWED_EXT and deliberately not supported: reading it needs libheif,
+# which is a system package and a new image codec on a server that takes
+# card payments. Converting on the phone costs a volunteer one tap and
+# costs this server nothing, so the answer is a message that actually
+# explains how — see heic_advice() below.
+HEIC_EXT = {"heic", "heif"}
+
+# A HEIC file is an ISO-BMFF container: a 'ftyp' box at offset 4 with one
+# of these brands at offset 8. Worth sniffing as well as reading the
+# extension, because renaming the file to .jpg is exactly what somebody
+# does when a website tells them it only takes JPGs — and then the
+# generic "could not be read as an image" is the least useful thing we
+# could say to a person who has just tried the obvious fix.
+#
+# AVIF is the same container with an 'avif' brand and is deliberately NOT
+# here: it is not what iPhones produce, so this advice would be wrong.
+HEIC_BRANDS = {b"heic", b"heix", b"heim", b"heis",
+               b"hevc", b"hevx", b"hevm", b"hevs",
+               b"mif1", b"msf1"}
 MAX_UPLOAD_MB = 8
 
 app = Flask(__name__)
@@ -1213,6 +1235,43 @@ def process_image(raw, ext):
     return best_ext, best, thumb
 
 
+def looks_like_heic(raw):
+    """Is this an iPhone photograph wearing somebody else's extension?"""
+    return (len(raw) >= 12 and raw[4:8] == b"ftyp"
+            and raw[8:12] in HEIC_BRANDS)
+
+
+def heic_advice(renamed=False):
+    """What to tell somebody whose iPhone photograph will not upload.
+
+    THE MESSAGE IS THE WHOLE FEATURE. "Image must be one of: gif, jpeg,
+    jpg, png, webp" is true, and to a volunteer it says only that they
+    have done something wrong — it does not name what they have, does not
+    say their phone chose it for them, and does not say what to do. This
+    is the commonest upload failure this client will meet, so it is the
+    one message on the site that has to teach something.
+
+    Written for somebody who has the photograph already, which is nearly
+    everybody who reaches it: the sharing trick comes FIRST because it
+    fixes the photo in their hand, and the Settings change second because
+    it fixes the next hundred. Both, because neither alone is the answer
+    to "what do I do now".
+    """
+    lead = ""
+    if renamed:
+        # They have already tried the obvious thing. Say why it did not
+        # work before saying what will, or the advice reads as a repeat
+        # of the instruction they just followed.
+        lead = ("Renaming a photo does not change what is inside it. ")
+    return (lead + "That photo is in HEIC format, which is what iPhones "
+            "take unless they are told otherwise, and this site cannot "
+            "read it. The quickest fix for a photo you already have: send "
+            "it to yourself on WhatsApp or by email and upload the copy "
+            "that arrives — that turns it into a JPEG on the way. To stop "
+            "it happening again, on the iPhone go to Settings → Camera → "
+            "Formats and choose Most Compatible.")
+
+
 def store_upload(file_storage):
     """Validate, optimise and store an uploaded image.
 
@@ -1230,6 +1289,8 @@ def store_upload(file_storage):
     if not file_storage or not file_storage.filename:
         return None, None
     ext = file_storage.filename.rsplit(".", 1)[-1].lower()
+    if ext in HEIC_EXT:
+        return None, heic_advice()
     if ext not in ALLOWED_EXT:
         return None, ("Image must be one of: "
                       + ", ".join(sorted(ALLOWED_EXT)))
@@ -1240,6 +1301,10 @@ def store_upload(file_storage):
 
     processed = process_image(raw, "jpg" if ext == "jpeg" else ext)
     if processed is None:
+        # A HEIC carrying a .jpg name gets the same advice, not the
+        # generic refusal — see the note on HEIC_BRANDS.
+        if looks_like_heic(raw):
+            return None, heic_advice(renamed=True)
         return None, ("That file could not be read as an image. Please "
                       "upload a JPG, PNG, WebP or GIF photo.")
 
@@ -6538,10 +6603,20 @@ def gallery_upload_flash():
     parts = ["%d photo%s added" % (added, "" if added == 1 else "s")
              if added else "No photos added"]
     if failed:
-        named = ["%s — %s" % (name, (why or "").rstrip("."))
-                 for name, why in tally.get("why", [])]
-        if failed > len(named):
-            named.append("and %d more" % (failed - len(named)))
+        # GROUPED BY REASON, not listed one per file. Selecting a whole
+        # camera roll and finding three of them are HEIC is a likely
+        # afternoon for this client, and the HEIC advice is a paragraph
+        # — printed once per file that is 1,200 characters of the same
+        # sentence three times. The names are what differ; say those
+        # together and the reason once.
+        groups = {}
+        for name, why in tally.get("why", []):
+            groups.setdefault(why or "", []).append(name)
+        named = ["%s — %s" % (", ".join(names), why.rstrip("."))
+                 for why, names in groups.items()]
+        if failed > sum(len(n) for n in groups.values()):
+            named.append("and %d more"
+                         % (failed - sum(len(n) for n in groups.values())))
         parts.append("%d failed: %s" % (failed, "; ".join(named)))
     flash(", ".join(parts) + ".", "error" if failed else "ok")
 

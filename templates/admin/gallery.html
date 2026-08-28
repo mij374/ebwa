@@ -30,9 +30,12 @@
   <div class="field">
     <label for="images">Add photos</label>
     <input type="file" id="images" name="images" accept="image/*" multiple required>
-    <small>Straight off a phone is fine — photos are turned the right way
-      up, stripped of location data and resized automatically. Up to
-      {{ upload_limit_mb() }}MB each.</small>
+    <small><b>JPG, PNG, WebP or GIF</b>, up to {{ upload_limit_mb() }}MB
+      each. Photos are turned the right way up, stripped of location data
+      and resized automatically. <b>iPhones take photos in HEIC unless
+      told otherwise</b> and this site cannot read those — see
+      <a href="{{ url_for('admin_help') }}#photos-from-an-iphone">the
+      guide</a> if one is refused.</small>
   </div>
   <div class="field-row">
     <div class="field">
@@ -224,11 +227,39 @@
     if (name) { current.textContent = name; }
   }
 
+  /* GROUPED BY REASON, like the summary the server writes afterwards.
+     Select a whole camera roll and three of them being iPhone HEIC is a
+     likely afternoon here — and the HEIC advice is a paragraph, so one
+     line per file is the same paragraph three times over. The filenames
+     are the part that differs; they join the line that is already
+     there. */
+  var failLines = {};
+
+  /* The names go in BOLD, because the HEIC advice is four lines on a
+     phone and the filename is the part somebody is looking for. Built
+     as nodes with textContent, never innerHTML: a filename is text
+     somebody else chose, and this page must not be a way to put markup
+     on the screen from one. */
+  function paintFailure(el, names, why) {
+    el.textContent = '';
+    var strong = document.createElement('b');
+    strong.textContent = names.join(', ');
+    el.appendChild(strong);
+    el.appendChild(document.createTextNode(' — ' + why));
+  }
+
   function reportFailure(name, why) {
     fails.classList.remove('is-hidden');
+    var line = failLines[why];
+    if (line) {
+      line.names.push(name);
+      paintFailure(line.el, line.names, why);
+      return;
+    }
     var li = document.createElement('li');
-    li.textContent = name + ' — ' + why;
+    paintFailure(li, [name], why);
     fails.appendChild(li);
+    failLines[why] = {el: li, names: [name]};
   }
 
   /* One file, one request, carrying every OTHER field of the form as it
@@ -305,6 +336,7 @@
 
     panel.classList.remove('is-hidden');
     fails.textContent = '';
+    failLines = {};                 /* cleared WITH the list it indexes */
     fails.classList.add('is-hidden');
     bar.setAttribute('aria-valuemax', String(total));
     busyStart('Uploading…');

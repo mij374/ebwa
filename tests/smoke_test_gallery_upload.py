@@ -51,6 +51,14 @@ SANDBOX = tempfile.mkdtemp(prefix="ebwa-upload-")
 appmod.UPLOAD_DIR = SANDBOX
 
 PW = "upload-test-password"
+# The advice this file asserts on contains "→", and a Windows console is
+# cp1252 by default — printing a failure detail would then die with a
+# UnicodeEncodeError and hide the failure it was reporting.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):        # not a real stream, or too old
+    pass
+
 failures = []
 
 
@@ -226,9 +234,27 @@ check("bad file reports nothing added", answer.get("added") == 0, str(answer))
 check("bad file is named in the answer",
       answer.get("failed") and answer["failed"][0]["name"] == "beach.heic",
       str(answer))
-check("bad file says why — an extension we do not take",
-      "Image must be one of" in answer["failed"][0]["error"], str(answer))
+# .heic is the realistic complaint and now gets the realistic answer:
+# an iPhone's own format, named, with the way out of it. Asserted here
+# as well as in smoke_test_uploads.py because this is the path where a
+# volunteer actually meets it — one line on a progress bar.
+said = answer["failed"][0]["error"]
+check("bad file says why — and names HEIC rather than listing extensions",
+      "HEIC format" in said and "Image must be one of" not in said, said)
+check("the advice says an iPhone chose the format", "iPhones take" in said)
+check("the advice gives the phone setting",
+      "Settings" in said and "Most Compatible" in said)
+check("and the quicker route for photos already taken",
+      "WhatsApp" in said and "JPEG" in said)
 check("bad file stored nothing", photo_count() == before, str(photo_count()))
+
+# An extension that is simply not one of ours still gets the plain list.
+# The HEIC advice is for HEIC; it must not become the answer to
+# everything somebody uploads.
+r, answer = send_one(NOT_AN_IMAGE, "scan.tiff")
+check("an unsupported extension still gets the plain list",
+      "Image must be one of" in answer["failed"][0]["error"],
+      str(answer))
 
 # The other kind: the right extension on bytes Pillow cannot decode. A
 # different reason, and the one somebody is least able to guess at.
@@ -259,7 +285,7 @@ check("an empty per-file POST is answered, not raised",
 body = client.get("/admin/gallery").data.decode("utf-8")
 check("the next page summarises the whole run",
       "2 photos added" in body, body[body.find("flash"):][:300])
-check("the summary counts both failures", "2 failed" in body,
+check("the summary counts every failure", "3 failed" in body,
       body[body.find("flash"):][:300])
 check("the summary NAMES the file that failed", "beach.heic" in body,
       body[body.find("flash"):][:300])
@@ -408,6 +434,41 @@ client.post("/admin/gallery",
 body = client.get("/admin/gallery").data.decode("utf-8")
 check("an unnamed 413 is still counted", "1 failed" in flashes(body),
       flashes(body)[:240])
+
+# ---- SEVERAL FILES FAILING THE SAME WAY SAY THE REASON ONCE.
+# Selecting a whole camera roll and finding three of them are iPhone
+# HEIC is a likely afternoon here, and the HEIC advice is a paragraph —
+# one line per file would be 1,200 characters of the same sentence three
+# times over. The names are what differ; they go together.
+HEIC = (bytes([0, 0, 0, 0x18]) + b"ftypheic" + bytes(4)
+        + b"heicmif1miaf" + bytes(400))
+client.get("/admin/gallery")                       # spend anything pending
+for n in (1, 2, 3):
+    client.post("/admin/gallery",
+                data={"images": (io.BytesIO(HEIC), "IMG_000%d.HEIC" % n),
+                      "ajax": "1"},
+                content_type="multipart/form-data",
+                headers={"X-Requested-With": "XMLHttpRequest"})
+said = flashes(client.get("/admin/gallery").data.decode("utf-8"))
+check("three HEIC files are counted as three", "3 failed" in said, said[:160])
+for n in (1, 2, 3):
+    check("IMG_000%d.HEIC is named" % n, "IMG_000%d.HEIC" % n in said,
+          said[:200])
+check("but the advice is printed ONCE, not three times",
+      said.count("Most Compatible") == 1,
+      "'Most Compatible' appears %d times" % said.count("Most Compatible"))
+
+# ---- the helper text points at a section that exists. A link to a
+# missing anchor scrolls nowhere and looks like the guide is broken.
+form_page = client.get("/admin/gallery").data.decode("utf-8")
+check("the upload form links to the iPhone section of the guide",
+      "#photos-from-an-iphone" in form_page)
+guide = client.get("/admin/help").data.decode("utf-8")
+check("...and that section is really in the guide",
+      'id="photos-from-an-iphone"' in guide)
+check("the guide names the format, the cause and both fixes",
+      all(w in guide for w in ("HEIC", "iPhones take", "Most Compatible",
+                               "WhatsApp", "JPEG")))
 
 # ---- ALL EIGHT FORMS THAT TAKE AN IMAGE, not just this one. The
 # handler is registered on the app rather than on the route, and the

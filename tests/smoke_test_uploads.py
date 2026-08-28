@@ -44,6 +44,14 @@ appmod.UPLOAD_DIR = SANDBOX
 PW = "uploads-test-password"
 # The JPEG APP1 marker every EXIF block starts with, GPS included.
 EXIF_MARKER = b"Exif" + bytes(2)
+# The advice this file asserts on contains "→", and a Windows console is
+# cp1252 by default — printing a failure detail would then die with a
+# UnicodeEncodeError and hide the failure it was reporting.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):        # not a real stream, or too old
+    pass
+
 failures = []
 
 
@@ -218,6 +226,56 @@ r = upload_via_admin(big, "photo.tiff")
 check("disallowed extension still refused",
       b"Image must be one of" in r.data)
 check("still nothing written", len(sandbox_files()) == before)
+
+# ---- HEIC, which is what an iPhone takes unless it is told otherwise,
+# and so the commonest upload failure this client will meet. It is
+# refused — reading it needs a system codec this server is not getting —
+# but the refusal has to TEACH, because "Image must be one of: gif,
+# jpeg, jpg, png, webp" tells a volunteer only that they did something
+# wrong.
+#
+# A real HEIC starts with an ISO-BMFF 'ftyp' box carrying a HEIC brand.
+HEIC = (b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1miaf"
+        + b"\x00\x00\x01\x00meta" + b"\x00" * 400)
+
+# `heic_name`, not `name` — `name` is the stored filename the delete
+# checks below still need, and shadowing it here made one of them fail
+# on a file that was perfectly present.
+for heic_name in ("IMG_4821.HEIC", "IMG_4821.heic", "IMG_4821.heif"):
+    r = upload_via_admin(HEIC, heic_name)
+    said = r.data.decode("utf-8")
+    check("%s: named as HEIC, not listed as the wrong extension" % heic_name,
+          "HEIC format" in said and "Image must be one of" not in said,
+          said[said.find("flash"):][:160])
+    check("%s: says an iPhone chose it" % heic_name, "iPhones take" in said)
+    check("%s: gives the setting to change" % heic_name,
+          "Settings" in said and "Camera" in said and "Formats" in said
+          and "Most Compatible" in said)
+    check("%s: gives the quicker route for photos already taken" % heic_name,
+          "WhatsApp" in said and "JPEG" in said, said[:120])
+check("nothing was written for any of them",
+      len(sandbox_files()) == before, str(len(sandbox_files())))
+
+# RENAMED TO .jpg — which is exactly what somebody does when a website
+# tells them it only takes JPGs. The extension check passes, Pillow
+# cannot read it, and the generic "could not be read as an image" is the
+# least useful thing to say to a person who has just tried the obvious
+# fix. It gets the same advice, with that misconception answered first.
+r = upload_via_admin(HEIC, "IMG_4821.jpg")
+said = r.data.decode("utf-8")
+check("a HEIC renamed to .jpg is still recognised as HEIC",
+      "HEIC format" in said and "could not be read as an image" not in said,
+      said[said.find("flash"):][:200])
+check("and it is told renaming does not convert anything",
+      "Renaming a photo does not change what is inside it" in said)
+check("still nothing written", len(sandbox_files()) == before)
+
+# The sniff must not claim anything it likes is HEIC. A JPEG is a JPEG.
+check("a real JPEG is not mistaken for HEIC", not appmod.looks_like_heic(big))
+check("nor is a short file", not appmod.looks_like_heic(b"tiny"))
+check("nor an ISO container that is not HEIC",
+      not appmod.looks_like_heic(b"\x00\x00\x00\x18ftypavif" + b"\x00" * 40))
+check("but a real HEIC header is", appmod.looks_like_heic(HEIC))
 
 # ---- deleting an upload takes its thumbnail with it
 check("the pair is on disk before deleting",
