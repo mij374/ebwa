@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-28 — An oversized upload explains itself
+## adbf656 — 2026-08-28 — An oversized upload explains itself
 
 **NO SCHEMA CHANGE. ONE NGINX SETTING TO CHECK — see below, and check it
 even though nothing in this repository can.**
