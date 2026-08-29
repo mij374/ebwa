@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-29 — The fee is paid when somebody applies
+## ca7415b — 2026-08-29 — The fee is paid when somebody applies
 
 **EIGHT NEW COLUMNS AND ONE NEW BLOCK**, but how many you actually run
 depends on whether the entry below this one has been applied here yet.
