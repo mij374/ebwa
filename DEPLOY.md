@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-08-29 — Membership fees and renewals
+## d58d721 — 2026-08-29 — Membership fees and renewals
 
 **TWO NEW TABLES AND ONE NEW BLOCK. No ALTER TABLE.**
 

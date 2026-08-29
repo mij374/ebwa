@@ -8516,7 +8516,7 @@ def admin_membership_delete(m_id):
     return redirect(url_for("admin_membership"))
 
 
-# ---------------------------------------------------------------- admin: members
+# --------------------------------------------------------- admin: members
 # PERSONAL DATA THROUGHOUT. Reading the list and every export is
 # audit-logged, exactly as the enquiry list is, because both are a view
 # of people's names and addresses. The declarations carried over from an
@@ -8804,7 +8804,8 @@ def admin_member_payment_delete(payment_id):
     db.session.commit()
     log_action("delete", entity=gone,
                summary="Deleted a membership payment (%s) from %s."
-                       % (detail, member.name if member else "a former member"))
+                       % (detail, member.name if member
+                          else "a former member"))
     flash("Payment removed.", "ok")
     if member:
         return redirect(url_for("admin_member", member_id=member.id))
