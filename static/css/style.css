@@ -741,6 +741,9 @@ header{
   /* A table split across a page break is a table somebody has to read
      twice to be sure of. */
   .report-table,.report-figures,.report-caveat{break-inside:avoid}
+  /* A scrolling box is the answer on a phone and nonsense on paper:
+     printed, the right-hand end of a clipped table is simply gone. */
+  .report-doc .table-scroll{overflow:visible;border:none}
   a[href]::after{content:""}      /* no printed URLs: this is a record */
 }
 
@@ -1243,7 +1246,11 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
    row, so the DESTRUCTIVE action read as the primary one. Contrast is
    the point, not size. The public buttons followed it here later. */
 .table-link.danger{color:var(--red-ink)}
-.pill{border-radius:999px;padding:3px 12px;font-size:13px;font-weight:700}
+/* nowrap: "No payment recorded" is the longest label any pill carries
+   and it wrapped to two lines on seventeen rows at once, which made
+   every row in the member list taller than it needed to be. */
+.pill{border-radius:999px;padding:3px 12px;font-size:13px;font-weight:700;
+  white-space:nowrap}
 .pill-green{background:var(--green-tint);color:var(--green)}
 .pill-grey{background:#ECEEEC;color:var(--ink-soft)}
 /* A third pill state, for a collection that has finished but is still on

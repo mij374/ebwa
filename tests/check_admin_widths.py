@@ -38,7 +38,7 @@ import shutil
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -59,6 +59,7 @@ from browser_view import PHONES                     # noqa: E402
 
 from app import (app, db, User, Campaign, Payment, GalleryAlbum,  # noqa: E402
                  GalleryImage, ContactMessage, MembershipApplication,
+                 Member, MembershipPayment,
                  Subscriber, AuditLog, FeatureFlag, Faq,
                  Resource, UPLOAD_DIR)
 import seed_demo                                    # noqa: E402
@@ -135,6 +136,21 @@ with app.app_context():
         over_18=True, bangladeshi_origin=True, lives_works_enfield=True,
         fee_confirmed=True, status="new"))
     db.session.add(Subscriber(email="a.long.subscriber.address@example.org"))
+    # A member with a payment, so the member pages carry their widest
+    # tables rather than their empty states.
+    member = Member(name="A Member With A Fairly Long Name",
+                    email="a.long.member.address@example.org",
+                    phone="020 8804 4006",
+                    address="114 Somewhere Road, Enfield, EN3 4EU",
+                    joined_on=date(2024, 6, 1))
+    db.session.add(member)
+    db.session.commit()
+    db.session.add(MembershipPayment(
+        member_id=member.id, amount_pence=1000, period_end_year=2027,
+        method="bank_transfer", received_on=date(2026, 1, 5),
+        status="complete", received_by="The treasurer",
+        recorded_by="somebody.with.a.long.address@example.org"))
+    db.session.add(Member(name="Somebody With No Payments"))
     # seed_demo seeds no FAQ and no resources, and both list pages render
     # their table only `{% if rows %}` — so without these two the check
     # measured an empty state and reported no overflow. That is exactly
@@ -159,6 +175,7 @@ with app.app_context():
     db.session.commit()
     CAMP_ID = camp.id
     ALBUM_ID = album.id
+    MEMBER_ID = member.id
 
 # Every admin page, with a selector proving THIS page is the one on
 # screen. A redirect to the login page or a 404 renders something narrow
@@ -187,9 +204,14 @@ PAGES = [
     ("/admin/journey/new", ".admin-form"),
     ("/admin/messages", ".admin-table"),
     ("/admin/membership", ".admin-table"),
+    ("/admin/members", ".admin-table"),
+    ("/admin/members/new", ".admin-form"),
+    ("/admin/members/renewals", ".report-doc"),
     ("/admin/campaigns", ".admin-table"),
     ("/admin/campaigns/new", ".admin-form"),
     ("/admin/campaigns/%d/contributors" % CAMP_ID, ".admin-table"),
+    ("/admin/members/%d" % MEMBER_ID, ".admin-table"),
+    ("/admin/members/%d/edit" % MEMBER_ID, ".admin-form"),
     ("/admin/gift-aid", ".admin-form, .admin-table"),
     ("/admin/gift-aid/declarations", ".admin-table"),
     ("/admin/subscribers", ".admin-table"),

@@ -13,7 +13,8 @@
 <div class="table-scroll">
 <table class="admin-table">
   <thead>
-    <tr><th>Applied</th><th>Name</th><th>Contact</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr>
+    <tr><th>Applied</th><th>Name</th><th>Contact</th><th>Status</th><th><span class="visually-hidden">Membership</span></th>
+      <th><span class="visually-hidden">Actions</span></th></tr>
   </thead>
   <tbody>
     {% for m in rows %}
@@ -37,6 +38,19 @@
           </select>
           <button class="table-link" type="submit">Save</button>
         </form>
+      </td>
+      <td class="nowrap">
+        {#- APPROVING SHOULD NOT MEAN RETYPING. The name, contact details
+            and all four declarations come across as they were given. -#}
+        {% if m.member %}
+        <a class="table-link" href="{{ url_for('admin_member', member_id=m.member.id) }}">Member</a>
+        {% else %}
+        <form method="post" style="display:inline"
+              action="{{ url_for('admin_application_to_member', m_id=m.id) }}"
+              onsubmit="return confirm('Create a member record for {{ m.name }}? Their details and declarations come across.');">
+          <button class="table-link" type="submit">Make a member</button>
+        </form>
+        {% endif %}
       </td>
       <td class="nowrap">
         <form method="post" action="{{ url_for('admin_membership_delete', m_id=m.id) }}"

@@ -605,6 +605,55 @@
 <p class="admin-sub" id="healthChecked">Read {{ health.checked_at|uk_datetime }}.
   <label class="health-auto"><input type="checkbox" id="healthAuto"> Refresh every 30 seconds</label></p>
 
+{#- Only when fees are switched on. With the flag off there is no
+    payment page and nothing to price, so a fee box would be a control
+    for a thing that is not happening. The member records themselves are
+    NOT hidden by the flag — they are on their own page and stay there
+    either way. -#}
+{% if features.membership_fees %}
+<h2 class="admin-stats-head" id="membership">Membership fees</h2>
+<p class="admin-sub">The subscription members pay each year. The renewal
+  window is <b>1&ndash;30 September</b> and is not settable here: it comes
+  from the constitution, not from a preference.</p>
+
+<form method="post" class="admin-form" style="margin-bottom:34px"
+      data-busy="Saving…" action="{{ url_for('admin_membership_fees_save') }}">
+  <div class="field-row">
+    <div class="field">
+      <label for="fee">Fee per year</label>
+      <input type="number" id="fee" name="fee" class="money" required
+             step="0.01" min="0" max="1000" inputmode="decimal"
+             value="{{ '%.2f'|format(membership_fee / 100) }}">
+      <small>Currently {{ membership_fee|pounds }}. Members joining on or
+        after 1 June are covered until the following September, so they
+        do not pay twice in one autumn.</small>
+    </div>
+    <div class="field">
+      <label for="grace_days">Grace period, in days</label>
+      {#- Days rather than "a month", because a month after 30 September
+          is a date somebody has to work out and a number of days is
+          not. 30 takes it to 30 October. -#}
+      <input type="number" id="grace_days" name="grace_days" required
+             step="1" min="0" max="365" value="{{ membership_grace }}">
+      <small>How long after the 30 September deadline a member is counted
+        as overdue rather than lapsed. 30 days is one month, taking this
+        year's grace to
+        {{ membership_grace_ends.strftime('%d %B %Y') }}.</small>
+    </div>
+  </div>
+  <div class="field">
+    <label for="terms">Refund wording, shown on the payment form</label>
+    <textarea id="terms" name="terms" rows="3" required
+              maxlength="600">{{ membership_terms }}</textarea>
+    <small>Membership fees are non-refundable and the payment form has to
+      say so. Reword it if you like; it cannot be left empty.
+      <b>The terms page needs to say it too</b> — that is separate, and
+      it is EBWA's own wording.</small>
+  </div>
+  <button class="btn btn-green" type="submit">Save membership settings</button>
+</form>
+{% endif %}
+
 <h2 class="admin-stats-head" id="domains">Domains</h2>
 <p class="admin-sub"><b>This page cannot add a domain, and deliberately
   does not try.</b> Every step below runs as root: nginx belongs to root,

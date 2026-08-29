@@ -891,6 +891,223 @@ class MembershipApplication(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+# ---------------------------------------------------------------- membership
+# THE MEMBERSHIP YEAR RUNS TO 30 SEPTEMBER, and every date rule here is
+# one function away from that fact.
+#
+# Renewals open on 1 September and close on the 30th — SEPTEMBER HAS 30
+# DAYS, so the deadline is the 30th and there is no date(y, 9, 31) to be
+# written by accident. After the deadline comes a grace period, and only
+# after that is somebody lapsed.
+RENEWAL_MONTH = 9
+RENEWAL_OPENS_DAY = 1
+RENEWAL_DEADLINE_DAY = 30          # September has 30 days. It always has.
+
+MEMBERSHIP_FEE_PENCE = 1000        # £10, the client's figure; settable
+MEMBERSHIP_FEE_KEY = "membership_fee_pence"
+MEMBERSHIP_FEE_MIN, MEMBERSHIP_FEE_MAX = 0, 100000     # £0 to £1,000
+
+# One month after the deadline, expressed in days so it is exact and
+# settable: 30 September plus 30 days is 30 October.
+MEMBERSHIP_GRACE_DAYS = 30
+MEMBERSHIP_GRACE_KEY = "membership_grace_days"
+MEMBERSHIP_GRACE_MIN, MEMBERSHIP_GRACE_MAX = 0, 365
+
+# The refund line, on the payment form. Seeded with real wording rather
+# than placeholder text because it is a term of the payment and the page
+# must not be able to go live without it — but editable, because it is
+# EBWA's statement to make and not Netbus's.
+MEMBERSHIP_TERMS_KEY = "membership_fee_terms"
+MEMBERSHIP_TERMS_DEFAULT = (
+    "Membership fees are non-refundable. Paying covers your membership "
+    "for the year ending 30 September and cannot be refunded or "
+    "transferred once paid.")
+
+# Join on or after 1 June and the year you are covered for is the one
+# ending the FOLLOWING September — you do not pay again that autumn.
+EARLY_JOIN_MONTH = 6
+EARLY_JOIN_DAY = 1
+
+# How money arrived. `card` is Stripe; the rest a treasurer was handed.
+# The client said online only. A treasurer will be given cash at the
+# centre on a Friday evening regardless, and a paid/due list that cannot
+# record it is wrong within a month — so all four exist and they choose.
+PAYMENT_METHODS = (
+    ("card", "Card (online)"),
+    ("cash", "Cash"),
+    ("bank_transfer", "Bank transfer"),
+    ("cheque", "Cheque"),
+)
+PAYMENT_METHOD_LABELS = dict(PAYMENT_METHODS)
+MANUAL_METHODS = tuple(k for k, _l in PAYMENT_METHODS if k != "card")
+
+# TWO KINDS OF STATUS, AND THEY LIVE IN DIFFERENT PLACES ON PURPOSE.
+#
+# The derived ones are a function of payments and dates and are never
+# stored: asking is cheap, and a stored copy is a thing that can be
+# stale or overwritten. The manual ones are a decision somebody made
+# about a person, and they live in `Member.standing`.
+#
+# That split is the whole answer to "a suspended member must not
+# silently become overdue when September passes": nothing writes a
+# derived status anywhere, so nothing can overwrite a manual one, and
+# `Member.status` consults the derivation ONLY when no human has had a
+# say. There is no single column both of them write to, because there is
+# no single column at all.
+MEMBER_DERIVED_STATUSES = ("current", "due", "overdue", "lapsed", "unknown")
+MEMBER_MANUAL_STATUSES = ("suspended", "left")
+MEMBER_STATUSES = MEMBER_DERIVED_STATUSES + MEMBER_MANUAL_STATUSES
+
+MEMBER_STATUS_LABELS = {
+    "current": "Paid up",
+    "due": "Due now",
+    "overdue": "Overdue",
+    "lapsed": "Lapsed",
+    "unknown": "No payment recorded",
+    "suspended": "Suspended",
+    "left": "Left",
+}
+MEMBER_STATUS_PILLS = {
+    "current": "green", "due": "amber", "overdue": "amber",
+    "lapsed": "red", "unknown": "grey",
+    "suspended": "grey", "left": "grey",
+}
+# Who the treasurer is chasing. `unknown` is deliberately NOT here — see
+# membership_year_covered() below for why a member with no payment on
+# file is not accused of owing anything.
+MEMBER_CHASING_STATUSES = ("due", "overdue", "lapsed")
+# Nobody on this list is a current member for counting purposes.
+MEMBER_INACTIVE_STATUSES = ("left",)
+
+
+class Member(db.Model):
+    """A member of the association. PERSONAL DATA — admin-only.
+
+    The eligibility declarations carry over from the application they
+    came from, and `bangladeshi_origin` is SPECIAL-CATEGORY data (ethnic
+    origin) exactly as it is on MembershipApplication: admin-only, out of
+    every export, covered by the privacy notice.
+
+    `standing` IS NOT THE STATUS. It holds only what a human decided —
+    empty, `suspended` or `left` — and `status` below consults the
+    payment history only when it is empty. Never add a column that
+    caches the derived status: the moment one exists, something writes it
+    and a suspended member becomes overdue the first time September
+    passes.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(200), default="")
+    phone = db.Column(db.String(40), default="")
+    address = db.Column(db.String(300), default="")
+    # Nullable: the seventeen members entered from the existing paper
+    # list have no join date anybody can vouch for, and a made-up date
+    # is worse than an empty one — it would drive the join-date rule.
+    joined_on = db.Column(db.Date)
+    standing = db.Column(db.String(20), nullable=False, default="")
+    standing_note = db.Column(db.String(200), default="")
+    notes = db.Column(db.Text, default="")
+    over_18 = db.Column(db.Boolean, nullable=False, default=False)
+    bangladeshi_origin = db.Column(db.Boolean, nullable=False, default=False)
+    lives_works_enfield = db.Column(db.Boolean, nullable=False, default=False)
+    fee_confirmed = db.Column(db.Boolean, nullable=False, default=False)
+    # Where they came from, when they came from an application rather
+    # than being typed in. Kept so nobody re-approves the same person.
+    application_id = db.Column(db.Integer,
+                               db.ForeignKey("membership_application.id"))
+    application = db.relationship(
+        "MembershipApplication",
+        backref=db.backref("member", uselist=False))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    payments = db.relationship(
+        "MembershipPayment", back_populates="member",
+        order_by="MembershipPayment.received_on.desc(), "
+                 "MembershipPayment.id.desc()")
+
+    @property
+    def covered_to_year(self):
+        """The last September this member has actually paid up to.
+
+        None when nothing has ever been recorded — which is not the same
+        as nought, and the difference is the whole of `unknown`.
+        """
+        years = [p.period_end_year for p in self.payments
+                 if p.status == "complete"]
+        return max(years) if years else None
+
+    @property
+    def status(self):
+        """What this member IS, today. Manual decision first, always."""
+        if self.standing:
+            return self.standing
+        return derived_member_status(self.covered_to_year)
+
+    @property
+    def status_label(self):
+        return MEMBER_STATUS_LABELS.get(self.status, self.status)
+
+    @property
+    def paid_up_to(self):
+        """The date they are covered until, or None."""
+        year = self.covered_to_year
+        return renewal_deadline(year) if year else None
+
+
+class MembershipPayment(db.Model):
+    """A membership fee paid, by card or handed to a treasurer.
+
+    GIFT AID CANNOT ATTACH TO ANY OF THIS, and the way that is enforced
+    is that there is nowhere to put it: this table has no gift_aid
+    column, no declaration name, no postcode. A membership subscription
+    confers benefits, so under HMRC's rules it is not a gift — the same
+    reason an event place fee can never carry it. Payment (donations and
+    collections) is a different table and the Gift Aid claim reads only
+    that one, so no membership money can reach a claim even by mistake.
+    Do not "unify" the two tables.
+
+    `member_id` IS NULLABLE, and that is deliberate rather than sloppy:
+    deleting a member unlinks their payments instead of destroying them,
+    so the treasurer's accounts still add up after an erasure request.
+    See admin_member_delete().
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    member_id = db.Column(db.Integer, db.ForeignKey("member.id"))
+    member = db.relationship("Member", back_populates="payments")
+    amount_pence = db.Column(db.Integer, nullable=False, default=0)
+    # The September this payment covers up to — the one number every
+    # date rule in this module agrees on.
+    period_end_year = db.Column(db.Integer, nullable=False)
+    method = db.Column(db.String(20), nullable=False, default="card")
+    received_on = db.Column(db.Date, nullable=False, default=date.today)
+    # Card only. Unique so a replayed Stripe webhook cannot pay twice.
+    stripe_session_id = db.Column(db.String(255), unique=True)
+    status = db.Column(db.String(20), nullable=False, default="complete")
+    # Manual payments only: who was handed the money, and who typed it in.
+    received_by = db.Column(db.String(120), default="")
+    recorded_by = db.Column(db.String(200), default="")
+    note = db.Column(db.String(200), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.CheckConstraint("amount_pence >= 0",
+                           name="membership_amount_not_negative"),
+        # A card payment is the only kind that can be pending: everything
+        # else is money somebody already has in their hand.
+        db.CheckConstraint("status = 'complete' OR method = 'card'",
+                           name="only_card_payments_pend"),
+    )
+
+    @property
+    def method_label(self):
+        return PAYMENT_METHOD_LABELS.get(self.method, self.method)
+
+    @property
+    def period_label(self):
+        return "Year to %s" % renewal_deadline(
+            self.period_end_year).strftime("%d %B %Y")
+
+
 class BackupRun(db.Model):
     """One run of the backup command, successful or not.
 
@@ -1088,6 +1305,122 @@ class Payment(db.Model):
     def gift_aid_pence(self):
         """The only amount Gift Aid may be claimed on — never the fee."""
         return self.donation_pence if self.gift_aid else 0
+
+
+# ---- the membership year, in one place
+#
+# EVERY DATE RULE IN THIS MODULE COMES BACK TO ONE QUESTION: which
+# September is this date covered up to? Join dates and payment dates ask
+# it the same way and get the same answer, which is why the client's
+# "join in June and you don't pay again that autumn" rule needs no
+# special case anywhere else.
+
+
+def renewal_deadline(year):
+    """30 September of `year` — the last day of that membership year."""
+    return date(year, RENEWAL_MONTH, RENEWAL_DEADLINE_DAY)
+
+
+def renewal_opens(year):
+    """1 September of `year`, when the renewal window opens."""
+    return date(year, RENEWAL_MONTH, RENEWAL_OPENS_DAY)
+
+
+def membership_year_for(on):
+    """The September a payment or a join on this date is covered up to.
+
+    On or after 1 June, it is the FOLLOWING September; before that, this
+    one. That single line is the client's early-join rule:
+
+      * join 1 June 2026  -> covered to 30 September 2027, so the
+        renewal window that opens three months later does not apply to
+        them and they do not pay twice in one autumn;
+      * join 31 May 2026  -> covered to 30 September 2026, so they renew
+        that autumn like everybody else;
+      * pay in the September 2026 window -> that is after 1 June, so it
+        buys the year to 30 September 2027, which is what renewing
+        means.
+    """
+    if (on.month, on.day) >= (EARLY_JOIN_MONTH, EARLY_JOIN_DAY):
+        return on.year + 1
+    return on.year
+
+
+def membership_grace_ends(year):
+    """The last day a renewal for `year` can arrive before lapsing."""
+    return renewal_deadline(year) + timedelta(days=membership_grace_days())
+
+
+def derived_member_status(covered_to_year, today=None):
+    """What the payment history says, with no human decision involved.
+
+    NOTHING CALLS THIS FOR A SUSPENDED OR DEPARTED MEMBER — `Member.status`
+    checks `standing` first — so this function never has to know that
+    those states exist, and cannot overwrite one.
+
+    A MEMBER WITH NO PAYMENT AT ALL IS `unknown`, NOT `lapsed`. The
+    seventeen members being entered from EBWA's existing paper list start
+    exactly that way: they are real members whose history this system has
+    never seen. Calling them lapsed would be an accusation the data does
+    not support, and calling them current would be a reassurance it does
+    not support either. `unknown` says the true thing, keeps them out of
+    the chasing lists — you cannot be overdue on a debt nobody recorded —
+    and puts them on the dashboard as something to resolve by entering a
+    payment or by asking them.
+    """
+    if covered_to_year is None:
+        return "unknown"
+    today = today or uk_today()
+    # FOUR DATES IN ORDER, all belonging to the year they are covered to.
+    # The window that renews somebody covered to September Y is the 1-30
+    # September OF YEAR Y — it opens while they are still paid up, which
+    # is what renewing means. There is no gap between one year's cover
+    # running out and the next year's window opening, and an earlier
+    # draft of this function invented one and had a branch that returned
+    # the same answer either way to paper over it.
+    if today < renewal_opens(covered_to_year):
+        return "current"                    # paid up, not yet asked
+    if today <= renewal_deadline(covered_to_year):
+        return "due"                        # window open, still covered
+    if today <= membership_grace_ends(covered_to_year):
+        return "overdue"                    # cover expired, inside grace
+    return "lapsed"
+
+
+def membership_fee_pence():
+    """The fee in pence, from settings, or the client's £10."""
+    block = Block.query.filter_by(key=MEMBERSHIP_FEE_KEY).first()
+    try:
+        value = int((block.value or "").strip()) if block else -1
+    except ValueError:
+        value = -1
+    if not MEMBERSHIP_FEE_MIN <= value <= MEMBERSHIP_FEE_MAX:
+        return MEMBERSHIP_FEE_PENCE
+    return value
+
+
+def membership_grace_days():
+    """Days after 30 September before a member is counted as lapsed."""
+    block = Block.query.filter_by(key=MEMBERSHIP_GRACE_KEY).first()
+    try:
+        value = int((block.value or "").strip()) if block else -1
+    except ValueError:
+        value = -1
+    if not MEMBERSHIP_GRACE_MIN <= value <= MEMBERSHIP_GRACE_MAX:
+        return MEMBERSHIP_GRACE_DAYS
+    return value
+
+
+def membership_period_now(today=None):
+    """The September a payment made today would cover up to."""
+    return membership_year_for(today or uk_today())
+
+
+def in_renewal_window(today=None):
+    """Is the 1-30 September window open?"""
+    today = today or uk_today()
+    return (today.month == RENEWAL_MONTH
+            and RENEWAL_OPENS_DAY <= today.day <= RENEWAL_DEADLINE_DAY)
 
 
 @login_manager.user_loader
@@ -1663,6 +1996,8 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
                      HOME_ORDER_KEY, HOME_HIDDEN_KEY,
                      STATS_REPORT_KEY, STATS_REPORT_TO_KEY,
                      STATS_TARGET_KEY, STATS_RAW_DAYS_KEY,
+                     MEMBERSHIP_FEE_KEY, MEMBERSHIP_GRACE_KEY,
+                     MEMBERSHIP_TERMS_KEY,
                      ) + tuple(
     MOTION_ROWS["testimonials"][k]
     for k in ("mode_key", "step_key", "glide_key", "drift_key"))
@@ -2617,6 +2952,14 @@ FEATURES = [
      "The /our-journey milestones and funding track record page.", True),
     ("membership_form", "Become a member",
      "The public membership application form at /membership.", True),
+    # OFF BY DEFAULT, so switching the code on changes nothing until
+    # somebody decides it should. What it covers, and what it pointedly
+    # does not, is written out at membership_fees_on().
+    ("membership_fees", "Membership fees and renewals",
+     "The page where a member pays their subscription, the fee and "
+     "renewal settings, and the renewal reminders on the dashboard. "
+     "Member records, their payment history and the treasurer's lists "
+     "stay exactly where they are either way.", False),
     ("donations", "Donations & collections",
      "The /donate page, collection campaign pages and the homepage "
      "collections strip.", True),
@@ -2692,6 +3035,36 @@ def can_read_audit():
     return bool(current_user.is_authenticated
                 and (current_user.is_super_admin
                      or flag_explicitly_on("audit_log")))
+
+
+def membership_fees_on():
+    """Whether members are being asked to pay. WHAT THIS COVERS:
+
+    HIDDEN when off — the things that ask somebody for money, or nag
+    about money nobody is being asked for:
+      * /membership/pay, which 404s like any other flagged public page;
+      * the fee and renewal section on Settings;
+      * the renewal items on the dashboard's attention panel;
+      * the "Record a payment" controls in the admin.
+
+    NOT HIDDEN, EVER — the records:
+      * the member list, a member's page, add, edit, suspend, left;
+      * payment history already recorded, and the treasurer's lists;
+      * the CSV exports.
+
+    The line between those two is the rule this project already keeps:
+    switching a feature off hides a module, it does not strand content.
+    A payment somebody has already made is a fact about the accounts,
+    not a feature — hiding it would leave a treasurer's year not adding
+    up with no way to see why. So the flag stops the asking and leaves
+    the answering alone.
+
+    The Stripe webhook is deliberately NOT gated on this, exactly as the
+    donations webhook is not: a member who was in the middle of paying
+    when somebody switched the flag off must still have their payment
+    completed rather than taking their money and recording nothing.
+    """
+    return feature_enabled("membership_fees")
 
 
 def feature_required(name):
@@ -4812,7 +5185,8 @@ def sitemap():
         ("journey", "our_journey"), ("gallery", None),
         ("faq", "faq"), ("collections", "donations"),
         ("donate", "donations"),
-        ("membership", "membership_form"), ("contact", None),
+        ("membership", "membership_form"),
+        ("membership_pay", "membership_fees"), ("contact", None),
         ("privacy", None), ("terms", None)]
     urls = [url_for(e) for e, f in pages if f is None or flags[f]]
     urls += [url_for("event_detail", slug=ev.slug) for ev in
@@ -5333,6 +5707,23 @@ def stripe_webhook():
         if p and p.status != "complete":   # replays are a no-op
             p.status = "complete"
             db.session.commit()
+        # And membership subscriptions, which are a different table for
+        # the Gift Aid reason. NOT gated on the membership_fees flag:
+        # somebody mid-checkout when it was switched off has already
+        # been charged, and taking their money without recording it is
+        # the one outcome worse than the feature being on.
+        m = MembershipPayment.query.filter_by(
+            stripe_session_id=session["id"]).first()
+        if m and m.status != "complete":
+            m.status = "complete"
+            m.received_on = uk_today()
+            db.session.commit()
+            log_action("create", entity=m,
+                       summary="Membership payment of %s completed by card "
+                               "for the year to 30 September %d."
+                               % (pounds_filter(m.amount_pence),
+                                  m.period_end_year),
+                       actor=(None, "Stripe webhook", ""))
     return "", 200
 
 
@@ -5374,6 +5765,90 @@ def membership():
                   "be in touch soon.", "ok")
             return redirect(url_for("membership"))
     return render_template("membership.html")
+
+
+@app.route("/membership/pay", methods=["GET", "POST"])
+@feature_required("membership_fees")
+def membership_pay():
+    """A member pays their subscription.
+
+    STRIPE, THROUGH THE SAME MACHINERY THE DONATIONS USE — the same
+    library call, the same webhook, the same signature check and the
+    same idempotency. What is deliberately NOT reused is the `Payment`
+    table: that one carries Gift Aid columns, and a membership
+    subscription can never be a gift. The money lands in
+    MembershipPayment, which has nowhere to put a declaration.
+    """
+    fee = membership_fee_pence()
+    period = membership_period_now()
+    terms = blocks_for("membership").get(MEMBERSHIP_TERMS_KEY,
+                                         MEMBERSHIP_TERMS_DEFAULT)
+    context = {"fee": fee, "period": period,
+               "deadline": renewal_deadline(period), "terms": terms}
+    if request.method == "POST":
+        if rate_limited("donate"):
+            flash("Too many attempts — please try again a little later.",
+                  "error")
+            return render_template("membership_pay.html", **context)
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").lower().strip()
+        member = Member.query.filter(
+            db.func.lower(Member.email) == email).first() if email else None
+
+        if not name or not email or "@" not in email or len(email) > 200:
+            flash("Please give us your name and the email address EBWA "
+                  "has for you.", "error")
+        elif member is None:
+            # NO MONEY WE CANNOT ATTRIBUTE. A payment from an address
+            # nobody recognises would sit in Stripe belonging to
+            # nobody, and the person would believe they had renewed.
+            flash("We could not find a membership for that email address. "
+                  "Please check it, or contact the centre and we will "
+                  "sort it out — nothing has been charged.", "error")
+        elif member.standing == "left":
+            flash("Our records show this membership has ended. Please "
+                  "contact the centre before paying — nothing has been "
+                  "charged.", "error")
+        elif (member.covered_to_year or 0) >= period:
+            # Non-refundable money must not be taken twice for one year.
+            flash("Good news — our records show you are already paid up "
+                  "to %s. There is nothing to pay, and you have not been "
+                  "charged."
+                  % renewal_deadline(member.covered_to_year)
+                  .strftime("%d %B %Y"), "ok")
+        else:
+            try:
+                session = stripe.checkout.Session.create(
+                    mode="payment",
+                    line_items=[{"price_data": {
+                        "currency": "gbp",
+                        "unit_amount": fee,
+                        "product_data": {
+                            "name": "EBWA membership, year to 30 September "
+                                    "%d" % period},
+                    }, "quantity": 1}],
+                    customer_email=email,
+                    success_url=url_for("membership_paid", _external=True),
+                    cancel_url=url_for("membership_pay", _external=True),
+                )
+            except Exception:
+                flash("Sorry — we couldn't start the payment. Please try "
+                      "again, or pay at the centre.", "error")
+            else:
+                db.session.add(MembershipPayment(
+                    member_id=member.id, amount_pence=fee,
+                    period_end_year=period, method="card",
+                    received_on=uk_today(), status="pending",
+                    stripe_session_id=session.id))
+                db.session.commit()
+                return redirect(session.url, code=303)
+    return render_template("membership_pay.html", **context)
+
+
+@app.route("/membership/paid")
+@feature_required("membership_fees")
+def membership_paid():
+    return render_template("membership_paid.html")
 
 
 @app.route("/privacy")
@@ -5820,6 +6295,28 @@ def dashboard_cards(flags):
     cards.append(_card(people, "Newsletter subscribers", _count(Subscriber),
                        url_for("admin_subscribers")))
 
+    # NOT gated on either flag. Members exist whether or not the
+    # public form is open and whether or not anybody is being asked to
+    # pay; a module with no card is a module the admin forgets about.
+    members = Member.query.all()
+    if members:
+        active = [m for m in members
+                  if m.status not in MEMBER_INACTIVE_STATUSES]
+        chasing = [m for m in active
+                   if m.status in MEMBER_CHASING_STATUSES]
+        unknown = [m for m in active if m.status == "unknown"]
+        if flags["membership_fees"] and chasing:
+            note = "%d to chase" % len(chasing)
+        elif unknown:
+            note = "%s with no payment recorded" % _plural(len(unknown),
+                                                           "one", "ones")
+        else:
+            note = "all paid up" if flags["membership_fees"] else "on the roll"
+        cards.append(_card(people, "Members", len(active),
+                           url_for("admin_members"),
+                           alert=bool(flags["membership_fees"] and chasing),
+                           note=note))
+
     if flags["membership_form"]:
         new = _count(MembershipApplication,
                      MembershipApplication.status == "new")
@@ -5971,6 +6468,43 @@ def dashboard_attention(flags):
         if n:
             add("%s published with no photo attached." % _plural(n, word),
                 url, "Add one")
+
+    # RENEWALS ARE ONLY NAGGED ABOUT WHEN SOMEBODY IS BEING ASKED TO
+    # PAY. With the fees flag off there is no payment page, so a member
+    # cannot be overdue in any sense EBWA could act on, and a panel that
+    # says otherwise is telling the admin off for a state the site
+    # created.
+    if flags["membership_fees"]:
+        report = renewal_report()
+        chasing = report["groups"]["chasing"]
+        if chasing:
+            overdue = [m for m in chasing if m.status != "due"]
+            if report["in_window"]:
+                add("%s not yet renewed — the window closes on %s."
+                    % (_plural(len(chasing), "member"),
+                       report["deadline"].strftime("%d %B")),
+                    url_for("admin_member_renewals"), "See who")
+            elif overdue:
+                add("%s past the renewal deadline."
+                    % _plural(len(overdue), "member"),
+                    url_for("admin_member_renewals"), "See who",
+                    level="blocker" if len(overdue) > 5 else "todo")
+        unknown = report["groups"]["unknown"]
+        if unknown:
+            # Not an accusation: nobody knows whether these have paid,
+            # which is exactly why somebody has to go and find out.
+            add("%s with no payment recorded at all — enter what they "
+                "last paid, or ask them." % _plural(len(unknown), "member"),
+                url_for("admin_member_renewals"), "Sort out")
+        # The client requires the non-refundable statement to be on the
+        # payment form AND in the terms. The form carries it from a
+        # seeded block; the terms are EBWA's own words, so all this can
+        # do is notice that they do not mention refunds yet.
+        terms = Block.query.filter_by(key="terms_body").first()
+        if terms and "refund" not in (terms.value or "").lower():
+            add("The terms page does not mention refunds. Membership fees "
+                "are non-refundable and the terms need to say so.",
+                url_for("admin_content", group="legal"), "Add it")
 
     if flags["donations"]:
         # Public states only: a hidden collection is not on the website,
@@ -7706,6 +8240,18 @@ def uk_midnight_as_utc(d):
             .astimezone(timezone.utc).replace(tzinfo=None))
 
 
+def uk_today():
+    """Today as somebody in Enfield counts it.
+
+    The admin date convention, and it matters more here than anywhere: a
+    renewal deadline of 30 September is a British date, and between
+    midnight and 01:00 BST the UTC date is still yesterday — which would
+    put a member on the wrong side of their deadline for an hour every
+    summer night.
+    """
+    return datetime.now(UK_TZ).date()
+
+
 def utc_as_uk(dt):
     """Naive-UTC datetime -> aware UK local datetime."""
     return dt.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
@@ -7968,6 +8514,435 @@ def admin_membership_delete(m_id):
                summary="Deleted membership application from %s." % name)
     flash("Application removed.", "ok")
     return redirect(url_for("admin_membership"))
+
+
+# ---------------------------------------------------------------- admin: members
+# PERSONAL DATA THROUGHOUT. Reading the list and every export is
+# audit-logged, exactly as the enquiry list is, because both are a view
+# of people's names and addresses. The declarations carried over from an
+# application include ethnic origin, which is special-category data: it
+# is shown on a member's own page for the constitutional record and
+# appears in NO export.
+
+
+def members_in_order(status=None, include_left=True):
+    """Members, name order, optionally filtered by the status shown.
+
+    THE FILTER IS APPLIED IN PYTHON, and that is a deliberate trade
+    rather than an oversight: `status` is derived from the payment rows
+    and cannot be a WHERE clause without caching it in a column, which
+    is the very thing that would let a suspended member be overwritten
+    as overdue. EBWA has seventeen members and will have hundreds, not
+    hundreds of thousands. If that ever stops being true the answer is a
+    materialised view refreshed on payment, not a status column.
+    """
+    rows = Member.query.order_by(Member.name, Member.id).all()
+    if not include_left:
+        rows = [m for m in rows if m.status not in MEMBER_INACTIVE_STATUSES]
+    if status:
+        rows = [m for m in rows if m.status == status]
+    return rows
+
+
+def member_status_counts(rows):
+    """How many members are in each state, for the filter row."""
+    counts = {}
+    for m in rows:
+        counts[m.status] = counts.get(m.status, 0) + 1
+    return counts
+
+
+def member_form_values():
+    """The fields of the member form, from the request."""
+    joined = (request.form.get("joined_on") or "").strip()
+    try:
+        joined_on = date.fromisoformat(joined) if joined else None
+    except ValueError:
+        joined_on = None
+    return {
+        "name": request.form.get("name", "").strip(),
+        "email": request.form.get("email", "").lower().strip(),
+        "phone": request.form.get("phone", "").strip(),
+        "address": request.form.get("address", "").strip(),
+        "joined_on": joined_on,
+        "notes": request.form.get("notes", "").strip(),
+        "over_18": request.form.get("over_18") == "on",
+        "bangladeshi_origin": request.form.get("bangladeshi_origin") == "on",
+        "lives_works_enfield":
+            request.form.get("lives_works_enfield") == "on",
+        "fee_confirmed": request.form.get("fee_confirmed") == "on",
+    }
+
+
+@app.route("/admin/members")
+@login_required
+def admin_members():
+    # NOT gated on membership_fees. A member record is not a module's
+    # content: it exists whether or not anybody is being asked to pay,
+    # and hiding it would strand it. See membership_fees_on().
+    view = (request.args.get("status") or "").strip()
+    if view not in MEMBER_STATUSES:
+        view = ""
+    everyone = members_in_order()
+    rows = [m for m in everyone if m.status == view] if view else everyone
+    log_action("view", entity=("Member", None),
+               summary="Viewed the member list (%d members)." % len(everyone))
+    return render_template("admin/members.html", rows=rows, view=view,
+                           counts=member_status_counts(everyone),
+                           total=len(everyone),
+                           labels=MEMBER_STATUS_LABELS,
+                           pills=MEMBER_STATUS_PILLS,
+                           statuses=MEMBER_STATUSES,
+                           fees_on=membership_fees_on())
+
+
+@app.route("/admin/members/new", methods=["GET", "POST"])
+@app.route("/admin/members/<int:member_id>/edit", methods=["GET", "POST"])
+@login_required
+def admin_member_form(member_id=None):
+    member = db.session.get(Member, member_id) if member_id else None
+    if member_id and not member:
+        abort(404)
+    if request.method == "POST":
+        values = member_form_values()
+        if not values["name"]:
+            flash("A member needs a name.", "error")
+        else:
+            is_new = member is None
+            if is_new:
+                member = Member()
+            changed = changed_fields(member, values)
+            apply_values(member, values)
+            if is_new:
+                db.session.add(member)
+            db.session.commit()
+            log_action("create" if is_new else "edit", entity=member,
+                       summary=save_summary("member", member.name, is_new,
+                                            changed))
+            flash("Member saved.", "ok")
+            return redirect(url_for("admin_member", member_id=member.id))
+    return render_template("admin/member_form.html", member=member)
+
+
+@app.route("/admin/members/<int:member_id>")
+@login_required
+def admin_member(member_id):
+    member = db.session.get(Member, member_id) or abort(404)
+    log_action("view", entity=member,
+               summary="Viewed the record for %s." % member.name)
+    return render_template(
+        "admin/member.html", member=member,
+        labels=MEMBER_STATUS_LABELS, pills=MEMBER_STATUS_PILLS,
+        methods=PAYMENT_METHODS, manual_methods=MANUAL_METHODS,
+        fees_on=membership_fees_on(),
+        fee_pence=membership_fee_pence(),
+        this_period=membership_period_now(),
+        period_years=range(membership_period_now() - 5,
+                           membership_period_now() + 2),
+        today=uk_today())
+
+
+# ---- the lifecycle: suspend, reinstate, left, delete
+#
+# THE MANUAL STATES ARE WRITTEN TO `standing` AND NOWHERE ELSE, and the
+# derivation never writes anything at all, so the two cannot fight. A
+# suspended member stays suspended through as many Septembers as it
+# takes; reinstating clears the field and the payment history — which
+# was never touched — decides again from where it really stands.
+@app.route("/admin/members/<int:member_id>/standing", methods=["POST"])
+@login_required
+def admin_member_standing(member_id):
+    member = db.session.get(Member, member_id) or abort(404)
+    wanted = (request.form.get("standing") or "").strip()
+    note = request.form.get("standing_note", "").strip()[:200]
+    if wanted and wanted not in MEMBER_MANUAL_STATUSES:
+        flash("Unknown membership standing.", "error")
+        return redirect(url_for("admin_member", member_id=member.id))
+    was = member.standing or "active"
+    member.standing = wanted
+    member.standing_note = note if wanted else ""
+    db.session.commit()
+    now = wanted or "active"
+    log_action("status_change", entity=member,
+               summary="Membership standing for %s changed from %s to %s.%s"
+                       % (member.name, MEMBER_STATUS_LABELS.get(was, was),
+                          MEMBER_STATUS_LABELS.get(now, now),
+                          (" Reason noted.") if note else ""))
+    if wanted == "suspended":
+        flash("%s is suspended — still a member, and off the due and "
+              "overdue lists until reinstated." % member.name, "ok")
+    elif wanted == "left":
+        flash("%s is recorded as having left. The record and its payment "
+              "history stay for the accounts." % member.name, "ok")
+    else:
+        flash("%s is active again. Their status now follows their payments "
+              "as usual." % member.name, "ok")
+    return redirect(url_for("admin_member", member_id=member.id))
+
+
+@app.route("/admin/members/<int:member_id>/delete", methods=["POST"])
+@login_required
+def admin_member_delete(member_id):
+    """Remove a person. THE PAYMENTS ARE KEPT, UNLINKED.
+
+    The recommendation this implements, and the reasoning, in short:
+    financial records generally have to be kept for six years, and
+    personal data must not be kept longer than it is needed for. Those
+    two pull in opposite directions only if the payment has to carry a
+    name — so it does not. The member row goes; each payment keeps its
+    amount, date, method and period and loses its link to a person.
+    The treasurer's year still adds up, and there is nothing left to
+    identify who paid it.
+
+    A record entered in ERROR is the other reason to press this, and it
+    has a different answer: delete the payments individually first — they
+    were never real money — and then the member. That is one route
+    rather than two buttons, and it fails safe, because the version that
+    guesses wrong here destroys accounts nobody can rebuild.
+    """
+    member = db.session.get(Member, member_id) or abort(404)
+    gone, name = ("Member", member.id), member.name
+    kept = MembershipPayment.query.filter_by(member_id=member.id).all()
+    total = sum(p.amount_pence for p in kept if p.status == "complete")
+    for payment in kept:
+        payment.member_id = None
+        payment.received_by = ""      # a name is a name wherever it sits
+        payment.recorded_by = ""
+        payment.note = "Member record deleted"
+    db.session.delete(member)
+    db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted the member record for %s. %s kept for the "
+                       "accounts with the personal details removed (%s)."
+                       % (name, _plural(len(kept), "payment"),
+                          pounds_filter(total)))
+    flash("%s has been deleted. %s kept for the accounts, with nothing "
+          "left on them to identify anybody."
+          % (name, _plural(len(kept), "payment")), "ok")
+    return redirect(url_for("admin_members"))
+
+
+# ---- payments
+@app.route("/admin/members/<int:member_id>/payments", methods=["POST"])
+@login_required
+def admin_member_payment(member_id):
+    """Record money a treasurer was handed.
+
+    THE TWO PATHS MUST PRODUCE THE SAME RESULT. A cash payment recorded
+    here and a card payment completed by the Stripe webhook both write
+    one MembershipPayment with `status` complete and a `period_end_year`
+    from the same helper, so the member's status moves identically. The
+    method is the only thing that differs, and it differs because a
+    treasurer needs to know where to look for the money.
+    """
+    member = db.session.get(Member, member_id) or abort(404)
+    if not membership_fees_on():
+        abort(404)
+    method = (request.form.get("method") or "").strip()
+    amount = parse_pounds(request.form.get("amount", ""))
+    received = (request.form.get("received_on") or "").strip()
+    received_by = request.form.get("received_by", "").strip()[:120]
+    try:
+        period = int(request.form.get("period_end_year") or 0)
+    except ValueError:
+        period = 0
+    try:
+        received_on = date.fromisoformat(received) if received else uk_today()
+    except ValueError:
+        received_on = None
+
+    if method not in MANUAL_METHODS:
+        flash("Choose how the payment was made.", "error")
+    elif amount is None or amount < 0:
+        flash("Enter the amount that was paid.", "error")
+    elif received_on is None:
+        flash("Enter the date the payment was received.", "error")
+    elif received_on > uk_today():
+        flash("That date is in the future — enter the day the money was "
+              "actually received.", "error")
+    elif not (2000 <= period <= 2100):
+        flash("Choose the membership year this payment covers.", "error")
+    else:
+        payment = MembershipPayment(
+            member_id=member.id, amount_pence=amount,
+            period_end_year=period, method=method,
+            received_on=received_on, status="complete",
+            received_by=received_by,
+            # The EMAIL out of the actor tuple, not the tuple: this
+            # column is a name a treasurer reads off the payment row.
+            recorded_by=current_actor()[1])
+        db.session.add(payment)
+        db.session.commit()
+        # AUDIT-LOGGED WITH THE ADMIN'S NAME. This is somebody recording
+        # that money changed hands with no receipt from a card
+        # processor to check it against, so who entered it is the only
+        # trail there is — and the treasurer has to be able to see it.
+        log_action("create", entity=payment,
+                   summary="Recorded a %s membership payment of %s from %s "
+                           "for the year to 30 September %d%s."
+                           % (PAYMENT_METHOD_LABELS[method].lower(),
+                              pounds_filter(amount), member.name, period,
+                              (", taken by %s" % received_by)
+                              if received_by else ""))
+        flash("Payment recorded. %s is now %s."
+              % (member.name,
+                 MEMBER_STATUS_LABELS[member.status].lower()), "ok")
+    return redirect(url_for("admin_member", member_id=member.id))
+
+
+@app.route("/admin/members/payments/<int:payment_id>/delete",
+           methods=["POST"])
+@login_required
+def admin_member_payment_delete(payment_id):
+    payment = db.session.get(MembershipPayment, payment_id) or abort(404)
+    member = payment.member
+    gone = ("MembershipPayment", payment.id)
+    detail = "%s %s for the year to 30 September %d" % (
+        pounds_filter(payment.amount_pence), payment.method_label.lower(),
+        payment.period_end_year)
+    db.session.delete(payment)
+    db.session.commit()
+    log_action("delete", entity=gone,
+               summary="Deleted a membership payment (%s) from %s."
+                       % (detail, member.name if member else "a former member"))
+    flash("Payment removed.", "ok")
+    if member:
+        return redirect(url_for("admin_member", member_id=member.id))
+    return redirect(url_for("admin_members"))
+
+
+# ---- the treasurer's view
+def renewal_report(today=None):
+    """Who has paid and who has not, grouped the way a treasurer asks.
+
+    Suspended and departed members are in neither list. That is the
+    point of those two states: somebody under board review is not
+    somebody to send a reminder to, and somebody who has left does not
+    owe a subscription.
+    """
+    today = today or uk_today()
+    period = membership_period_now(today)
+    groups = {"paid": [], "chasing": [], "unknown": [], "inactive": []}
+    for m in members_in_order():
+        status = m.status
+        if status in MEMBER_MANUAL_STATUSES:
+            groups["inactive"].append(m)
+        elif status == "unknown":
+            groups["unknown"].append(m)
+        elif status in MEMBER_CHASING_STATUSES:
+            groups["chasing"].append(m)
+        else:
+            groups["paid"].append(m)
+    return {"period": period, "today": today, "groups": groups,
+            "deadline": renewal_deadline(period),
+            "grace_ends": membership_grace_ends(period),
+            "in_window": in_renewal_window(today),
+            "collected": sum(
+                p.amount_pence for p in MembershipPayment.query
+                .filter_by(period_end_year=period, status="complete").all())}
+
+
+@app.route("/admin/members/renewals")
+@login_required
+def admin_member_renewals():
+    report = renewal_report()
+    log_action("export", entity=("Member", None),
+               summary="Viewed the membership renewal report for the year "
+                       "to 30 September %d." % report["period"])
+    org = blocks_for("org")
+    return render_template(
+        "admin/member_renewals.html", report=report,
+        org=org.get(ORG_NAME_KEY, "") or "This organisation",
+        charity_number=org.get(ORG_CHARITY_NO_KEY, "").strip(),
+        fees_on=membership_fees_on(), produced=uk_today(),
+        # The order the treasurer reads them in: what needs doing, then
+        # what nobody knows, then what is settled.
+        groups_in_order=(
+            ("chasing", "To chase",
+             "Due now, past the deadline, or lapsed. These are the "
+             "members to contact."),
+            ("unknown", "No payment recorded",
+             "Nothing has ever been recorded for these members. That is "
+             "not the same as knowing they have not paid — enter what "
+             "they last paid, or ask them."),
+            ("paid", "Paid up",
+             "Nothing needed from these members for this year."),
+            ("inactive", "Suspended or left",
+             "Not being asked to pay. Listed so the roll adds up, not "
+             "to be chased."),
+        ))
+
+
+@app.route("/admin/members.csv")
+@login_required
+def admin_members_csv():
+    """The member list for the treasurer.
+
+    NO SPECIAL-CATEGORY DATA. The declarations — ethnic origin among
+    them — are on a member's own page for the constitutional record and
+    go nowhere near a spreadsheet that gets emailed about.
+    """
+    import csv
+    import io as _io
+    out = _io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["name", "email", "phone", "joined", "status",
+                "paid_up_to", "last_payment", "method", "amount"])
+    rows = members_in_order()
+    for m in rows:
+        last = m.payments[0] if m.payments else None
+        w.writerow([
+            m.name, m.email, m.phone,
+            m.joined_on.isoformat() if m.joined_on else "",
+            MEMBER_STATUS_LABELS.get(m.status, m.status),
+            m.paid_up_to.isoformat() if m.paid_up_to else "",
+            last.received_on.isoformat() if last else "",
+            last.method_label if last else "",
+            "%.2f" % (last.amount_pence / 100.0) if last else "",
+        ])
+    log_action("export", entity=("Member", None),
+               summary="Exported the member list as CSV (%d members)."
+                       % len(rows))
+    resp = app.response_class(out.getvalue(), mimetype="text/csv")
+    resp.headers["Content-Disposition"] = \
+        "attachment; filename=ebwa-members.csv"
+    return resp
+
+
+@app.route("/admin/membership/<int:m_id>/make-member", methods=["POST"])
+@login_required
+def admin_application_to_member(m_id):
+    """Turn an approved application into a member, rather than retyping.
+
+    NOT gated on membership_form. An application already received still
+    has to be processed after the public form is switched off — the same
+    reason the dashboard's unread-enquiry check ignores its flag.
+    """
+    application = db.session.get(MembershipApplication, m_id) or abort(404)
+    existing = Member.query.filter_by(application_id=application.id).first()
+    if existing:
+        flash("%s is already a member — this application was used to "
+              "create their record." % existing.name, "error")
+        return redirect(url_for("admin_member", member_id=existing.id))
+    member = Member(
+        name=application.name, email=application.email,
+        phone=application.phone, address=application.address,
+        joined_on=uk_today(),
+        over_18=application.over_18,
+        bangladeshi_origin=application.bangladeshi_origin,
+        lives_works_enfield=application.lives_works_enfield,
+        fee_confirmed=application.fee_confirmed,
+        application_id=application.id,
+        notes=application.reason)
+    application.status = "approved"
+    db.session.add(member)
+    db.session.commit()
+    log_action("create", entity=member,
+               summary="Created the member record for %s from their "
+                       "application." % member.name)
+    flash("%s is now a member. Their declarations came across with them; "
+          "record their first payment when it arrives." % member.name, "ok")
+    return redirect(url_for("admin_member", member_id=member.id))
 
 
 # ---------------------------------------------------------------- admin: audit
@@ -8242,6 +9217,13 @@ def admin_features():
         # deployment, never hardcoded in the template. A deployment
         # somewhere else prints its own and does not confidently tell
         # somebody the wrong one.
+        membership_fee=membership_fee_pence(),
+        membership_grace=membership_grace_days(),
+        membership_terms=blocks_for("membership").get(
+            MEMBERSHIP_TERMS_KEY, MEMBERSHIP_TERMS_DEFAULT),
+        membership_deadline=renewal_deadline(membership_period_now()),
+        membership_grace_ends=membership_grace_ends(
+            membership_period_now()),
         deploy={"env_file": DEPLOY_ENV_FILE, "path": DEPLOY_PATH,
                 "service": DEPLOY_SERVICE, "user": DEPLOY_USER,
                 "nginx_site": DEPLOY_NGINX_SITE},
@@ -8730,6 +9712,58 @@ def _set_block(key, value, group="home", label=""):
     return changed
 
 
+@app.route("/admin/membership-fees", methods=["POST"])
+@super_admin_required
+def admin_membership_fees_save():
+    """The fee, the grace period and the refund line.
+
+    The renewal WINDOW is not settable and is not meant to be: 1-30
+    September is in the constitution rather than in a preference, and a
+    box that let somebody move it would let somebody move it by accident.
+    """
+    back = redirect(url_for("admin_features") + "#membership")
+    fee = parse_pounds(request.form.get("fee", ""))
+    if fee is None or not MEMBERSHIP_FEE_MIN <= fee <= MEMBERSHIP_FEE_MAX:
+        flash("The fee must be between %s and %s."
+              % (pounds_filter(MEMBERSHIP_FEE_MIN),
+                 pounds_filter(MEMBERSHIP_FEE_MAX)), "error")
+        return back
+    try:
+        grace = int((request.form.get("grace_days") or "").strip())
+    except ValueError:
+        flash("The grace period must be a whole number of days.", "error")
+        return back
+    if not MEMBERSHIP_GRACE_MIN <= grace <= MEMBERSHIP_GRACE_MAX:
+        flash("The grace period must be between %d and %d days."
+              % (MEMBERSHIP_GRACE_MIN, MEMBERSHIP_GRACE_MAX), "error")
+        return back
+    terms = request.form.get("terms", "").strip()
+    if not terms:
+        # The client requires the non-refundable statement on the form.
+        # An empty box would take it off the page, so it is refused
+        # rather than silently falling back to the default.
+        flash("The payment form has to say something about refunds — "
+              "leave the wording as it is, or write your own.", "error")
+        return back
+
+    changed = []
+    if _set_block(MEMBERSHIP_FEE_KEY, str(fee), group="membership"):
+        changed.append("the fee")
+    if _set_block(MEMBERSHIP_GRACE_KEY, str(grace), group="membership"):
+        changed.append("the grace period")
+    if _set_block(MEMBERSHIP_TERMS_KEY, terms, group="membership"):
+        changed.append("the refund wording")
+    db.session.commit()
+    log_action("edit", entity=("Block", 0),
+               summary="Changed the membership fee settings (%s). The fee "
+                       "is now %s a year, with %s grace after 30 September."
+                       % (" and ".join(changed) if changed
+                          else "nothing changed",
+                          pounds_filter(fee), _plural(grace, "day")))
+    flash("Membership settings saved." if changed else "No change.", "ok")
+    return back
+
+
 @app.route("/admin/stats-report", methods=["POST"])
 @super_admin_required
 def admin_stats_report_save():
@@ -8910,6 +9944,12 @@ def admin_feature_toggle(name):
 
 # ---------------------------------------------------------------- CLI
 DEFAULT_BLOCKS = [
+    # Membership fees. The refund line is seeded with REAL wording, not
+    # placeholder: it is a term of the payment and the form must not be
+    # able to go live without it. Editable, because it is EBWA's
+    # statement rather than Netbus's.
+    ("membership", MEMBERSHIP_TERMS_KEY, "Membership fee terms", "text",
+     MEMBERSHIP_TERMS_DEFAULT),
     # group, key, label, kind, default value
     ("site", "site_phone", "Phone number", "text", "020 8804 4006"),
     ("site", "site_address", "Address", "text", "180 High Street, Ponders End, Enfield EN3 4EU"),
@@ -10090,6 +11130,61 @@ def delete_admin():
     db.session.delete(u)
     db.session.commit()
     print("Deleted", email)
+
+
+# EBWA's existing members, from the paper list handed over with the
+# contract. A CLI COMMAND AND NOT init-db, deliberately: init-db seeds
+# fixtures and is idempotent by design, and these are seventeen real
+# people. A deploy that re-ran init-db must never resurrect a member
+# somebody deliberately deleted — the same split DEFAULT_SERVICES draws
+# between seeded blocks (slots) and seeded records (things an admin may
+# legitimately remove).
+EXISTING_MEMBERS = [
+    "Mohammad Kamruzzaman", "Ekramuzzaman Khan", "Kazi Alamgir",
+    "Sumona Chowdhury", "Morsheda Begum", "Mohammad Mizanur Rahman",
+    "Mohammad Abu Mazhar", "Mohammed Rafiqul Alam", "Abdul Wadood Masood",
+    "Mahmudul Hasan", "Salma Chowdhury", "Ashraf Zaman",
+    "Fardoush Chowdhury", "Hamid Ullah", "Nurul Azim Sikdar",
+    "Nazneen Sultana", "Shirin Masud",
+]
+
+
+@app.cli.command("seed-members")
+@click.option("--force", is_flag=True,
+              help="Add them even if some members already exist.")
+def seed_members(force):
+    """Enter EBWA's seventeen existing members (run once).
+
+    They arrive with NO PAYMENTS and NO JOIN DATE, and both of those are
+    the honest answer rather than a gap to be filled in. Their status
+    reads "No payment recorded" — not lapsed, which would accuse real
+    members of owing money this system has never seen, and not current,
+    which would claim they had paid when nobody knows. The dashboard
+    asks somebody to resolve it.
+
+    Skips anybody already on the roll by name, so a second run adds
+    nothing.
+    """
+    existing = {m.name.strip().lower() for m in Member.query.all()}
+    if existing and not force:
+        print("There are already %d members. Re-run with --force to add "
+              "any of the seventeen that are missing." % len(existing))
+        return
+    added = 0
+    for name in EXISTING_MEMBERS:
+        if name.strip().lower() in existing:
+            print("  already there:", name)
+            continue
+        db.session.add(Member(name=name))
+        added += 1
+    db.session.commit()
+    if added:
+        log_action("create", entity=("Member", None),
+                   summary="Seeded %s from EBWA's existing membership list."
+                           % _plural(added, "member"),
+                   actor=(None, "command line", ""))
+    print("Added %d of %d. They have no payments recorded, which is what "
+          "their status will say." % (added, len(EXISTING_MEMBERS)))
 
 
 @app.cli.command("promote-super-admin")

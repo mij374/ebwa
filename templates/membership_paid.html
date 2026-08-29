@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Thank you — EBWA{% endblock %}
+{% block content %}
+<section class="wrap">
+  <p class="eyebrow"><span class="bn">ধন্যবাদ</span> Thank you</p>
+  <h1>Thank you — your membership is paid</h1>
+  <p class="lede">We have your payment. Your membership is recorded
+    against your name and runs to 30 September.</p>
+  {#- The record is written when Stripe confirms the payment, not when
+      the browser lands here — somebody closing the tab too early must
+      still be recorded as having paid. So this page promises what has
+      happened, not what is about to. -#}
+  <p>Your receipt comes from Stripe by email. If anything looks wrong,
+    <a href="{{ url_for('contact') }}">let us know</a> and we will check
+    it against our records.</p>
+  <p><a class="btn btn-green" href="{{ url_for('home') }}">Back to the website</a></p>
+</section>
+{% endblock %}

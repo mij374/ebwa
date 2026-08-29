@@ -1,0 +1,74 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<h1 class="admin-h1">{{ 'Edit member' if member else 'Add member' }}</h1>
+<p class="admin-sub">Membership records are personal data: admin-only, and
+  every time this list is opened or exported it goes in the audit log.</p>
+
+<form method="post" class="admin-form" data-busy="Saving…">
+  <div class="field">
+    <label for="name">Full name *</label>
+    <input type="text" id="name" name="name" required maxlength="120"
+           value="{{ member.name if member else '' }}">
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" maxlength="200"
+             value="{{ member.email if member else '' }}">
+      <small>The address they pay with online, so it has to match.</small>
+    </div>
+    <div class="field">
+      <label for="phone">Phone</label>
+      <input type="text" id="phone" name="phone" maxlength="40"
+             value="{{ member.phone if member else '' }}">
+    </div>
+  </div>
+  <div class="field">
+    <label for="address">Address</label>
+    <input type="text" id="address" name="address" maxlength="300"
+           value="{{ member.address if member else '' }}">
+  </div>
+  <div class="field">
+    <label for="joined_on">Date joined</label>
+    <input type="date" id="joined_on" name="joined_on"
+           value="{{ member.joined_on.isoformat() if member and member.joined_on else '' }}">
+    {#- Leaving it empty is a real answer, not a gap. The seventeen
+        members from the paper list have no join date anybody can vouch
+        for, and inventing one would drive the June rule off a guess. -#}
+    <small>Leave empty if it is not known — a guessed date is worse than
+      no date, because joining on or after 1 June covers somebody until
+      the <em>following</em> September.</small>
+  </div>
+
+  <h2 class="admin-stats-head">Declarations</h2>
+  <p class="admin-sub">The four the constitution requires. They come across
+    automatically when a member is created from an application.
+    <b>Whether somebody is of Bangladeshi origin is special-category
+    data</b> — it stays on this page and is in no export.</p>
+  {% for field, label in (
+      ('over_18', 'Is 18 or over'),
+      ('bangladeshi_origin', 'Is of Bangladeshi origin'),
+      ('lives_works_enfield', 'Lives or works in Enfield'),
+      ('fee_confirmed', 'Has paid, or agreed to pay, the fee')) %}
+  <div class="field">
+    <label class="admin-check">
+      <input type="checkbox" name="{{ field }}"
+             {{ 'checked' if member and member[field] }}>
+      {{ label }}
+    </label>
+  </div>
+  {% endfor %}
+
+  <div class="field">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="4">{{ member.notes if member else '' }}</textarea>
+  </div>
+
+  <button class="btn btn-green" type="submit">Save member</button>
+  {% if member %}
+  <a class="btn btn-ghost" href="{{ url_for('admin_member', member_id=member.id) }}">Cancel</a>
+  {% else %}
+  <a class="btn btn-ghost" href="{{ url_for('admin_members') }}">Cancel</a>
+  {% endif %}
+</form>
+{% endblock %}

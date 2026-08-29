@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Pay your membership — EBWA{% endblock %}
+{% block content %}
+<section class="wrap">
+  <p class="eyebrow"><span class="bn">সদস্যপদ</span> Membership</p>
+  <h1>Pay your membership</h1>
+
+  <div class="contact-grid">
+    <div>
+      <p class="lede">Membership runs to 30 September each year. Paying
+        now covers you until
+        <b>{{ deadline.strftime('%d %B %Y') }}</b>.</p>
+      <p><b>The fee is {{ fee|pounds }} a year.</b></p>
+      {#- The refund line is a term of the payment, so it is on the form
+          itself rather than only on the terms page. Editable in the
+          admin, because it is EBWA's statement to make. -#}
+      <p class="pay-terms">{{ terms }}</p>
+      <p>Paying by card is handled by Stripe. EBWA never sees or stores
+        your card details.</p>
+      <p>If you would rather pay at the centre, or you are not sure
+        whether you are due, please
+        <a href="{{ url_for('contact') }}">get in touch</a>.</p>
+    </div>
+
+    <div>
+      <form class="contact-form" method="post" novalidate
+            data-busy="Taking you to the payment page…">
+        <h2>Your details</h2>
+        <div class="field">
+          <label for="name">Your name *</label>
+          <input type="text" id="name" name="name" required maxlength="120"
+                 autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="email">Email address *</label>
+          <input type="email" id="email" name="email" required maxlength="200"
+                 autocomplete="email">
+          {#- We match on this to find the membership, so it has to be
+              the address EBWA holds. Saying so here saves the person a
+              refused payment they cannot understand. -#}
+          <small>Please use the address EBWA has for you, so we can match
+            the payment to your membership.</small>
+        </div>
+        <button class="btn btn-green" type="submit">Pay {{ fee|pounds }}</button>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

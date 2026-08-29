@@ -1,0 +1,108 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Membership renewals — {{ org }}{% endblock %}
+{% block content %}
+
+{#- Everything in .report-doc is the DOCUMENT — it goes to a treasurer
+    and to a committee meeting. Everything outside it is the admin
+    looking at it, and the print stylesheet hides all of that. Same
+    structure as the visitor report, deliberately: a second layout for a
+    second printable page is a second thing to keep in step. -#}
+<div class="report-tools">
+  <div class="admin-head-row">
+    <div>
+      <h1 class="admin-h1">Membership renewals</h1>
+      <p class="admin-sub">Who has paid and who has not. Use your browser's
+        <b>Print</b> to save it as a PDF — it prints as a document on its
+        own, with none of this screen on it.</p>
+    </div>
+    <div class="admin-quick">
+      <a class="btn btn-ghost" data-busy="Building the CSV…"
+         data-busy-restore="8000"
+         href="{{ url_for('admin_members_csv') }}">Export CSV</a>
+      <a class="btn btn-ghost" href="{{ url_for('admin_members') }}">Back to members</a>
+    </div>
+  </div>
+  {% if not fees_on %}
+  <p class="admin-sub"><b>Membership fees are switched off</b>, so nobody
+    is being asked to pay and the dashboard is not chasing anybody. This
+    list still shows what has been recorded, because a payment already
+    taken is part of the accounts either way.</p>
+  {% endif %}
+</div>
+
+<article class="report-doc">
+  <header class="report-head">
+    <h2>{{ org }}</h2>
+    {% if charity_number %}
+    <p class="report-org">Registered charity number {{ charity_number }}</p>
+    {% endif %}
+    <h3>Membership renewals</h3>
+    <p class="report-period-line">
+      Year to {{ report.deadline.strftime('%d %B %Y') }}
+      <span>(produced {{ produced.strftime('%d %B %Y') }})</span>
+    </p>
+  </header>
+
+  <section class="report-figures">
+    <div class="report-figure">
+      <b>{{ report.groups.paid|length }}</b>
+      <span>paid up</span>
+    </div>
+    <div class="report-figure">
+      <b>{{ report.groups.chasing|length }}</b>
+      <span>to chase</span>
+    </div>
+    <div class="report-figure">
+      <b>{{ report.collected|pounds }}</b>
+      <span>collected</span>
+    </div>
+  </section>
+  {#- The caveat under the figure it qualifies, as on the visitor
+      report: "to chase" is not the same as "has not paid", because a
+      member with nothing on record is in neither column. -#}
+  <p class="report-caveat">
+    The renewal window is 1–{{ report.deadline.strftime('%d %B') }} each
+    year, with a grace period to
+    {{ report.grace_ends.strftime('%d %B %Y') }}; after that a membership
+    counts as lapsed. Members listed under <b>no payment recorded</b> are
+    in neither figure above — nothing has ever been entered for them,
+    which is not the same as knowing they have not paid.
+    Membership fees are non-refundable.
+  </p>
+
+  {% for key, heading, blurb in groups_in_order %}
+    {% set rows = report.groups[key] %}
+    <section>
+      <h4>{{ heading }} ({{ rows|length }})</h4>
+      <p class="report-caveat" style="margin-bottom:12px">{{ blurb }}</p>
+      {% if rows %}
+      {#- Nothing in these rows is focusable, so the box needs a tab
+          stop of its own or its right-hand end cannot be reached by
+          keyboard at all. In print it is neutralised — see the print
+          rule in the stylesheet — because paper does not scroll. -#}
+      <div class="table-scroll" tabindex="0" role="region"
+           aria-label="{{ heading }}, scrollable">
+      <table class="report-table">
+        <thead><tr><th>Name</th><th>Contact</th><th>Status</th><th>Paid up to</th></tr></thead>
+        <tbody>
+          {% for m in rows %}
+          <tr>
+            <td><b>{{ m.name }}</b></td>
+            <td>{{ m.email or m.phone or '—' }}</td>
+            <td>{{ m.status_label }}</td>
+            <td class="nowrap">{{ m.paid_up_to.strftime('%d %b %Y') if m.paid_up_to else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <p class="report-caveat" style="margin:0">Nobody.</p>
+      {% endif %}
+    </section>
+  {% endfor %}
+
+  <p class="report-foot">This list is personal data. It is for EBWA's own
+    committee and treasurer; opening it is recorded in the audit log.</p>
+</article>
+{% endblock %}

@@ -1,0 +1,185 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">{{ member.name }}</h1>
+    <p class="admin-sub">
+      <span class="pill pill-{{ pills[member.status] }}">{{ member.status_label }}</span>
+      {% if member.paid_up_to %}
+        &nbsp;Paid up to {{ member.paid_up_to.strftime('%d %B %Y') }}.
+      {% elif member.status == 'unknown' %}
+        &nbsp;Nothing has been recorded for this member yet — which is not
+        the same as knowing they have not paid.
+      {% endif %}
+      {% if member.standing_note %}<br><b>{{ member.standing_note }}</b>{% endif %}
+    </p>
+  </div>
+  <div class="admin-quick">
+    <a class="btn btn-ghost" href="{{ url_for('admin_member_form', member_id=member.id) }}">Edit details</a>
+    <a class="btn btn-ghost" href="{{ url_for('admin_members') }}">All members</a>
+  </div>
+</div>
+
+<div class="admin-form" style="margin-bottom:26px">
+  {#- An admin table is wide by nature and this one carries an address:
+      the box scrolls, the page does not. It holds a mailto link, so it
+      needs no tab stop of its own — tabbing to that link scrolls it. -#}
+  <div class="table-scroll">
+  <table class="admin-table">
+    <tbody>
+      <tr><th style="width:12rem">Email</th><td>{% if member.email %}<a href="mailto:{{ member.email }}">{{ member.email }}</a>{% else %}—{% endif %}</td></tr>
+      <tr><th>Phone</th><td>{{ member.phone or '—' }}</td></tr>
+      <tr><th>Address</th><td>{{ member.address or '—' }}</td></tr>
+      <tr><th>Joined</th><td>{{ member.joined_on.strftime('%d %B %Y') if member.joined_on else 'Not known' }}</td></tr>
+      <tr><th>Declarations</th><td>
+        {%- set decl = [] -%}
+        {%- if member.over_18 %}{% set _ = decl.append('18 or over') %}{% endif -%}
+        {%- if member.bangladeshi_origin %}{% set _ = decl.append('Bangladeshi origin') %}{% endif -%}
+        {%- if member.lives_works_enfield %}{% set _ = decl.append('lives or works in Enfield') %}{% endif -%}
+        {%- if member.fee_confirmed %}{% set _ = decl.append('fee agreed') %}{% endif -%}
+        {{ decl|join(', ') if decl else 'None recorded' }}
+      </td></tr>
+      {% if member.notes %}<tr><th>Notes</th><td>{{ member.notes }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<h2 class="admin-stats-head">Payments</h2>
+{% if member.payments %}
+<div class="table-scroll">
+<table class="admin-table">
+  <thead><tr><th>Received</th><th>Covers</th><th>Method</th><th>Amount</th><th>Taken by</th><th>Entered by</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+    {% for p in member.payments %}
+    <tr>
+      <td class="nowrap">{{ p.received_on.strftime('%d %b %Y') }}</td>
+      <td class="nowrap">Year to 30 Sep {{ p.period_end_year }}</td>
+      <td>{{ p.method_label }}{% if p.status != 'complete' %} <span class="pill pill-amber">Unfinished</span>{% endif %}</td>
+      <td class="nowrap"><b>{{ p.amount_pence|pounds }}</b></td>
+      <td>{{ p.received_by or '—' }}</td>
+      <td>{{ p.recorded_by or ('Stripe' if p.method == 'card' else '—') }}</td>
+      <td class="nowrap">
+        <button class="table-link danger" type="submit" form="delpay{{ p.id }}">Delete</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% for p in member.payments %}
+<form method="post" id="delpay{{ p.id }}" class="is-hidden"
+      action="{{ url_for('admin_member_payment_delete', payment_id=p.id) }}"
+      onsubmit="return confirm('Delete this payment? Do this only if it was entered in error — it changes what the accounts add up to.');"></form>
+{% endfor %}
+{% else %}
+<p class="admin-sub">No payments recorded.</p>
+{% endif %}
+
+{% if fees_on %}
+<form method="post" class="admin-form" style="margin-top:22px"
+      data-busy="Recording…"
+      action="{{ url_for('admin_member_payment', member_id=member.id) }}">
+  <h2 class="admin-stats-head" style="margin-top:0">Record a payment</h2>
+  {#- Cash handed over at the centre, a bank transfer, a cheque. A card
+      payment records itself when Stripe confirms it, so it is not on
+      this list — but it produces exactly the same row, and the member's
+      status moves in exactly the same way. -#}
+  <p class="admin-sub">For money paid at the centre or into the bank. A
+    card payment records itself. <b>Every entry here is audit-logged with
+    your name</b>, because this is a record that money changed hands with
+    nothing else to check it against.</p>
+  <div class="field-row">
+    <div class="field">
+      <label for="method">How was it paid? *</label>
+      <select id="method" name="method" required>
+        <option value="">Choose…</option>
+        {% for key, label in methods %}
+          {% if key in manual_methods %}<option value="{{ key }}">{{ label }}</option>{% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="amount">Amount *</label>
+      <input type="number" id="amount" name="amount" class="money" required
+             step="0.01" min="0" max="1000" inputmode="decimal"
+             value="{{ '%.2f'|format(fee_pence / 100) }}">
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field">
+      <label for="received_on">Date received *</label>
+      <input type="date" id="received_on" name="received_on" required
+             max="{{ today.isoformat() }}" value="{{ today.isoformat() }}">
+    </div>
+    <div class="field">
+      <label for="period_end_year">Membership year it covers *</label>
+      <select id="period_end_year" name="period_end_year" required>
+        {% for y in period_years %}
+        <option value="{{ y }}" {{ 'selected' if y == this_period }}>Year to 30 September {{ y }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="field">
+    <label for="received_by">Who took the payment (optional)</label>
+    <input type="text" id="received_by" name="received_by" maxlength="120"
+           placeholder="e.g. the treasurer's name">
+  </div>
+  <button class="btn btn-green" type="submit">Record payment</button>
+</form>
+{% endif %}
+
+<h2 class="admin-stats-head">Membership</h2>
+<div class="admin-form">
+  {#- The manual states. Nothing derived from payments is written
+      anywhere, so setting one of these is the last word until somebody
+      changes it back — a suspended member does not quietly become
+      overdue when September passes. -#}
+  {% if member.standing %}
+  <p class="admin-sub">This member is <b>{{ member.status_label|lower }}</b>,
+    which is a decision somebody made rather than anything the payment
+    dates worked out. Reinstating puts them back on the ordinary footing
+    and their payment history — which has not been touched — decides
+    again.</p>
+  <form method="post" style="display:inline"
+        action="{{ url_for('admin_member_standing', member_id=member.id) }}">
+    <input type="hidden" name="standing" value="">
+    <button class="btn btn-green" type="submit">Reinstate</button>
+  </form>
+  {% else %}
+  <div class="admin-quick">
+    <form method="post"
+          action="{{ url_for('admin_member_standing', member_id=member.id) }}"
+          onsubmit="return confirm('Suspend this member? They stay a member and come off the due and overdue lists until reinstated.');">
+      <input type="hidden" name="standing" value="suspended">
+      <input type="text" name="standing_note" maxlength="200"
+             placeholder="Reason (optional)" style="max-width:20rem">
+      <button class="btn btn-ghost" type="submit">Suspend</button>
+    </form>
+  </div>
+  <div class="admin-quick" style="margin-top:12px">
+    <form method="post"
+          action="{{ url_for('admin_member_standing', member_id=member.id) }}"
+          onsubmit="return confirm('Record this member as having left? The record and its payments are kept for the accounts.');">
+      <input type="hidden" name="standing" value="left">
+      <input type="text" name="standing_note" maxlength="200"
+             placeholder="Note (optional)" style="max-width:20rem">
+      <button class="btn btn-ghost" type="submit">Record as left</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <hr style="margin:22px 0;border:none;border-top:1px solid var(--line)">
+  <p class="admin-sub"><b>Deleting is for a data-protection erasure
+    request, or a record entered by mistake.</b> The person goes; their
+    payments stay, with the names taken off them, so the treasurer's
+    accounts still add up. If the payments were entered in error, delete
+    those first — they were never real money.</p>
+  <form method="post"
+        action="{{ url_for('admin_member_delete', member_id=member.id) }}"
+        onsubmit="return confirm('Delete {{ member.name }}? The person is removed. Their {{ member.payments|length }} payment record(s) are KEPT for the accounts with the personal details stripped off. This cannot be undone.');">
+    <button class="table-link danger" type="submit">Delete this member</button>
+  </form>
+</div>
+{% endblock %}

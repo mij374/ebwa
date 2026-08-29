@@ -53,6 +53,8 @@ NOT_LINKED = {
     "/sitemap.xml": "for crawlers — and it lists the pages itself",
     "/donate/success": "Stripe returns people here after paying",
     "/donate/cancelled": "Stripe returns people here if they back out",
+    "/membership/paid": "Stripe returns people here after paying a "
+                        "membership fee",
 }
 
 failures = []
@@ -103,7 +105,12 @@ with app.app_context():
         db.session.add(Block(group=group, key=key, label=label, kind=kind,
                              value=value))
     for n, _l, _d, default in FEATURES:
-        db.session.add(FeatureFlag(name=n, enabled=default))
+        # ON, not `default`: this file asks whether every public page
+        # can be REACHED, so every flagged page has to be on the site
+        # while it looks. membership_fees ships off, and a page that is
+        # 404ing cannot fail a reachability check — it would pass by
+        # being absent, which is the one result worth nothing here.
+        db.session.add(FeatureFlag(name=n, enabled=True))
     # one row per module, so every listing has something to show
     ev = Event()
     ev.title, ev.slug = "Community iftar", "community-iftar"

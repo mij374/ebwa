@@ -138,6 +138,76 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-29 — Membership fees and renewals
+
+**TWO NEW TABLES AND ONE NEW BLOCK. No ALTER TABLE.**
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app init-db          # creates member + membership_payment,
+                                 # and seeds the fee-terms block
+flask --app app check-schema     # must say 27 tables, all present
+sudo systemctl restart ebwa
+```
+
+`check-schema` on a database that has not had `init-db` names both
+tables and exits 1, so a missed step is a failed check rather than a 500
+for every visitor.
+
+### The seventeen existing members — run ONCE, by hand
+
+```bash
+flask --app app seed-members
+```
+
+**Not part of `init-db`, deliberately.** `init-db` seeds fixtures and is
+idempotent by design; these are seventeen real people, and a deploy that
+re-ran `init-db` must never resurrect a member somebody deliberately
+deleted. The command skips anybody already on the roll, so a second run
+adds nothing, and it refuses outright if members already exist unless
+you pass `--force`.
+
+**They arrive with no payments and no join date**, and their status
+reads **"No payment recorded"** — not lapsed, which would accuse real
+members of owing money this system has never seen, and not current,
+which would claim they had paid when nobody knows. The dashboard asks
+somebody to resolve it. That is the intended state on day one.
+
+### The feature flag is OFF and nothing changes until it is on
+
+`membership_fees` ships **off**. Until a super admin switches it on:
+no public payment page, no fee settings, no renewal chasing on the
+dashboard, and no "Record a payment" button. The member records, their
+payment history, the treasurer's report and the exports are all
+reachable either way — a payment already taken is part of the accounts,
+not a feature.
+
+### Before switching it on
+
+1. **Set the fee** on Settings → Membership fees (it defaults to £10)
+   and check the grace period (30 days, taking it to 30 October).
+2. **The terms page must say fees are non-refundable.** The payment form
+   says it already, from an editable block; the terms are EBWA's own
+   words and the dashboard will nag until they mention refunds.
+3. **Stripe must be configured** — the same keys and the same webhook as
+   donations. No new Stripe setup: membership uses the existing
+   integration, and the webhook now completes membership payments as
+   well as donations.
+
+### If it is ever switched back off
+
+Nothing is deleted and nothing is hidden in the admin. A payment already
+in flight still completes: the webhook is deliberately not gated on the
+flag, because taking somebody's money and recording nothing is worse
+than the feature being on for another minute.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## f9164af — 2026-08-28 — "How to add a domain" on Settings
 
 **NO SCHEMA CHANGE, NO NEW PACKAGE, NOTHING TO RUN.** `git pull` and

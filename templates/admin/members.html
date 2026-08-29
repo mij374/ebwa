@@ -1,0 +1,68 @@
+{% extends "admin/base_admin.html" %}
+{% block content %}
+<div class="admin-head-row">
+  <div>
+    <h1 class="admin-h1">Members</h1>
+    <p class="admin-sub">EBWA's membership roll. Status follows the
+      payments on record, except where somebody has been suspended or has
+      left — those are decisions, and nothing here overwrites them.</p>
+  </div>
+  <div class="admin-quick">
+    <a class="btn btn-ghost" href="{{ url_for('admin_member_renewals') }}">Who has paid</a>
+    <a class="btn btn-green" href="{{ url_for('admin_member_form') }}">Add member</a>
+  </div>
+</div>
+
+{#- The filter row doubles as the count of each state, which is the
+    question a treasurer actually opens this page with. -#}
+<div class="tab-row">
+  <a class="tab {{ 'active' if not view }}"
+     href="{{ url_for('admin_members') }}">Everyone ({{ total }})</a>
+  {% for name in statuses %}
+    {% if counts.get(name) %}
+    <a class="tab {{ 'active' if view == name }}"
+       href="{{ url_for('admin_members', status=name) }}">{{ labels[name] }} ({{ counts[name] }})</a>
+    {% endif %}
+  {% endfor %}
+</div>
+
+{% if rows %}
+<div class="table-scroll">
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th>Name</th><th>Contact</th><th>Joined</th><th>Status</th>
+      <th>Paid up to</th><th><span class="visually-hidden">Actions</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in rows %}
+    <tr>
+      <td><b>{{ m.name }}</b>
+        {% if m.standing_note %}<span class="admin-sub" style="display:block;font-size:13px">{{ m.standing_note }}</span>{% endif %}
+      </td>
+      <td>{% if m.email %}<a href="mailto:{{ m.email }}">{{ m.email }}</a>{% endif %}
+        {% if m.phone %}<span style="display:block">{{ m.phone }}</span>{% endif %}
+      </td>
+      <td class="nowrap">{{ m.joined_on.strftime('%d %b %Y') if m.joined_on else '—' }}</td>
+      <td><span class="pill pill-{{ pills[m.status] }}">{{ m.status_label }}</span></td>
+      <td class="nowrap">{{ m.paid_up_to.strftime('%d %b %Y') if m.paid_up_to else '—' }}</td>
+      <td class="nowrap"><a class="table-link" href="{{ url_for('admin_member', member_id=m.id) }}">Open</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-sub">
+  {% if view %}Nobody is in that state at the moment.
+  {% else %}No members yet. Add one, or approve a membership application.
+  {% endif %}
+</p>
+{% endif %}
+
+<p style="margin-top:20px">
+  <a class="btn btn-ghost" data-busy="Building the CSV…" data-busy-restore="8000"
+     href="{{ url_for('admin_members_csv') }}">Export CSV</a>
+</p>
+{% endblock %}

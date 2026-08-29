@@ -250,9 +250,17 @@ check("sitemap lists every flagged page while on",
                                  "/membership", "/collections/seaside-trip")))
 
 # ---- switch every flagged module off
+# TOGGLE ONLY WHAT IS ON. A blind toggle of everything assumes every
+# flag starts enabled, which stopped being true the day one shipped off
+# by default — and it switched that one ON at the very moment this
+# section is proving they are all off.
 for name, _label, _desc, _default in FEATURES:
+    with app.app_context():
+        on = FeatureFlag.query.filter_by(name=name).first().enabled
+    if not on:
+        continue
     r = client.post("/admin/features/%s/toggle" % name)
-    check("super admin toggles %s -> 302" % name, r.status_code == 302,
+    check("super admin toggles %s off -> 302" % name, r.status_code == 302,
           str(r.status_code))
 with app.app_context():
     check("all flags now off",

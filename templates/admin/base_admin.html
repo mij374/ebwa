@@ -37,6 +37,10 @@
       <a href="{{ url_for('admin_messages') }}" class="{{ 'active' if request.endpoint and 'message' in request.endpoint }}">Enquiries{% if unread_messages %} <span class="nav-badge">{{ unread_messages }}</span>{% endif %}</a>
       <a href="{{ url_for('admin_subscribers') }}" class="{{ 'active' if request.endpoint and 'subscriber' in request.endpoint }}">Subscribers</a>
       {% if features.membership_form %}<a href="{{ url_for('admin_membership') }}" class="{{ 'active' if request.endpoint and 'membership' in request.endpoint }}">Membership</a>{% endif %}
+      {#- NOT behind a flag. Member records exist whether or not the
+          public form is open and whether or not fees are switched on;
+          hiding the link would strand the roll. -#}
+      <a href="{{ url_for('admin_members') }}" class="{{ 'active' if request.endpoint and 'member' in request.endpoint and 'membership' not in request.endpoint }}">Members</a>
       {% if features.donations %}
       <a href="{{ url_for('admin_campaigns') }}" class="{{ 'active' if request.endpoint and 'campaign' in request.endpoint }}">Collections</a>
       <a href="{{ url_for('admin_gift_aid') }}" class="{{ 'active' if request.endpoint and 'gift_aid' in request.endpoint }}">Gift Aid</a>

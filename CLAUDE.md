@@ -2103,6 +2103,87 @@ This is the most sensitive module. Follow these rules exactly:
   minutes rule (nothing via static URLs).
 - Stripe webhooks must be verified (signature) and idempotent.
 
+## Membership fees and renewals
+
+Behind the `membership_fees` flag, which ships OFF. `Member` and
+`MembershipPayment` are the two tables; `MembershipApplication` is
+unchanged and feeds them.
+
+- **ONE FUNCTION OWNS THE CALENDAR.** `membership_year_for(date)` answers
+  "which September is this covered up to?" and both a join date and a
+  payment date ask it, which is why the client's early-join rule needs no
+  special case anywhere: on or after 1 June is the FOLLOWING September.
+  Join 1 June and the window opening three months later is not yours.
+  - The deadline is **30 September** — September has 30 days, and
+    `RENEWAL_DEADLINE_DAY` says so where somebody might otherwise type
+    31 and get a ValueError in a year's time.
+  - Grace is a number of DAYS after the deadline (default 30, to 30
+    October), because "a month" is a date somebody has to work out.
+  - The renewal WINDOW is not settable. It is in the constitution, not
+    in a preference, and a box for it is a box somebody moves by
+    accident. The fee and the grace period are settable.
+- **STATUS IS DERIVED AND NEVER STORED, AND THAT IS THE WHOLE ANSWER TO
+  "how do the manual and automatic statuses avoid fighting?"** There is
+  no column for either of them to overwrite:
+  - `Member.standing` holds ONLY a human decision — `""`, `suspended` or
+    `left`. Nothing else ever writes it.
+  - `derived_member_status()` is a function of the payment rows and the
+    date, and writes nothing anywhere.
+  - `Member.status` returns `standing` when it is set and consults the
+    derivation otherwise. A suspended member therefore stays suspended
+    through as many Septembers as it takes, and reinstating hands the
+    answer back to a payment history that was never touched.
+  - **Never add a cached status column.** The moment one exists,
+    something writes it on a schedule and a suspended member becomes
+    overdue. The filter on the member list runs in PYTHON for exactly
+    this reason — see `members_in_order()` for the trade and when it
+    would stop being the right one.
+- **A MEMBER WITH NO PAYMENT AT ALL IS `unknown`, NOT `lapsed`.** The
+  seventeen existing members start that way. Lapsed would be an
+  accusation the data does not support; current would be a reassurance
+  it does not support either. `unknown` is out of the chasing lists —
+  you cannot be overdue on a debt nobody recorded — and on the dashboard
+  as something to resolve.
+- **CASH AND CARD MUST PRODUCE THE SAME RESULT.** Both write one
+  `MembershipPayment` with `status` complete and a `period_end_year`
+  from the same helper; the method is the only difference. The client
+  said online only, and a treasurer will be handed cash at the centre
+  regardless — a paid/due list that cannot record it is wrong within a
+  month. Every manual entry is audit-logged with the admin's email and
+  with who was handed the money.
+- **GIFT AID CANNOT ATTACH, AND THE ENFORCEMENT IS THAT THERE IS
+  NOWHERE TO PUT IT.** `MembershipPayment` has no gift_aid column, no
+  declaration name, no postcode. A subscription confers benefits, so it
+  is not a gift — the same rule as an event place fee. The Gift Aid
+  claim reads `Payment` and only `Payment`. **Do not unify the two
+  tables**; reusing Stripe means reusing the checkout call and the
+  webhook, not the row.
+- **DELETING A MEMBER KEEPS THEIR PAYMENTS, UNLINKED.** Financial
+  records generally have to be kept six years and personal data must not
+  outlive its purpose; those pull apart only if a payment has to carry a
+  name, so it does not. `member_id` goes NULL and the names come off.
+  A record entered in ERROR is the other reason to delete, and its
+  answer is to delete the payments individually first — one route rather
+  than two buttons, and it fails safe, because the version that guesses
+  wrong destroys accounts nobody can rebuild.
+- **What the flag covers** (`membership_fees_on()` says it in full, at
+  the place it is enforced): it hides the things that ASK for money —
+  the public page, the fee settings, the renewal nagging, the record-a-
+  payment control. It hides NOTHING that already exists — the roll, a
+  member's page, payment history, the treasurer's report, the exports.
+  Switching a feature off hides a module; it does not strand content,
+  and a payment somebody has made is a fact about the accounts.
+  - **The Stripe webhook is not gated on it**, exactly as the donations
+    webhook is not: somebody mid-checkout when the flag went off has
+    already been charged.
+- **`membership_fees` and `membership_form` are INDEPENDENT and all four
+  combinations are meaningful**, which is why neither reads the other.
+  Applications open with no fees is today's behaviour and the default;
+  fees on with applications closed is EBWA taking renewals while the
+  roll is full, and it must work. Approving an application into a member
+  ignores the form flag entirely — an application already received still
+  has to be processed, the same rule as the unread-enquiry check.
+
 ## Current state / roadmap
 
 Built: pages + Block CMS, events (slug pages, upcoming/past), gallery,
