@@ -55,6 +55,8 @@ NOT_LINKED = {
     "/donate/cancelled": "Stripe returns people here if they back out",
     "/membership/paid": "Stripe returns people here after paying a "
                         "membership fee",
+    "/membership/applied": "Stripe returns people here after paying the "
+                           "fee with a membership application",
 }
 
 failures = []

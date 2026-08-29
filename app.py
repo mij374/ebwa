@@ -888,6 +888,12 @@ class MembershipApplication(db.Model):
     lives_works_enfield = db.Column(db.Boolean, nullable=False, default=False)
     fee_confirmed = db.Column(db.Boolean, nullable=False, default=False)
     status = db.Column(db.String(20), default="new")  # see MEMBERSHIP_STATUSES
+    # WHO DECIDED, WHEN, AND WHY. A decline now has money attached to it,
+    # so "the committee said no" has to be a record rather than a status
+    # somebody changed in a dropdown one afternoon.
+    decided_by = db.Column(db.String(200), default="")
+    decided_at = db.Column(db.DateTime)
+    decision_note = db.Column(db.Text, default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -917,6 +923,17 @@ MEMBERSHIP_GRACE_MIN, MEMBERSHIP_GRACE_MAX = 0, 365
 # than placeholder text because it is a term of the payment and the page
 # must not be able to go live without it — but editable, because it is
 # EBWA's statement to make and not Netbus's.
+# TWO DIFFERENT PROMISES, so two blocks. A renewal is non-refundable
+# full stop; an application fee is refunded if the committee says no,
+# and a form that says only "non-refundable" is claiming more than the
+# policy allows. DRAFTED FOR EBWA TO APPROVE — the wording is theirs to
+# settle, and the settings page says so.
+MEMBERSHIP_APPLY_TERMS_KEY = "membership_apply_terms"
+MEMBERSHIP_APPLY_TERMS_DEFAULT = (
+    "The £10 membership fee is payable when you apply and is "
+    "non-refundable once your membership begins. If the committee does "
+    "not approve your application, we refund your fee in full.")
+
 MEMBERSHIP_TERMS_KEY = "membership_fee_terms"
 MEMBERSHIP_TERMS_DEFAULT = (
     "Membership fees are non-refundable. Paying covers your membership "
@@ -940,6 +957,14 @@ PAYMENT_METHODS = (
 )
 PAYMENT_METHOD_LABELS = dict(PAYMENT_METHODS)
 MANUAL_METHODS = tuple(k for k, _l in PAYMENT_METHODS if k != "card")
+
+# Where a payment stands with a refund. `due` is the state that generates
+# a complaint — the board has said no and the money is still ours — so it
+# is the one the dashboard watches for.
+REFUND_STATUSES = ("none", "due", "refunded")
+REFUND_LABELS = {"none": "Not refundable",
+                 "due": "Refund owed",
+                 "refunded": "Refunded"}
 
 # TWO KINDS OF STATUS, AND THEY LIVE IN DIFFERENT PLACES ON PURPOSE.
 #
@@ -1032,8 +1057,13 @@ class Member(db.Model):
         None when nothing has ever been recorded — which is not the same
         as nought, and the difference is the whole of `unknown`.
         """
+        # A refunded payment buys nothing. It can only happen to an
+        # application that was declined, and a declined application
+        # never becomes a member — but the rule belongs here rather than
+        # resting on that, because "this payment covers you" and "this
+        # money was returned" must not be able to both be true.
         years = [p.period_end_year for p in self.payments
-                 if p.status == "complete"]
+                 if p.status == "complete" and p.refund_status == "none"]
         return max(years) if years else None
 
     @property
@@ -1088,6 +1118,27 @@ class MembershipPayment(db.Model):
     recorded_by = db.Column(db.String(200), default="")
     note = db.Column(db.String(200), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # THE FEE IS PAID WHEN SOMEBODY APPLIES, so a payment can arrive
+    # before there is any member for it to belong to. It hangs on the
+    # application until approval, which sets `member_id` on this same
+    # row — the money keeps ONE identity from the moment it is taken,
+    # rather than being re-keyed into a second record that could
+    # disagree with the first.
+    application_id = db.Column(db.Integer,
+                               db.ForeignKey("membership_application.id"))
+    application = db.relationship(
+        "MembershipApplication",
+        backref=db.backref("payments",
+                           order_by="MembershipPayment.id.desc()"))
+
+    # A DECLINED APPLICATION IS REFUNDED — the client's decision. The app
+    # RECORDS that, it does not issue it: see admin_application_refund()
+    # for why the boundary is where it is.
+    refund_status = db.Column(db.String(20), nullable=False, default="none")
+    refunded_on = db.Column(db.Date)
+    refunded_by = db.Column(db.String(200), default="")
+    refund_note = db.Column(db.String(200), default="")
 
     __table_args__ = (
         db.CheckConstraint("amount_pence >= 0",
@@ -1385,6 +1436,37 @@ def derived_member_status(covered_to_year, today=None):
     if today <= membership_grace_ends(covered_to_year):
         return "overdue"                    # cover expired, inside grace
     return "lapsed"
+
+
+def membership_income_query():
+    """Payments that are membership income. SAID ONCE, ON PURPOSE.
+
+    Four things can be sitting in this table and only two of them are
+    money EBWA has earned:
+
+      * a member's payment (`member_id` set) — income;
+      * an application's payment that was approved, which puts
+        `member_id` on the same row — income;
+      * an application's payment still awaiting a decision — money EBWA
+        is HOLDING, not money it has earned, and if the board says no it
+        goes back;
+      * a payment marked for refund or already refunded — not income,
+        whatever else is true of it.
+
+    A payment left behind by an erased member has neither an application
+    nor a member and IS counted: it was real income once, and retaining
+    it anonymised so the accounts still add up is the whole reason it
+    survived the erasure.
+
+    Every figure that says "collected" comes through here, so a payment
+    against a declined application cannot appear in one by being
+    forgotten in a query somebody wrote later.
+    """
+    return MembershipPayment.query.filter(
+        MembershipPayment.status == "complete",
+        MembershipPayment.refund_status == "none",
+        db.or_(MembershipPayment.member_id.isnot(None),
+               MembershipPayment.application_id.is_(None)))
 
 
 def membership_fee_pence():
@@ -1997,7 +2079,7 @@ HIDDEN_BLOCK_KEYS = (ABOUT_LAYOUT_KEY, "about_video_url",
                      STATS_REPORT_KEY, STATS_REPORT_TO_KEY,
                      STATS_TARGET_KEY, STATS_RAW_DAYS_KEY,
                      MEMBERSHIP_FEE_KEY, MEMBERSHIP_GRACE_KEY,
-                     MEMBERSHIP_TERMS_KEY,
+                     MEMBERSHIP_TERMS_KEY, MEMBERSHIP_APPLY_TERMS_KEY,
                      ) + tuple(
     MOTION_ROWS["testimonials"][k]
     for k in ("mode_key", "step_key", "glide_key", "drift_key"))
@@ -5749,6 +5831,11 @@ def membership():
             flash("Please confirm all four membership declarations — they "
                   "are required by the EBWA constitution.", "error")
         else:
+            # THE APPLICATION IS SAVED BEFORE ANYBODY IS SENT TO STRIPE,
+            # exactly as a donation is. Somebody who closes the tab on
+            # the payment page has still applied, and EBWA can see them
+            # and chase the fee — the alternative loses the application
+            # entirely and the applicant believes they have applied.
             application = MembershipApplication()
             application.name = name
             application.email = email
@@ -5761,10 +5848,63 @@ def membership():
             application.fee_confirmed = True
             db.session.add(application)
             db.session.commit()
-            flash("Thank you — we've received your application and will "
-                  "be in touch soon.", "ok")
-            return redirect(url_for("membership"))
-    return render_template("membership.html")
+
+            # THE FLAG FALLBACK. With fees switched off the form behaves
+            # exactly as it did before there was a fee: no payment, no
+            # Stripe, the same thank-you. It does NOT 404 — the
+            # application form is its own feature and works without a
+            # fee, which is how this site ran until today.
+            if not membership_fees_on():
+                flash("Thank you — we've received your application and "
+                      "will be in touch soon.", "ok")
+                return redirect(url_for("membership"))
+
+            fee = membership_fee_pence()
+            if fee <= 0:
+                # A fee of nothing is not a payment to take.
+                flash("Thank you — we've received your application and "
+                      "will be in touch soon.", "ok")
+                return redirect(url_for("membership"))
+            try:
+                session = stripe.checkout.Session.create(
+                    mode="payment",
+                    line_items=[{"price_data": {
+                        "currency": "gbp",
+                        "unit_amount": fee,
+                        "product_data": {
+                            "name": "EBWA membership application fee"},
+                    }, "quantity": 1}],
+                    customer_email=email,
+                    success_url=url_for("membership_applied", _external=True),
+                    cancel_url=url_for("membership", _external=True),
+                )
+            except Exception:
+                # The application is already saved, so this is a failure
+                # to take money and not a failure to apply. Say so.
+                flash("We have your application, but we could not start "
+                      "the payment. Please contact the centre and we will "
+                      "take the fee another way.", "error")
+                return redirect(url_for("membership"))
+            db.session.add(MembershipPayment(
+                application_id=application.id,
+                amount_pence=fee,
+                period_end_year=membership_period_now(),
+                method="card", received_on=uk_today(),
+                status="pending", stripe_session_id=session.id))
+            db.session.commit()
+            return redirect(session.url, code=303)
+    return render_template(
+        "membership.html", fees_on=membership_fees_on(),
+        fee=membership_fee_pence(),
+        apply_terms=blocks_for("membership").get(
+            MEMBERSHIP_APPLY_TERMS_KEY, MEMBERSHIP_APPLY_TERMS_DEFAULT))
+
+
+@app.route("/membership/applied")
+@feature_required("membership_fees")
+def membership_applied():
+    """Where Stripe returns somebody who has just applied and paid."""
+    return render_template("membership_applied.html")
 
 
 @app.route("/membership/pay", methods=["GET", "POST"])
@@ -6489,6 +6629,20 @@ def dashboard_attention(flags):
                     % _plural(len(overdue), "member"),
                     url_for("admin_member_renewals"), "See who",
                     level="blocker" if len(overdue) > 5 else "todo")
+        # DECLINED, AND THE MONEY IS STILL OURS. This is the item worth
+        # having above all the others here: an applicant who was turned
+        # down and not refunded will ring up, and they will be right to.
+        # It ignores nothing and it does not go quiet — there is no
+        # threshold below which one unreturned fee is acceptable.
+        owed = (MembershipPayment.query
+                .filter_by(refund_status="due").all())
+        if owed:
+            add("%s declined with the fee not yet returned — %s owed."
+                % (_plural(len(owed), "application"),
+                   pounds_filter(sum(p.amount_pence for p in owed))),
+                url_for("admin_membership"), "Refund them",
+                level="blocker")
+
         unknown = report["groups"]["unknown"]
         if unknown:
             # Not an accusation: nobody knows whether these have paid,
@@ -8455,8 +8609,13 @@ def admin_membership():
     rows = (MembershipApplication.query
             .order_by(MembershipApplication.created_at.desc(),
                       MembershipApplication.id.desc()).all())
+    log_action("view", entity=("MembershipApplication", None),
+               summary="Viewed the membership applications (%d)." % len(rows))
     return render_template("admin/membership.html", rows=rows,
-                           statuses=MEMBERSHIP_STATUSES)
+                           statuses=MEMBERSHIP_STATUSES,
+                           fees_on=membership_fees_on(),
+                           refund_labels=REFUND_LABELS,
+                           today=uk_today())
 
 
 @app.route("/admin/membership.csv")
@@ -8839,8 +8998,8 @@ def renewal_report(today=None):
             "grace_ends": membership_grace_ends(period),
             "in_window": in_renewal_window(today),
             "collected": sum(
-                p.amount_pence for p in MembershipPayment.query
-                .filter_by(period_end_year=period, status="complete").all())}
+                p.amount_pence for p in membership_income_query()
+                .filter(MembershipPayment.period_end_year == period).all())}
 
 
 @app.route("/admin/members/renewals")
@@ -8925,6 +9084,16 @@ def admin_application_to_member(m_id):
         flash("%s is already a member — this application was used to "
               "create their record." % existing.name, "error")
         return redirect(url_for("admin_member", member_id=existing.id))
+    if application.status == "declined":
+        # The template hides the button on a declined row; the route has
+        # to refuse as well, or a stale tab makes a member of somebody
+        # the board turned down and whose fee is on its way back.
+        flash("This application was declined%s. Change its status back "
+              "first if the committee has changed its mind — and check "
+              "whether the fee was refunded before doing so."
+              % (" by %s" % application.decided_by
+                 if application.decided_by else ""), "error")
+        return redirect(url_for("admin_membership"))
     member = Member(
         name=application.name, email=application.email,
         phone=application.phone, address=application.address,
@@ -8936,14 +9105,153 @@ def admin_application_to_member(m_id):
         application_id=application.id,
         notes=application.reason)
     application.status = "approved"
+    application.decided_by = current_actor()[1]
+    application.decided_at = datetime.utcnow()
     db.session.add(member)
     db.session.commit()
+
+    # THE MONEY KEEPS ONE IDENTITY. The fee was taken against the
+    # application; approval sets `member_id` on those same rows rather
+    # than writing a second payment, so there is never a pair of records
+    # for one £10 that could disagree about whether it was paid.
+    carried = [pay for pay in application.payments
+               if pay.status == "complete" and pay.refund_status == "none"]
+    for pay in carried:
+        pay.member_id = member.id
+    db.session.commit()
+    if carried:
+        log_action("edit", entity=member,
+                   summary="Carried %s from %s's application onto their "
+                           "member record (year to 30 September %d)."
+                           % (_plural(len(carried), "payment"), member.name,
+                              carried[0].period_end_year))
+
     log_action("create", entity=member,
                summary="Created the member record for %s from their "
                        "application." % member.name)
-    flash("%s is now a member. Their declarations came across with them; "
-          "record their first payment when it arrives." % member.name, "ok")
+    if carried:
+        flash("%s is now a member, paid up to %s. Their fee and their "
+              "declarations came across with them."
+              % (member.name,
+                 member.paid_up_to.strftime("%d %B %Y")
+                 if member.paid_up_to else "—"), "ok")
+    else:
+        flash("%s is now a member. Their declarations came across with "
+              "them; record their first payment when it arrives."
+              % member.name, "ok")
     return redirect(url_for("admin_member", member_id=member.id))
+
+
+@app.route("/admin/membership/<int:m_id>/decline", methods=["POST"])
+@login_required
+def admin_application_decline(m_id):
+    """The board said no. Record who, when, why — and what the money does.
+
+    A decline used to be a value in a dropdown. It has money attached to
+    it now, so it is a decision with a record: who made it, when, the
+    reason in their own words, and — where a fee was actually taken — a
+    refund marked as OWED from this moment, which is what the dashboard
+    then watches for.
+    """
+    application = db.session.get(MembershipApplication, m_id) or abort(404)
+    reason = request.form.get("reason", "").strip()
+    if Member.query.filter_by(application_id=application.id).first():
+        flash("This application has already been made into a member. "
+              "Suspend or end that membership instead of declining the "
+              "application it came from.", "error")
+        return redirect(url_for("admin_membership"))
+
+    application.status = "declined"
+    application.decided_by = current_actor()[1]
+    application.decided_at = datetime.utcnow()
+    application.decision_note = reason
+    owed = [pay for pay in application.payments
+            if pay.status == "complete" and pay.refund_status == "none"]
+    for pay in owed:
+        pay.refund_status = "due"
+    db.session.commit()
+    log_action("status_change", entity=application,
+               summary="Declined the membership application from %s.%s%s"
+                       % (application.name,
+                          " Reason recorded." if reason else "",
+                          " %s owed back to them."
+                          % pounds_filter(sum(p.amount_pence for p in owed))
+                          if owed else " No fee had been taken."))
+    if owed:
+        flash("Application declined. %s is owed back — refund it in "
+              "Stripe, then record it here so the dashboard stops asking."
+              % pounds_filter(sum(p.amount_pence for p in owed)), "ok")
+    else:
+        flash("Application declined. No fee had been taken, so there is "
+              "nothing to refund.", "ok")
+    return redirect(url_for("admin_membership"))
+
+
+@app.route("/admin/membership/payments/<int:payment_id>/refunded",
+           methods=["POST"])
+@login_required
+def admin_application_refund(payment_id):
+    """Record that a refund HAS BEEN MADE. This does not make one.
+
+    THE APP REFLECTS REFUNDS, IT DOES NOT ISSUE THEM, and that stays true
+    even here where the case is as bounded as it gets — one payment, one
+    known amount, one trigger. The reasoning, so nobody has to rediscover
+    it:
+
+      * a refund is money leaving, outward and irreversible, which is the
+        same class of action as every other thing this admin deliberately
+        refuses to do (no restart button, no shell, no service control).
+        The amount being small does not change the class;
+      * a button that both declines AND refunds is one misclick from
+        refunding somebody who was actually approved. The blast radius
+        per click is £10; the click is very easy;
+      * Stripe's own dashboard already has the permissions, the two-person
+        controls and the record of who refunded what. Reimplementing that
+        here would be a worse version of it;
+      * the real argument for a button is that refunds otherwise sit
+        unactioned — and that is answered by the dashboard item and by
+        this form, not by moving the money from a CMS.
+
+    If EBWA finds refunds sitting for weeks anyway, revisit it: the
+    change would be super-admin only, rate limited, typed-confirmation,
+    and guarded on `refund_status` so it can never fire twice.
+    """
+    payment = db.session.get(MembershipPayment, payment_id) or abort(404)
+    if payment.refund_status != "due":
+        flash("That payment is not waiting on a refund.", "error")
+        return redirect(url_for("admin_membership"))
+    when = (request.form.get("refunded_on") or "").strip()
+    try:
+        refunded_on = date.fromisoformat(when) if when else uk_today()
+    except ValueError:
+        refunded_on = None
+    note = request.form.get("refund_note", "").strip()[:200]
+    if refunded_on is None:
+        flash("Enter the date the refund was made.", "error")
+        return redirect(url_for("admin_membership"))
+    if refunded_on > uk_today():
+        flash("That date is in the future — enter the day the refund was "
+              "actually made.", "error")
+        return redirect(url_for("admin_membership"))
+
+    payment.refund_status = "refunded"
+    payment.refunded_on = refunded_on
+    payment.refunded_by = current_actor()[1]
+    payment.refund_note = note
+    db.session.commit()
+    # Money moving is audit-logged like every other money action, with
+    # the name of whoever says it happened — this is a record of a
+    # refund, not proof of one, and the trail is what makes it checkable
+    # against Stripe.
+    log_action("edit", entity=payment,
+               summary="Recorded a refund of %s to %s, made on %s%s."
+                       % (pounds_filter(payment.amount_pence),
+                          payment.application.name if payment.application
+                          else "a former applicant",
+                          refunded_on.strftime("%d %B %Y"),
+                          " (%s)" % note if note else ""))
+    flash("Refund recorded. Thank you — that closes the application.", "ok")
+    return redirect(url_for("admin_membership"))
 
 
 # ---------------------------------------------------------------- admin: audit
@@ -9222,6 +9530,8 @@ def admin_features():
         membership_grace=membership_grace_days(),
         membership_terms=blocks_for("membership").get(
             MEMBERSHIP_TERMS_KEY, MEMBERSHIP_TERMS_DEFAULT),
+        membership_apply_terms=blocks_for("membership").get(
+            MEMBERSHIP_APPLY_TERMS_KEY, MEMBERSHIP_APPLY_TERMS_DEFAULT),
         membership_deadline=renewal_deadline(membership_period_now()),
         membership_grace_ends=membership_grace_ends(
             membership_period_now()),
@@ -9738,6 +10048,11 @@ def admin_membership_fees_save():
         flash("The grace period must be between %d and %d days."
               % (MEMBERSHIP_GRACE_MIN, MEMBERSHIP_GRACE_MAX), "error")
         return back
+    apply_terms = request.form.get("apply_terms", "").strip()
+    if not apply_terms:
+        flash("The application form has to say what happens to the fee — "
+              "leave the wording as it is, or write your own.", "error")
+        return back
     terms = request.form.get("terms", "").strip()
     if not terms:
         # The client requires the non-refundable statement on the form.
@@ -9753,7 +10068,10 @@ def admin_membership_fees_save():
     if _set_block(MEMBERSHIP_GRACE_KEY, str(grace), group="membership"):
         changed.append("the grace period")
     if _set_block(MEMBERSHIP_TERMS_KEY, terms, group="membership"):
-        changed.append("the refund wording")
+        changed.append("the renewal refund wording")
+    if _set_block(MEMBERSHIP_APPLY_TERMS_KEY, apply_terms,
+                  group="membership"):
+        changed.append("the application fee wording")
     db.session.commit()
     log_action("edit", entity=("Block", 0),
                summary="Changed the membership fee settings (%s). The fee "
@@ -9951,6 +10269,8 @@ DEFAULT_BLOCKS = [
     # statement rather than Netbus's.
     ("membership", MEMBERSHIP_TERMS_KEY, "Membership fee terms", "text",
      MEMBERSHIP_TERMS_DEFAULT),
+    ("membership", MEMBERSHIP_APPLY_TERMS_KEY,
+     "Application fee terms", "text", MEMBERSHIP_APPLY_TERMS_DEFAULT),
     # group, key, label, kind, default value
     ("site", "site_phone", "Phone number", "text", "020 8804 4006"),
     ("site", "site_address", "Address", "text", "180 High Street, Ponders End, Enfield EN3 4EU"),

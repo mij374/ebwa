@@ -1057,6 +1057,15 @@ a.admin-stat:focus-visible{outline:3px solid var(--green);outline-offset:2px}
 .admin-stat-alert b{color:var(--red)}
 a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,51,63,.12)}
 .admin-quick{display:flex;gap:14px;flex-wrap:wrap}
+/* The decline reason sits in the row it belongs to. Narrow on purpose:
+   it is a note, not an essay, and the column has three other actions
+   beside it. */
+.decline-form{display:flex;gap:8px;align-items:center}
+.decline-form input{
+  padding:6px 10px;border:1.5px solid var(--line);border-radius:8px;
+  font:inherit;font-size:14px;background:var(--paper);width:7.5rem;
+  min-width:0;
+}
 
 /* ---------- Dashboard: needs attention + recent activity ---------- */
 /* Unpublished work is the one thing on a card worth colouring in. */
@@ -1272,6 +1281,16 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
    the actions column keeps to one line beside it. */
 .msg-cell{width:46%}
 .msg-body{display:block;color:var(--ink-soft);font-size:14.5px;white-space:pre-wrap}
+
+/* What the membership fee costs and what happens to it, above the
+   application form. Tinted rather than bordered: it is the page telling
+   somebody something, not a warning. */
+.apply-fee{
+  background:var(--green-tint);border-radius:12px;padding:18px 22px;
+  margin:26px 0 0;
+}
+.apply-fee p{margin:0 0 10px;font-size:16px;line-height:1.65}
+.apply-fee p:last-child{margin:0;color:var(--ink-soft);font-size:15px}
 
 /* ---------- Busy state, and the gallery's upload progress ----------
    static/js/busy.js swaps a control's label for a message and adds the

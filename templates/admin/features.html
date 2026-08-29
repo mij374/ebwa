@@ -642,7 +642,24 @@
     </div>
   </div>
   <div class="field">
-    <label for="terms">Refund wording, shown on the payment form</label>
+    <label for="apply_terms">Fee wording, shown on the application form</label>
+    <textarea id="apply_terms" name="apply_terms" rows="3" required
+              maxlength="600">{{ membership_apply_terms }}</textarea>
+    {#- The two wordings are different promises and must not be merged:
+        a renewal is non-refundable full stop, an application fee comes
+        back if the committee says no. -#}
+    <small><b>Drafted for EBWA to approve — please check it says what the
+      committee means.</b> The fee is taken when somebody applies, and a
+      declined application is refunded, so this cannot simply say
+      "non-refundable": that would claim more than the policy allows.
+      <br><b>The terms page needs the same exception.</b> Suggested
+      wording to paste there: <em>“Membership fees are non-refundable,
+      with one exception: if the committee does not approve your
+      application, your fee is refunded in full to the card you paid
+      with.”</em></small>
+  </div>
+  <div class="field">
+    <label for="terms">Refund wording, shown on the renewal payment form</label>
     <textarea id="terms" name="terms" rows="3" required
               maxlength="600">{{ membership_terms }}</textarea>
     <small>Membership fees are non-refundable and the payment form has to

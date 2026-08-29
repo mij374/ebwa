@@ -138,6 +138,103 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-08-29 — The fee is paid when somebody applies
+
+**EIGHT NEW COLUMNS AND ONE NEW BLOCK**, but how many you actually run
+depends on whether the entry below this one has been applied here yet.
+**Run `check-schema` and do what it says** — it names the missing columns
+and prints the exact statement for each:
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app check-schema     # names exactly what is missing here
+```
+
+**On a site that has NOT yet applied the entry below**, `member` and
+`membership_payment` do not exist. `init-db` creates them at their
+current shape, columns and all, so only the three on
+`membership_application` need running by hand:
+
+```sql
+ALTER TABLE membership_application ADD COLUMN decided_by VARCHAR(200) DEFAULT '';
+ALTER TABLE membership_application ADD COLUMN decided_at DATETIME;
+ALTER TABLE membership_application ADD COLUMN decision_note TEXT DEFAULT '';
+```
+
+**On a site that HAS applied it** (local), all eight:
+
+```sql
+ALTER TABLE membership_application ADD COLUMN decided_by VARCHAR(200) DEFAULT '';
+ALTER TABLE membership_application ADD COLUMN decided_at DATETIME;
+ALTER TABLE membership_application ADD COLUMN decision_note TEXT DEFAULT '';
+ALTER TABLE membership_payment ADD COLUMN application_id INTEGER;
+ALTER TABLE membership_payment ADD COLUMN refund_status VARCHAR(20) NOT NULL DEFAULT 'none';
+ALTER TABLE membership_payment ADD COLUMN refunded_on DATE;
+ALTER TABLE membership_payment ADD COLUMN refunded_by VARCHAR(200) DEFAULT '';
+ALTER TABLE membership_payment ADD COLUMN refund_note VARCHAR(200) DEFAULT '';
+```
+
+Then, either way:
+
+```bash
+flask --app app init-db          # seeds the application-fee wording block
+flask --app app check-schema     # must be clean before the restart
+sudo systemctl restart ebwa
+```
+
+**What changed.** The £10 is now taken when somebody APPLIES rather than
+after approval. The application is saved before anybody is sent to
+Stripe, so a closed tab loses nothing — it shows in the admin as an
+application with the fee unpaid. The payment hangs on the application
+until approval, which sets `member_id` on that same row: one payment,
+one record, throughout.
+
+**Declines are refunded** — the client's decision. Declining is now its
+own action rather than a value in the status dropdown: it records who
+decided, when, and why, and marks the fee as owed back. The dashboard
+then says so, in red, until somebody records the refund.
+
+**THE WEBSITE DOES NOT MOVE MONEY.** Refund in Stripe, then record it in
+the admin. That is deliberate and it is explained in the code
+(`admin_application_refund`) — a refund is outward and irreversible, and
+this admin does not do those. The recording is what stops the dashboard
+asking and what leaves the audit trail.
+
+### Wording EBWA has to approve before this goes live
+
+The application form now carries a fee promise that is NOT the same as
+the renewal one — a renewal is non-refundable full stop, an application
+fee comes back if the committee says no. Both are editable on Settings →
+Membership fees. The drafted application wording is:
+
+> The £10 membership fee is payable when you apply and is non-refundable
+> once your membership begins. If the committee does not approve your
+> application, we refund your fee in full.
+
+**And the terms page needs the same exception.** Suggested wording, for
+EBWA to approve rather than for us to assume:
+
+> Membership fees are non-refundable, with one exception: if the
+> committee does not approve your application, your fee is refunded in
+> full to the card you paid with.
+
+**Do not switch `membership_fees` on until EBWA has agreed both.** The
+form must not claim more than the policy allows.
+
+### With the flag off
+
+`membership_form` on and `membership_fees` off is the fallback: the
+application form behaves exactly as it did before there was a fee — it
+saves the application, shows the same thank-you, and asks nobody for
+money. It does not 404.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
+---
+
 ## d58d721 — 2026-08-29 — Membership fees and renewals
 
 **TWO NEW TABLES AND ONE NEW BLOCK. No ALTER TABLE.**

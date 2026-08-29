@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Application received — EBWA{% endblock %}
+{% block content %}
+{#- Same nesting as every other public page — see membership_pay.html. -#}
+<section>
+  <div class="wrap" style="max-width:720px">
+    <p class="eyebrow"><span class="bn">ধন্যবাদ</span> Thank you</p>
+    <h1>Thank you — we have your application</h1>
+    <p class="lede">Your membership fee is paid and your application is
+      with our committee. We will be in touch once it has been
+      considered.</p>
+    {#- What happens to the money if the answer is no. Saying it here
+        too, not only on the form they have already left behind: this is
+        the page somebody keeps in their inbox. -#}
+    <p>If the committee is not able to approve your application, your fee
+      is refunded in full.</p>
+    <p>Your receipt comes from Stripe by email. If anything looks wrong,
+      <a href="{{ url_for('contact') }}">let us know</a>.</p>
+    <p><a class="btn btn-green" href="{{ url_for('home') }}">Back to the website</a></p>
+  </div>
+</section>
+{% endblock %}

@@ -3,7 +3,10 @@
 <div class="admin-head-row">
   <div>
     <h1 class="admin-h1">Membership applications</h1>
-    <p class="admin-sub">Applications from the "Become a member" form. Personal data — handle with care.</p>
+    <p class="admin-sub">Applications from the "Become a member" form.
+      Personal data — handle with care.
+      {% if fees_on %}The fee is taken when somebody applies, so an
+      application can arrive paid or unpaid.{% endif %}</p>
   </div>
   <a class="btn btn-ghost" data-busy="Building the CSV…" data-busy-restore="8000"
    href="{{ url_for('admin_membership_csv') }}">Export CSV</a>
@@ -13,22 +16,50 @@
 <div class="table-scroll">
 <table class="admin-table">
   <thead>
-    <tr><th>Applied</th><th>Name</th><th>Contact</th><th>Status</th><th><span class="visually-hidden">Membership</span></th>
+    <tr><th>Applied</th><th>Name</th><th>Contact</th>
+      {% if fees_on %}<th>Fee</th>{% endif %}
+      <th>Status</th><th><span class="visually-hidden">Decision</span></th>
+      <th><span class="visually-hidden">Membership</span></th>
       <th><span class="visually-hidden">Actions</span></th></tr>
   </thead>
   <tbody>
     {% for m in rows %}
+    {%- set paid = m.payments | selectattr('status', 'equalto', 'complete') | list -%}
+    {%- set owed = paid | selectattr('refund_status', 'equalto', 'due') | list -%}
+    {%- set back = paid | selectattr('refund_status', 'equalto', 'refunded') | list -%}
     <tr>
       <td class="nowrap">{{ m.created_at|uk_date }}</td>
       <td>
         <b>{{ m.name }}</b>
         {% if m.address %}<br><small>{{ m.address }}</small>{% endif %}
         {% if m.reason %}<br><small>“{{ m.reason }}”</small>{% endif %}
+        {% if m.decided_at %}
+        <br><small>{{ m.status|capitalize }} by {{ m.decided_by or 'somebody' }},
+          {{ m.decided_at|uk_date }}{% if m.decision_note %} — “{{ m.decision_note }}”{% endif %}</small>
+        {% endif %}
       </td>
       <td>
         {{ m.email }}
         {% if m.phone %}<br><small>{{ m.phone }}</small>{% endif %}
       </td>
+      {% if fees_on %}
+      <td class="nowrap">
+        {#- PAID OR NOT, at a glance. A pending row is somebody who
+            closed the tab on the payment page: they have applied, and
+            the fee has not arrived. -#}
+        {% if back %}
+          <span class="pill pill-grey">Refunded</span>
+        {% elif owed %}
+          <span class="pill pill-red">Refund owed</span>
+        {% elif paid %}
+          <span class="pill pill-green">{{ paid[0].amount_pence|pounds }} paid</span>
+        {% elif m.payments %}
+          <span class="pill pill-amber">Not paid</span>
+        {% else %}
+          <span class="pill pill-grey">No fee taken</span>
+        {% endif %}
+      </td>
+      {% endif %}
       <td class="nowrap">
         <form method="post" action="{{ url_for('admin_membership_status', m_id=m.id) }}" style="display:inline">
           <select name="status">
@@ -39,15 +70,36 @@
           <button class="table-link" type="submit">Save</button>
         </form>
       </td>
+      <td>
+        {#- DECLINING IS ITS OWN ACTION, not a value in the dropdown
+            beside it, because it records who decided and why — and
+            because with a fee taken it puts a refund on the books.
+            The reason is a real box: a confirm() cannot ask for text,
+            and a decline with no reason recorded is the thing somebody
+            will want to look up in a year. -#}
+        {% if m.status != 'declined' and not m.member %}
+        <form method="post" class="decline-form"
+              action="{{ url_for('admin_application_decline', m_id=m.id) }}"
+              onsubmit="return confirm('Decline {{ m.name }}’s application?{% if fees_on %} Any fee they have paid is then owed back to them, and the dashboard will say so until you record the refund.{% endif %}');">
+          <label class="visually-hidden" for="reason{{ m.id }}">Reason for declining {{ m.name }}</label>
+          <input type="text" id="reason{{ m.id }}" name="reason"
+                 maxlength="300" placeholder="Why?">
+          <button class="table-link danger" type="submit">Decline</button>
+        </form>
+        {% endif %}
+      </td>
       <td class="nowrap">
         {#- APPROVING SHOULD NOT MEAN RETYPING. The name, contact details
-            and all four declarations come across as they were given. -#}
+            and all four declarations come across as they were given, and
+            so does the fee they have already paid. -#}
         {% if m.member %}
         <a class="table-link" href="{{ url_for('admin_member', member_id=m.member.id) }}">Member</a>
+        {% elif m.status == 'declined' %}
+        <span class="admin-sub">Declined</span>
         {% else %}
         <form method="post" style="display:inline"
               action="{{ url_for('admin_application_to_member', m_id=m.id) }}"
-              onsubmit="return confirm('Create a member record for {{ m.name }}? Their details and declarations come across.');">
+              onsubmit="return confirm('Create a member record for {{ m.name }}? Their details, declarations and any fee they have paid come across.');">
           <button class="table-link" type="submit">Make a member</button>
         </form>
         {% endif %}
@@ -63,6 +115,47 @@
   </tbody>
 </table>
 </div>
+
+{% if fees_on %}
+{%- set owing = [] -%}
+{%- for m in rows %}{% for p in m.payments %}{% if p.refund_status == 'due' %}{% set _ = owing.append((m, p)) %}{% endif %}{% endfor %}{% endfor -%}
+{% if owing %}
+<h2 class="admin-stats-head">Refunds owed</h2>
+{#- THE APP RECORDS REFUNDS, IT DOES NOT MAKE THEM. Refund in Stripe —
+    where the permissions, the trail and the undo live — then say so
+    here so the dashboard stops asking. See admin_application_refund()
+    for why the boundary is drawn there. -#}
+<p class="admin-sub">These applications were declined after the fee had
+  been taken. <b>Refund each one in Stripe</b>, then record it here.
+  The website does not move money — that stays where a treasurer can see
+  it and undo it.</p>
+{% for m, p in owing %}
+<form method="post" class="admin-form" style="margin-bottom:18px"
+      data-busy="Recording…"
+      action="{{ url_for('admin_application_refund', payment_id=p.id) }}">
+  <p><b>{{ m.name }}</b> — {{ p.amount_pence|pounds }},
+    paid {{ p.received_on.strftime('%d %b %Y') }}
+    {% if p.stripe_session_id %}<br><small>Stripe reference
+      <code>{{ p.stripe_session_id }}</code></small>{% endif %}</p>
+  <div class="field-row">
+    <div class="field">
+      <label for="refunded_on{{ p.id }}">Date the refund was made</label>
+      <input type="date" id="refunded_on{{ p.id }}" name="refunded_on"
+             required max="{{ today.isoformat() }}"
+             value="{{ today.isoformat() }}">
+    </div>
+    <div class="field">
+      <label for="refund_note{{ p.id }}">Note (optional)</label>
+      <input type="text" id="refund_note{{ p.id }}" name="refund_note"
+             maxlength="200" placeholder="e.g. refunded in Stripe by the treasurer">
+    </div>
+  </div>
+  <button class="btn btn-green" type="submit">Record this refund</button>
+</form>
+{% endfor %}
+{% endif %}
+{% endif %}
+
 {% else %}
 <p class="admin-sub">No applications yet.</p>
 {% endif %}

@@ -2137,6 +2137,50 @@ unchanged and feeds them.
   - The renewal WINDOW is not settable. It is in the constitution, not
     in a preference, and a box for it is a box somebody moves by
     accident. The fee and the grace period are settable.
+- **THE FEE IS TAKEN WHEN SOMEBODY APPLIES**, so the money arrives
+  before there is a member for it to belong to.
+  - It hangs on the application (`MembershipPayment.application_id`) and
+    approval sets `member_id` ON THAT SAME ROW. **Never write a second
+    payment record on approval**: one £10 with two rows is two rows that
+    can disagree about whether somebody paid, and the treasurer would
+    have no way to tell which is right.
+  - **The application is saved BEFORE Stripe**, as a donation is. A
+    closed tab on the payment page still leaves an application, showing
+    as unpaid — the alternative loses it entirely while the applicant
+    believes they have applied.
+  - `membership_income_query()` is the one place that decides what
+    counts as membership money, and every "collected" figure comes
+    through it. A fee sitting against an undecided application is money
+    EBWA is HOLDING, not money it has earned; a refunded one is neither.
+    A payment left by an erased member has no application and no member
+    and IS counted — it was real income, and that is why it survived the
+    erasure.
+  - A refunded payment buys no cover: `covered_to_year` skips it. "This
+    covers you" and "this was returned" must not both be true.
+- **A DECLINED APPLICATION IS REFUNDED** (the client's decision), and
+  declining is its own action rather than a value in the status
+  dropdown: it records who decided, when and why, and marks the fee
+  `refund_status = "due"`. The dashboard carries that as a blocker until
+  somebody records the refund — an applicant turned down and not
+  refunded will ring up, and they will be right to.
+  - **THE APP RECORDS REFUNDS, IT DOES NOT ISSUE THEM.** A refund is
+    money leaving: outward, irreversible, the same class of action as
+    every other thing this admin refuses to do. The amount being small
+    and the case being bounded does not change the class, and a button
+    that both declines AND refunds is one misclick from refunding
+    somebody who was approved. Stripe's dashboard already has the
+    permissions and the trail. `admin_application_refund()` carries the
+    full reasoning and what would have to be true to revisit it.
+  - **The route refuses to make a member of a declined application**, not
+    just the template. A stale tab would otherwise enrol somebody the
+    board turned down and whose fee is on its way back.
+- **TWO FEE WORDINGS, AND THEY ARE DIFFERENT PROMISES.** A renewal is
+  non-refundable full stop; an application fee comes back if the
+  committee says no. `MEMBERSHIP_TERMS_KEY` and
+  `MEMBERSHIP_APPLY_TERMS_KEY` — do not merge them, and do not let the
+  application form say only "non-refundable", which claims more than the
+  policy allows. Both are drafted for EBWA to approve, and the terms page
+  needs the same exception.
 - **STATUS IS DERIVED AND NEVER STORED, AND THAT IS THE WHOLE ANSWER TO
   "how do the manual and automatic statuses avoid fighting?"** There is
   no column for either of them to overwrite:

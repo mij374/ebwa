@@ -8,6 +8,19 @@
     <h1>Join the EBWA family</h1>
     <p class="lede">Under the EBWA constitution, membership is open to anyone aged 18 or over, of Bangladeshi origin, who lives or works in the London Borough of Enfield. Fill in the form below and one of our team will be in touch.</p>
 
+    {%- if fees_on %}
+    {#- The fee is taken when the form is submitted, so what it costs and
+        what happens to it are said BEFORE the form rather than beside
+        the button. The wording is a Block: it is EBWA's promise about
+        their own money, not ours to hardcode. -#}
+    <div class="apply-fee">
+      <p><b>There is a {{ fee|pounds }} membership fee, payable now.</b>
+        When you send this form you will be taken to our card payment
+        page.</p>
+      <p>{{ apply_terms }}</p>
+    </div>
+    {%- endif %}
+
     <form method="post" class="admin-form" style="margin-top:32px">
       <div class="field">
         <label for="name">Your name *</label>
@@ -58,7 +71,9 @@
       <div class="field field-check">
         <label>
           <input type="checkbox" name="fee_confirmed" required>
-          I confirm I have paid / will pay the membership fee *
+          {% if fees_on %}I agree to pay the {{ fee|pounds }} membership fee *
+          {% else %}I confirm I have paid / will pay the membership fee *
+          {% endif %}
         </label>
       </div>
 
@@ -68,7 +83,10 @@
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-green" type="submit">Send my application</button>
+        <button class="btn btn-green" type="submit"
+                {% if fees_on %}data-busy="Taking you to the payment page…"{% endif %}>
+          {% if fees_on %}Apply and pay {{ fee|pounds }}{% else %}Send my application{% endif %}
+        </button>
       </div>
     </form>
 
