@@ -1066,6 +1066,21 @@ Built and maintained by Netbus IT Support.
     answer is a page of their own (the resources pattern), not a bigger
     number: `tests/smoke_test_navigation.py` would then require it to be
     reachable from the nav or the footer like every other public page.
+- **A public page is `<section>` OUTSIDE and `<div class="wrap">`
+  INSIDE.** Putting both on one element loses the page its vertical
+  padding altogether: the class wins on specificity, so
+  `.wrap{padding:0 24px}` REPLACES `section{padding:80px 0}` rather than
+  adding to it, and the page's last button sits hard against the footer
+  with nothing above the eyebrow either. That is where every page's 80px
+  comes from, so a page missing it needs the structure and not a new
+  number. `tests/check_page_footing.py` measures the real gap at every
+  shared viewport and takes the expected value FROM the sibling pages —
+  a check carrying its own copy of 80 would pass while disagreeing with
+  the site.
+  - It measures LEAF elements only. A container's rectangle includes its
+    own padding, so measuring the `<section>` reports the gap as nought
+    on every page ever built — which is exactly what the first version of
+    that check did, passing everywhere while measuring nothing.
 - Every public page must be reachable from the nav or the footer.
   `tests/smoke_test_navigation.py` walks the URL map and fails otherwise;
   a page reached from inside a section (`/gallery/all`) is listed there
