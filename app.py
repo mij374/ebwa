@@ -958,13 +958,56 @@ PAYMENT_METHODS = (
 PAYMENT_METHOD_LABELS = dict(PAYMENT_METHODS)
 MANUAL_METHODS = tuple(k for k, _l in PAYMENT_METHODS if k != "card")
 
-# Where a payment stands with a refund. `due` is the state that generates
-# a complaint — the board has said no and the money is still ours — so it
-# is the one the dashboard watches for.
-REFUND_STATUSES = ("none", "due", "refunded")
-REFUND_LABELS = {"none": "Not refundable",
+# Where a payment stands with a refund. SHARED BY BOTH PAYMENT TABLES —
+# donations and collections use it as well as membership, and the shape
+# is deliberately identical so there is one idea of "refunded" on this
+# site rather than two that drift.
+#
+# `due` is membership's: the board has said no and the money is still
+# ours, which is the state that generates a complaint. `partial` is the
+# donations one: Stripe allows a refund of part of a payment, and what
+# that means for Gift Aid is a question nothing in the refund can
+# answer — see gift_aid_pence().
+REFUND_STATUSES = ("none", "due", "partial", "refunded")
+REFUND_LABELS = {"none": "Not refunded",
                  "due": "Refund owed",
+                 "partial": "Partly refunded",
                  "refunded": "Refunded"}
+REFUND_PILLS = {"none": "grey", "due": "red",
+                "partial": "amber", "refunded": "grey"}
+
+
+def refund_status_for(refunded_pence, total_pence):
+    """What a refund of this size, against this total, is called."""
+    if refunded_pence <= 0:
+        return "none"
+    if refunded_pence >= total_pence:
+        return "refunded"
+    return "partial"
+
+
+def record_refund(payment, refunded_pence, total_pence, on=None,
+                  by="", note=""):
+    """Write a refund onto a payment row. ONE implementation, both tables.
+
+    THIS RECORDS A REFUND; IT DOES NOT MAKE ONE. Nothing in this codebase
+    calls Stripe's refund API and nothing should — a refund is money
+    leaving, outward and irreversible, which is the class of action this
+    admin refuses on principle. What arrives here is either Stripe
+    telling us a refund happened, or an admin saying so.
+
+    The amount is clamped to the payment's own total: a refund cannot be
+    for more than was taken, and a row claiming otherwise would make
+    every net figure on the site wrong in a way nobody could see.
+    """
+    payment.refunded_pence = max(0, min(int(refunded_pence or 0),
+                                        int(total_pence or 0)))
+    payment.refund_status = refund_status_for(payment.refunded_pence,
+                                              total_pence)
+    payment.refunded_on = on or uk_today()
+    payment.refunded_by = by
+    payment.refund_note = note[:200] if note else ""
+    return payment.refund_status
 
 # TWO KINDS OF STATUS, AND THEY LIVE IN DIFFERENT PLACES ON PURPOSE.
 #
@@ -1136,6 +1179,11 @@ class MembershipPayment(db.Model):
     # RECORDS that, it does not issue it: see admin_application_refund()
     # for why the boundary is where it is.
     refund_status = db.Column(db.String(20), nullable=False, default="none")
+    # HOW MUCH came back, not just that something did. A membership
+    # refund is always the whole fee, but the column is here so this
+    # table and Payment are the SAME SHAPE and `record_refund()` can
+    # write to either without knowing which it has.
+    refunded_pence = db.Column(db.Integer, nullable=False, default=0)
     refunded_on = db.Column(db.Date)
     refunded_by = db.Column(db.String(200), default="")
     refund_note = db.Column(db.String(200), default="")
@@ -1264,17 +1312,30 @@ class Campaign(db.Model):
 
     @property
     def contributor_count(self):
-        """How many people paid. A COUNT, never len() of a fetched list."""
+        """How many people paid. A COUNT, never len() of a fetched list.
+
+        Somebody refunded in full is not a contributor to this campaign
+        any more. Somebody refunded in part still is: they gave, and
+        some of it came back.
+        """
         return db.session.query(db.func.count(Payment.id)).filter(
             Payment.campaign_id == self.id,
-            Payment.status == "complete").scalar()
+            Payment.status == "complete",
+            Payment.refund_status != "refunded").scalar()
 
     @property
     def raised_pence(self):
-        """Running total of completed payments (fee + donation)."""
+        """Running total of completed payments, NET OF REFUNDS.
+
+        A total on a campaign page is what EBWA has, and money returned
+        to the person who gave it is money EBWA has not got. A refund
+        issued in Stripe used to be invisible here, so the page went on
+        showing it as raised for ever.
+        """
         return db.session.query(
             db.func.coalesce(db.func.sum(Payment.fee_pence
-                                         + Payment.donation_pence), 0)
+                                         + Payment.donation_pence
+                                         - Payment.refunded_pence), 0)
         ).filter(Payment.campaign_id == self.id,
                  Payment.status == "complete").scalar()
 
@@ -1336,7 +1397,22 @@ class Payment(db.Model):
     gift_aid_address = db.Column(db.String(200), default="")   # house name/number
     gift_aid_postcode = db.Column(db.String(20), default="")
     stripe_session_id = db.Column(db.String(255), unique=True)
+    # THE PAYMENT INTENT, so a refund can be matched back to this row. A
+    # `charge.refunded` event carries the charge and its payment intent
+    # and knows nothing about the Checkout Session that started it, so
+    # without this there is no way from a refund to the payment it
+    # refunds. Recorded when the session completes; rows written before
+    # this column existed have none, and their refunds are recorded by
+    # hand — which is one of the reasons that action exists.
+    stripe_payment_intent = db.Column(db.String(255), index=True)
     status = db.Column(db.String(20), nullable=False, default="pending")  # pending | complete
+    # Refunds, in the same shape MembershipPayment uses — see
+    # record_refund(), which writes both.
+    refund_status = db.Column(db.String(20), nullable=False, default="none")
+    refunded_pence = db.Column(db.Integer, nullable=False, default=0)
+    refunded_on = db.Column(db.Date)
+    refunded_by = db.Column(db.String(200), default="")
+    refund_note = db.Column(db.String(200), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
     __table_args__ = (
@@ -1353,8 +1429,39 @@ class Payment(db.Model):
         return self.fee_pence + self.donation_pence
 
     @property
+    def net_pence(self):
+        """What EBWA actually kept: the total less anything refunded.
+
+        Every running total on the site uses this rather than
+        `total_pence`. A campaign's total answers "how much money have
+        we got", and money that went back is money we have not got.
+        """
+        return self.total_pence - (self.refunded_pence or 0)
+
+    @property
+    def is_refunded(self):
+        return (self.refund_status or "none") != "none"
+
+    @property
     def gift_aid_pence(self):
-        """The only amount Gift Aid may be claimed on — never the fee."""
+        """The only amount Gift Aid may be claimed on — never the fee.
+
+        AND NEVER A PENNY THAT WAS REFUNDED. Claiming Gift Aid on money
+        that went back to the donor is claiming money HMRC is owed, and
+        the charity has to pay it back when it is noticed. The guard is
+        HERE, on the model, and not only in the claim query: a query
+        somebody writes next year cannot go around it.
+
+        A PARTIAL REFUND ZEROES THE CLAIM RATHER THAN BEING SPLIT.
+        Nothing in a Stripe refund says whether the money came out of
+        the place fee or out of the donation, so apportioning it is a
+        guess — and the two ways of guessing wrong are not equal. Guess
+        low and EBWA loses some Gift Aid it could have claimed; guess
+        high and it claims money it owes back. The admin shows these
+        separately so a treasurer can look at one and decide by hand.
+        """
+        if self.is_refunded:
+            return 0
         return self.donation_pence if self.gift_aid else 0
 
 
@@ -5773,6 +5880,87 @@ def donate_cancelled():
     return render_template("donate_cancelled.html")
 
 
+# REFUNDS ARE HANDLED WHERE THEY ARE ISSUED. A treasurer refunding
+# somebody in the Stripe dashboard was, until now, invisible here: the
+# campaign total, the contributor list and the Gift Aid claim all went
+# on counting it, and the last of those means claiming money HMRC is
+# owed back.
+#
+# Both event names, because which one arrives depends on the API version
+# the account is on: `charge.refunded` is the long-standing one and its
+# object is a CHARGE; `payment_intent.refunded` is newer and its object
+# is a PAYMENT INTENT. They carry the same fact in different shapes, so
+# the handler reads both and cares about neither.
+REFUND_EVENTS = ("charge.refunded", "payment_intent.refunded")
+
+
+def refund_from_event(obj):
+    """(payment intent id, refunded pence or None) out of either shape.
+
+    None for the amount means "Stripe did not tell us how much". That is
+    treated as a FULL refund by the caller, deliberately: the safe
+    direction is to stop claiming Gift Aid on it, not to keep claiming
+    on money that may have gone back.
+    """
+    if not isinstance(obj, dict):
+        return None, None
+    # A charge names its intent; an intent is its own id.
+    intent = obj.get("payment_intent") or obj.get("id") or None
+    amount = obj.get("amount_refunded")
+    if amount is None:
+        # Some payloads carry the refunds inline instead.
+        refunds = (obj.get("refunds") or {}).get("data") or []
+        if refunds:
+            amount = sum(r.get("amount") or 0 for r in refunds)
+    return intent, amount
+
+
+def handle_refund_event(event):
+    """Mark the payment refunded. NEVER issues anything, only records.
+
+    Idempotent, like the completion path beside it: Stripe retries and
+    replays, and a second delivery of the same refund must not change
+    anything or write a second audit entry.
+    """
+    obj = event.get("data", {}).get("object", {})
+    intent, refunded = refund_from_event(obj)
+    if not intent:
+        return
+    payment = Payment.query.filter_by(stripe_payment_intent=intent).first()
+    if payment is None:
+        # A refund for something this site does not recognise — a
+        # payment taken before the intent was recorded, or one belonging
+        # to another integration on the same Stripe account. SAY SO
+        # rather than dropping it: somebody has to go and reconcile it
+        # by hand, and they cannot if nothing ever mentioned it.
+        log_action("edit", entity=("Payment", None),
+                   summary="Stripe reported a refund for a payment this "
+                           "site does not recognise (%s). Record it by "
+                           "hand against the right payment if it is one "
+                           "of ours." % intent,
+                   actor=(None, "Stripe webhook", ""))
+        return
+    total = payment.total_pence
+    # No figure from Stripe means assume the lot — see refund_from_event.
+    amount = total if refunded is None else refunded
+    was = payment.refund_status
+    if was != "none" and (payment.refunded_pence or 0) >= amount:
+        return                              # a replay, or an older, larger
+    status = record_refund(payment, amount, total,
+                           on=uk_today(), by="Stripe",
+                           note="Recorded from Stripe automatically")
+    db.session.commit()
+    log_action("edit", entity=payment,
+               summary="Stripe reported a refund of %s against a payment "
+                       "of %s from %s. Marked %s: it is out of the "
+                       "campaign total and out of any Gift Aid claim."
+                       % (pounds_filter(payment.refunded_pence),
+                          pounds_filter(total),
+                          payment.name or "an anonymous donor",
+                          REFUND_LABELS[status].lower()),
+               actor=(None, "Stripe webhook", ""))
+
+
 @app.route("/stripe/webhook", methods=["POST"])
 def stripe_webhook():
     # Signature-verified and idempotent (CLAUDE.md donations rules)
@@ -5783,11 +5971,19 @@ def stripe_webhook():
             STRIPE_WEBHOOK_SECRET)
     except Exception:
         abort(400)
+    if event["type"] in REFUND_EVENTS:
+        handle_refund_event(event)
+        return "", 200
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         p = Payment.query.filter_by(stripe_session_id=session["id"]).first()
         if p and p.status != "complete":   # replays are a no-op
             p.status = "complete"
+            # Keep the payment intent: a refund arrives knowing the
+            # charge and its intent and nothing about the session that
+            # started it, so this is the only thread back to this row.
+            p.stripe_payment_intent = (session.get("payment_intent") or ""
+                                       ) or None
             db.session.commit()
         # And membership subscriptions, which are a different table for
         # the Gift Aid reason. NOT gated on the membership_fees flag:
@@ -6474,8 +6670,10 @@ def dashboard_cards(flags):
 
     if flags["donations"]:
         money = "Donations and collections"
+        # NET OF REFUNDS, like every other total on the site.
         total = db.func.coalesce(
-            db.func.sum(Payment.fee_pence + Payment.donation_pence), 0)
+            db.func.sum(Payment.fee_pence + Payment.donation_pence
+                        - Payment.refunded_pence), 0)
         done = Payment.query.filter(Payment.status == "complete")
         raised = done.with_entities(total).scalar()
         # "This year" is the UK calendar year to date: admin-facing
@@ -8353,7 +8551,87 @@ def admin_campaign_contributors(campaign_id):
     log_action("export", entity=camp,
                summary="Viewed the printable contributor list for “%s” "
                        "(%d payments)." % (camp.title, len(rows)))
-    return render_template("admin/contributors.html", camp=camp, rows=rows)
+    return render_template("admin/contributors.html", camp=camp, rows=rows,
+                           refund_labels=REFUND_LABELS,
+                           refund_pills=REFUND_PILLS, today=uk_today())
+
+
+@app.route("/admin/payments/<int:payment_id>/refunded", methods=["POST"])
+@login_required
+def admin_payment_refund(payment_id):
+    """Record that a donation or collection payment was refunded.
+
+    THE SAME THING THE MEMBERSHIP DECLINE DOES, through the same
+    `record_refund()` and the same columns — this is the second caller
+    of one mechanism, not a second mechanism.
+
+    It exists for the refunds the webhook cannot reach: one issued
+    before the payment intent was being recorded, one that arrived while
+    the endpoint was down, or a refund made outside Stripe altogether.
+    THE WEBSITE STILL DOES NOT MOVE MONEY: refund in Stripe, then say so
+    here.
+    """
+    payment = db.session.get(Payment, payment_id) or abort(404)
+    # Back where they came from, through the host check the domain box
+    # established — a `Referer` is whatever the page that held the form
+    # said it was.
+    if payment.campaign_id:
+        home = url_for("admin_campaign_contributors",
+                       campaign_id=payment.campaign_id)
+    else:
+        home = url_for("admin_campaigns")
+    back = redirect(safe_referrer(home))
+    if payment.status != "complete":
+        flash("That payment was never completed, so there is nothing to "
+              "refund.", "error")
+        return back
+
+    amount = parse_pounds(request.form.get("amount", ""))
+    when = (request.form.get("refunded_on") or "").strip()
+    note = request.form.get("refund_note", "").strip()
+    try:
+        refunded_on = date.fromisoformat(when) if when else uk_today()
+    except ValueError:
+        refunded_on = None
+
+    if amount is None or amount <= 0:
+        flash("Enter how much was refunded.", "error")
+        return back
+    if amount > payment.total_pence:
+        flash("That is more than the %s this person paid."
+              % pounds_filter(payment.total_pence), "error")
+        return back
+    if refunded_on is None:
+        flash("Enter the date the refund was made.", "error")
+        return back
+    if refunded_on > uk_today():
+        flash("That date is in the future — enter the day the refund was "
+              "actually made.", "error")
+        return back
+
+    status = record_refund(payment, amount, payment.total_pence,
+                           on=refunded_on, by=current_actor()[1], note=note)
+    db.session.commit()
+    log_action("edit", entity=payment,
+               summary="Recorded a refund of %s against a payment of %s "
+                       "from %s, made on %s. Marked %s: it is out of the "
+                       "campaign total and out of any Gift Aid claim.%s"
+                       % (pounds_filter(payment.refunded_pence),
+                          pounds_filter(payment.total_pence),
+                          payment.name or "an anonymous donor",
+                          refunded_on.strftime("%d %B %Y"),
+                          REFUND_LABELS[status].lower(),
+                          " (%s)" % note if note else ""))
+    if status == "partial" and payment.gift_aid:
+        flash("Refund recorded. Because only part of it came back, this "
+              "donation is out of the Gift Aid claim altogether — nothing "
+              "in a refund says which part was returned. Check it by hand "
+              "if some of it is still claimable.", "ok")
+    else:
+        flash("Refund recorded. It is out of the campaign total%s."
+              % (" and out of the Gift Aid claim" if payment.gift_aid
+                 else ""), "ok")
+    return back
 
 
 @app.route("/admin/campaigns/<int:campaign_id>/contributors.csv")
@@ -8369,15 +8647,23 @@ def admin_campaign_contributors_csv(campaign_id):
                        "(%d payments)." % (camp.title, len(rows)))
     out = io.StringIO()
     w = csv.writer(out)
+    # `net_gbp` is the column a treasurer adds up. `total_gbp` stays
+    # beside it so the refund is visible as a subtraction rather than as
+    # a number that simply differs from Stripe's.
     w.writerow(["date", "name", "email", "fee_gbp", "donation_gbp",
-                "total_gbp", "gift_aid", "status"])
+                "total_gbp", "refunded_gbp", "net_gbp", "gift_aid",
+                "status", "refund_status", "refunded_on"])
     for p in rows:
         w.writerow([utc_as_uk(p.created_at).strftime("%Y-%m-%d"),
                     p.name, p.email,
                     "%.2f" % (p.fee_pence / 100.0),
                     "%.2f" % (p.donation_pence / 100.0),
                     "%.2f" % (p.total_pence / 100.0),
-                    "yes" if p.gift_aid else "no", p.status])
+                    "%.2f" % ((p.refunded_pence or 0) / 100.0),
+                    "%.2f" % (p.net_pence / 100.0),
+                    "yes" if p.gift_aid else "no", p.status,
+                    p.refund_status,
+                    p.refunded_on.isoformat() if p.refunded_on else ""])
     resp = app.response_class(out.getvalue(), mimetype="text/csv")
     resp.headers["Content-Disposition"] = \
         "attachment; filename=ebwa-%s-contributors.csv" % camp.slug
@@ -8504,6 +8790,13 @@ def gift_aid_claimable_query(date_from=None, date_to=None):
     """
     q = Payment.query.filter(
         Payment.status == "complete",
+        # NOTHING REFUNDED, IN WHOLE OR IN PART. Claiming Gift Aid on
+        # money that went back to the donor is claiming money HMRC is
+        # owed, and the charity repays it when somebody notices. A
+        # partial refund is excluded too rather than apportioned —
+        # see Payment.gift_aid_pence for why the split cannot be
+        # guessed at.
+        Payment.refund_status == "none",
         Payment.gift_aid == True,          # noqa: E712
         Payment.donation_pence > 0,
         Payment.gift_aid_name != "",
@@ -8537,11 +8830,33 @@ def _parse_date_arg(name):
         return None
 
 
+def gift_aid_excluded_by_refund(date_from=None, date_to=None):
+    """Donations kept OUT of the claim because money went back.
+
+    Shown on the claim page rather than dropped quietly: a treasurer
+    comparing this year's claim with last year's needs to see why it is
+    smaller, and a partly refunded donation may still have a claimable
+    part that only a person can work out.
+    """
+    q = Payment.query.filter(
+        Payment.status == "complete",
+        Payment.refund_status != "none",
+        Payment.gift_aid == True,          # noqa: E712
+        Payment.donation_pence > 0)
+    if date_from:
+        q = q.filter(Payment.created_at >= uk_midnight_as_utc(date_from))
+    if date_to:
+        q = q.filter(Payment.created_at
+                     < uk_midnight_as_utc(date_to + timedelta(days=1)))
+    return q.order_by(Payment.created_at, Payment.id)
+
+
 @app.route("/admin/gift-aid")
 @login_required
 def admin_gift_aid():
     date_from, date_to = _parse_date_arg("from"), _parse_date_arg("to")
     rows = gift_aid_claimable_query(date_from, date_to).all()
+    left_out = gift_aid_excluded_by_refund(date_from, date_to).all()
     claimable_pence = sum(p.gift_aid_pence for p in rows)
     # 25p per £1, rounded half-up to the penny (integer maths, no floats)
     reclaim_pence = (claimable_pence * 25 + 50) // 100
@@ -8552,6 +8867,8 @@ def admin_gift_aid():
                           pounds_filter(claimable_pence),
                           pounds_filter(reclaim_pence)))
     return render_template("admin/gift_aid.html", rows=rows,
+                           left_out=left_out,
+                           refund_labels=REFUND_LABELS,
                            claimable_pence=claimable_pence,
                            reclaim_pence=reclaim_pence,
                            date_from=date_from, date_to=date_to)

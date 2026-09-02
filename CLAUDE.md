@@ -2117,6 +2117,42 @@ This is the most sensitive module. Follow these rules exactly:
   minimal collection, and covered by the DPA — treat like the private
   minutes rule (nothing via static URLs).
 - Stripe webhooks must be verified (signature) and idempotent.
+- **REFUNDS ARE HANDLED WHERE THEY ARE ISSUED.** A refund made in the
+  Stripe dashboard used to be invisible here, and the campaign total,
+  the contributor list and the Gift Aid claim all went on counting it.
+  The webhook listens for `charge.refunded` AND
+  `payment_intent.refunded` — which arrives depends on the account's API
+  version, and they carry the same fact in different shapes.
+  - **`Payment.gift_aid_pence` returns 0 for anything refunded, and that
+    guard is on the MODEL, not only in the claim query.** Claiming Gift
+    Aid on a refunded donation is claiming money HMRC is owed back. A
+    query somebody writes next year cannot go around a property.
+  - **Every total is NET of refunds** — `raised_pence`, the dashboard
+    figures, the contributor CSV. A total answers "how much have we
+    got", and money returned is money not got.
+  - **A refunded payment stays VISIBLE in the admin**, marked, rather
+    than vanishing. Money taken and given back is a thing the accounts
+    have to be able to show, and a list that quietly drops it cannot be
+    reconciled against Stripe.
+  - **A PARTIAL REFUND IS NET FOR TOTALS AND OUT OF GIFT AID
+    ALTOGETHER**, never apportioned. Nothing in a Stripe refund says
+    whether the money came out of the place fee or the donation, and the
+    two ways of guessing wrong are not equal: guess low and EBWA loses
+    Gift Aid it could have claimed, guess high and it owes HMRC. The
+    claim page LISTS what it left out and why, so it is a decision
+    somebody can act on rather than a silence.
+  - `stripe_payment_intent` is what a refund is matched on: a refund
+    event knows the charge and its intent and nothing about the Checkout
+    Session. Payments taken before that column existed have none, and a
+    refund against one is audit-logged as unmatched rather than dropped.
+  - **`record_refund()` IS THE ONE IMPLEMENTATION, for both payment
+    tables.** Donations and membership share the columns, the statuses
+    (`REFUND_STATUSES`) and that function. Do not add a second way of
+    marking something refunded.
+  - **Nothing here calls Stripe's refund API and nothing should.** A
+    refund is money leaving — outward and irreversible, the class of
+    action this admin refuses on principle. `tests/smoke_test_refunds.py`
+    asserts the source contains no such call.
 
 ## Membership fees and renewals
 

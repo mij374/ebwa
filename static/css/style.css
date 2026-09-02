@@ -1061,6 +1061,22 @@ a.admin-stat-alert:hover{border-color:var(--red);box-shadow:0 6px 18px rgba(232,
    it is a note, not an essay, and the column has three other actions
    beside it. */
 .decline-form{display:flex;gap:8px;align-items:center}
+/* Recording a refund: a row of small fields under the contributor
+   table, one per payment. Wraps rather than pushing the page sideways
+   on a phone. */
+.refund-row{
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  background:var(--white);border:1px solid var(--line);border-radius:10px;
+  padding:10px 14px;margin-bottom:10px;font-size:14px;
+}
+.refund-row span{font-weight:700;min-width:0}
+.refund-row input{
+  padding:6px 10px;border:1.5px solid var(--line);border-radius:8px;
+  font:inherit;font-size:14px;background:var(--paper);min-width:0;
+}
+.refund-row input[type=number]{width:6.5rem}
+.refund-row input[type=date]{width:9.5rem}
+.refund-row input[type=text]{width:11rem}
 .decline-form input{
   padding:6px 10px;border:1.5px solid var(--line);border-radius:8px;
   font:inherit;font-size:14px;background:var(--paper);width:7.5rem;

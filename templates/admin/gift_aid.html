@@ -29,6 +29,44 @@
   &nbsp;·&nbsp; Gift Aid reclaim at 25%: <b>{{ reclaim_pence|pounds }}</b>
 </p>
 
+{#- WHAT HAS BEEN LEFT OUT, and why. A claim that is quietly smaller
+    than last year's is a claim somebody has to go and explain; saying
+    so here turns it into a decision. -#}
+{% if left_out %}
+<div class="admin-form" style="max-width:none;margin-bottom:22px">
+  <h2 class="admin-stats-head" style="margin-top:0">Left out of this claim</h2>
+  <p class="admin-sub"><b>{{ left_out|length }} donation{{ '' if left_out|length == 1 else 's' }}
+    with a Gift Aid declaration {{ 'is' if left_out|length == 1 else 'are' }}
+    not in the figures above, because money went back to the donor.</b>
+    Claiming Gift Aid on a refunded donation means claiming money HMRC is
+    owed back.</p>
+  <div class="table-scroll" tabindex="0" role="region"
+       aria-label="Donations left out of the claim, scrollable">
+  <table class="admin-table">
+    <thead><tr><th>Date</th><th>Name</th><th>Donation</th><th>Refunded</th><th>Why it is out</th></tr></thead>
+    <tbody>
+      {% for p in left_out %}
+      <tr>
+        <td class="nowrap">{{ p.created_at|uk_date }}</td>
+        <td>{{ p.gift_aid_name or p.name }}</td>
+        <td class="nowrap">{{ p.donation_pence|pounds }}</td>
+        <td class="nowrap">{{ p.refunded_pence|pounds }}</td>
+        <td>
+          {% if p.refund_status == 'partial' %}
+            <b>Part of it came back.</b> Nothing in a refund says whether
+            that was the place fee or the donation, so it is out of the
+            claim altogether rather than guessed at — check it by hand if
+            some of it still stands.
+          {% else %}Refunded in full.{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
 {% if rows %}
 <p style="margin:14px 0">
   {#- data-busy-restore because a download does not navigate: this

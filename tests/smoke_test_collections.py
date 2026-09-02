@@ -200,12 +200,19 @@ check("contributor list -> 200 with payers", r.status_code == 200
       and b"Donor Only" in r.data and b"Both Payer" in r.data)
 csv_data = client.get("/admin/campaigns/%d/contributors.csv"
                       % camp_id).data.decode("utf-8")
+# The refund columns joined this export when refunds became visible to
+# the app: `net_gbp` is what a treasurer adds up, and `total_gbp` stays
+# beside it so a refund reads as a subtraction rather than as a number
+# that merely differs from Stripe's.
 check("csv header", csv_data.startswith(
-    "date,name,email,fee_gbp,donation_gbp,total_gbp,gift_aid,status"))
+    "date,name,email,fee_gbp,donation_gbp,total_gbp,refunded_gbp,"
+    "net_gbp,gift_aid,status,refund_status,refunded_on"), csv_data[:140])
 check("csv fee+donation row correct",
-      "Both Payer,b@example.org,15.00,5.00,20.00,yes,complete" in csv_data)
+      "Both Payer,b@example.org,15.00,5.00,20.00,0.00,20.00,yes,"
+      "complete,none," in csv_data)
 check("csv fee-only row has gift_aid no",
-      "Tamper Test,t@example.org,15.00,0.00,15.00,no,complete" in csv_data)
+      "Tamper Test,t@example.org,15.00,0.00,15.00,0.00,15.00,no,"
+      "complete,none," in csv_data)
 
 # ---- contributor dates are UK local: 23:30 UTC on 31 March is
 # 00:30 BST on 1 April

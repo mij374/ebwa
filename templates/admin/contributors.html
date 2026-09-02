@@ -23,7 +23,7 @@
      aria-label="Contributor list, scrollable">
 <table class="admin-table">
   <thead>
-    <tr><th>Date</th><th>Name</th><th>Email</th><th>Place fee</th><th>Donation</th><th>Gift Aid</th><th>Total</th><th>Status</th></tr>
+    <tr><th>Date</th><th>Name</th><th>Email</th><th>Place fee</th><th>Donation</th><th>Gift Aid</th><th>Total</th><th>Status</th><th class="no-print"><span class="visually-hidden">Refund</span></th></tr>
   </thead>
   <tbody>
     {% for p in rows %}
@@ -33,17 +33,66 @@
       <td>{{ p.email }}</td>
       <td class="nowrap">{{ p.fee_pence|pounds }}</td>
       <td class="nowrap">{{ p.donation_pence|pounds }}</td>
-      <td>{% if p.gift_aid %}<span class="pill pill-green">Yes — on {{ p.gift_aid_pence|pounds }}</span>{% else %}—{% endif %}</td>
-      <td class="nowrap"><b>{{ p.total_pence|pounds }}</b></td>
       <td>
-        {% if p.status == 'complete' %}<span class="pill pill-green">Complete</span>
+        {%- if p.gift_aid and not p.is_refunded %}<span class="pill pill-green">Yes — on {{ p.gift_aid_pence|pounds }}</span>
+        {%- elif p.gift_aid %}<span class="pill pill-amber">Not claimable</span>
+        {%- else %}—{% endif %}
+      </td>
+      {#- REFUNDED ROWS STAY VISIBLE, marked, rather than vanishing: the
+          money was taken and given back, and a list that quietly drops
+          it cannot be reconciled against Stripe. The TOTAL shown is the
+          net, which is what the campaign actually has. -#}
+      <td class="nowrap">
+        {% if p.is_refunded %}
+          <b>{{ p.net_pence|pounds }}</b>
+          <br><small>{{ p.total_pence|pounds }} less {{ p.refunded_pence|pounds }} refunded</small>
+        {% else %}<b>{{ p.total_pence|pounds }}</b>{% endif %}
+      </td>
+      <td>
+        {% if p.is_refunded %}
+          <span class="pill pill-{{ refund_pills[p.refund_status] }}">{{ refund_labels[p.refund_status] }}</span>
+          <br><small>{{ p.refunded_on.strftime('%d %b %Y') if p.refunded_on else '' }}{% if p.refunded_by %}, {{ p.refunded_by }}{% endif %}</small>
+        {% elif p.status == 'complete' %}<span class="pill pill-green">Complete</span>
         {% else %}<span class="pill pill-grey">{{ p.status|capitalize }}</span>{% endif %}
+      </td>
+      <td class="nowrap no-print">
+        {% if p.status == 'complete' and not p.is_refunded %}
+        <button class="table-link" type="submit" form="refund{{ p.id }}">Record a refund</button>
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
+
+{#- THE WEBSITE DOES NOT ISSUE REFUNDS. Stripe tells us about the ones
+    made there, through the webhook; this is for the ones it could not
+    reach — a payment taken before the intent was recorded, or a refund
+    made while the endpoint was down. Refund in Stripe, then say so
+    here. Forms cannot nest, so they live below the table and the
+    buttons point at them with `form=`. -#}
+{% for p in rows %}
+  {% if p.status == 'complete' and not p.is_refunded %}
+  <form method="post" id="refund{{ p.id }}" class="refund-row no-print"
+        action="{{ url_for('admin_payment_refund', payment_id=p.id) }}"
+        onsubmit="return confirm('Record a refund against {{ p.name or 'this payment' }}? This does NOT refund anybody — do that in Stripe first. It takes the payment out of the campaign total{% if p.gift_aid %} and out of the Gift Aid claim{% endif %}.');">
+    <span>{{ p.name or 'Anonymous' }} — {{ p.total_pence|pounds }}</span>
+    <label class="visually-hidden" for="amount{{ p.id }}">Amount refunded to {{ p.name or 'this payer' }}</label>
+    <input type="number" id="amount{{ p.id }}" name="amount" class="money"
+           step="0.01" min="0.01" max="{{ '%.2f'|format(p.total_pence / 100) }}"
+           inputmode="decimal" required
+           value="{{ '%.2f'|format(p.total_pence / 100) }}">
+    <label class="visually-hidden" for="on{{ p.id }}">Date refunded</label>
+    <input type="date" id="on{{ p.id }}" name="refunded_on" required
+           max="{{ today.isoformat() }}" value="{{ today.isoformat() }}">
+    <label class="visually-hidden" for="note{{ p.id }}">Note</label>
+    <input type="text" id="note{{ p.id }}" name="refund_note"
+           maxlength="200" placeholder="Note (optional)">
+    <button class="table-link danger" type="submit">Record</button>
+  </form>
+  {% endif %}
+{% endfor %}
 {% else %}
 <p class="admin-sub">No contributions yet.</p>
 {% endif %}

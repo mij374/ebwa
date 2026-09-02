@@ -138,6 +138,96 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-09-02 — Refunds stop counting
+
+**SIX NEW COLUMNS ON `payment`, ONE NEW INDEX, ONE MORE ON
+`membership_payment`.** Run `check-schema` first — it names exactly what
+is missing here and prints each statement:
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app check-schema
+```
+
+On `payment`, which exists everywhere:
+
+```sql
+ALTER TABLE payment ADD COLUMN stripe_payment_intent VARCHAR(255);
+ALTER TABLE payment ADD COLUMN refund_status VARCHAR(20) NOT NULL DEFAULT 'none';
+ALTER TABLE payment ADD COLUMN refunded_pence INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE payment ADD COLUMN refunded_on DATE;
+ALTER TABLE payment ADD COLUMN refunded_by VARCHAR(200) DEFAULT '';
+ALTER TABLE payment ADD COLUMN refund_note VARCHAR(200) DEFAULT '';
+CREATE INDEX IF NOT EXISTS ix_payment_stripe_payment_intent ON payment (stripe_payment_intent);
+```
+
+**The index is not optional in practice.** Every refund webhook looks a
+payment up by its intent, and `create_all()` does not add an index to a
+table that already exists — so it will never appear on its own.
+
+And on `membership_payment`, only where that table already exists (it
+does not on a site that has not yet applied the two entries below):
+
+```sql
+ALTER TABLE membership_payment ADD COLUMN refunded_pence INTEGER NOT NULL DEFAULT 0;
+```
+
+Then:
+
+```bash
+flask --app app check-schema     # must be clean before the restart
+sudo systemctl restart ebwa
+```
+
+### Stripe: add the refund events to the webhook endpoint
+
+**This is the part that is not in the repository and will not fail a
+check.** In the Stripe dashboard, on the existing webhook endpoint, add:
+
+- `charge.refunded`
+- `payment_intent.refunded` (if the account's API version offers it)
+
+Both are handled; which one arrives depends on the API version. Without
+them the app never hears about a refund and the old behaviour continues
+— nothing breaks visibly, which is exactly why it is worth checking.
+
+### What changed, and why it matters
+
+A refund issued in the Stripe dashboard was invisible to the site: the
+campaign total, the contributor list and the Gift Aid claim all went on
+counting it. **Claiming Gift Aid on a refunded donation is claiming money
+HMRC is owed back**, and the charity repays it when somebody notices.
+
+Now: a refunded payment is out of the campaign total, out of the
+contributor count and out of the Gift Aid claim, while staying VISIBLE
+in the admin marked as refunded — the accounts have to be able to show
+money that was taken and given back.
+
+**Partial refunds** count net towards totals and are excluded from Gift
+Aid altogether rather than apportioned. Nothing in a Stripe refund says
+whether the money came out of the place fee or the donation, and the two
+ways of guessing wrong are not equal. The Gift Aid page lists what it
+left out and why, so a treasurer can decide by hand.
+
+**THE WEBSITE STILL DOES NOT MOVE MONEY.** There is no refund button and
+no call to Stripe's refund API — a smoke test asserts that. Refund in
+Stripe; the webhook records it. The admin's "Record a refund" is for the
+ones the webhook cannot reach: a payment taken before
+`stripe_payment_intent` was being stored (which is every existing
+payment), or a refund made while the endpoint was down.
+
+**Existing payments have no payment intent**, so a refund on one of them
+will arrive unmatched. That is not silent: the app writes an audit entry
+naming the intent and asking somebody to record it by hand. Worth
+knowing in the first weeks after this goes out.
+
+- [x] Local
+- [ ] Demo VPS — **and add the two events in Stripe**
+- [ ] Production — **and add the two events in Stripe**
+
+---
+
 ## ca7415b — 2026-08-29 — The fee is paid when somebody applies
 
 **EIGHT NEW COLUMNS AND ONE NEW BLOCK**, but how many you actually run
