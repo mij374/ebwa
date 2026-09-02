@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-09-02 — Refunds stop counting
+## b4e1904 — 2026-09-02 — Refunds stop counting
 
 **SIX NEW COLUMNS ON `payment`, ONE NEW INDEX, ONE MORE ON
 `membership_payment`.** Run `check-schema` first — it names exactly what
