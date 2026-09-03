@@ -346,9 +346,11 @@ with app.app_context():
 page = client.get("/collections/video-campaign").data.decode("utf-8")
 check("campaign: with no fetched still, the photo becomes the poster",
       'class="video-play"' in page and "campaign-photo.jpg" in page)
+# Counted from <main>: the head's og:image names the photo once more.
+body = page.split("<main", 1)[1]
 check("campaign: and is not ALSO shown underneath",
-      page.count("campaign-photo.jpg") == 1,
-      str(page.count("campaign-photo.jpg")))
+      body.count("campaign-photo.jpg") == 1,
+      str(body.count("campaign-photo.jpg")))
 
 # The card contexts never had the bug, and must not gain it.
 with app.app_context():
@@ -376,9 +378,10 @@ with app.app_context():
 page = client.get("/news/video-post").data.decode("utf-8")
 check("news: with no still, the post's own photo becomes the poster",
       "news-photo.jpg" in page)
+body = page.split("<main", 1)[1]
 check("news: and is not repeated in the strip below",
-      page.count("news-photo.jpg") == 1,
-      str(page.count("news-photo.jpg")))
+      body.count("news-photo.jpg") == 1,
+      str(body.count("news-photo.jpg")))
 
 # =====================================================================
 # Our Journey: the milestone video, end to end

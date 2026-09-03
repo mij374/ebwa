@@ -55,6 +55,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          login_required, current_user)
 from werkzeug.middleware.proxy_fix import ProxyFix
+from markupsafe import Markup
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -319,6 +320,28 @@ STATS_REPORT_ACTION = "stats_report"
 STATS_TARGET_DEFAULT = 2000
 ORG_NAME_KEY = "org_name"
 ORG_CHARITY_NO_KEY = "org_charity_number"
+# The Charity Commission's public page for a registered charity. Only
+# ever built from the number an admin typed, and only into the
+# Organization schema's `sameAs` — the one place a search engine looks
+# for "which register entry is this website?".
+CHARITY_REGISTER_URL = ("https://register-of-charities.charitycommission"
+                        ".gov.uk/charity-search/-/charity-details/%s")
+# The address as STRUCTURED FIELDS, for search engines and link
+# previews. `site_address` stays the one-line version people read on
+# the page; these three are what schema.org's PostalAddress wants and
+# what a string cannot be split into reliably ("Ponders End" is a
+# locality, "Enfield" the post town, and nothing in a comma-separated
+# line says which is which). Both are edited on the same content page,
+# and the dashboard says so when they stop agreeing.
+SITE_STREET_KEY = "site_street"
+SITE_TOWN_KEY = "site_town"
+SITE_POSTCODE_KEY = "site_postcode"
+SITE_DESCRIPTION_KEY = "site_description"
+# What a search result shows under the title. Google truncates at about
+# 155–160 characters on desktop and somewhat less on a phone, so a
+# description is cut at a word boundary before that rather than
+# mid-sentence by the search engine.
+META_DESCRIPTION_MAX = 160
 VISITOR_HASH_LENGTH = 64          # sha256 hex
 # How long the per-page-load rows are kept before they are folded into
 # daily totals and deleted. 62 days covers "this month" and the whole of
@@ -3544,6 +3567,9 @@ def inject_globals():
     seen = request.cookies.get(COOKIE_NOTICE_NAME) if has_request_context() \
         else "1"
     return {"site": site, "current_year": datetime.utcnow().year,
+            # The legal name and charity number: the footer line on every
+            # public page and the Organization schema both read them.
+            "org": blocks_for("org"),
             "features": feature_flags(),
             "show_cookie_notice": seen != "1",
             # Only the admin chrome uses this, and only as a number —
@@ -5364,6 +5390,188 @@ def subscribe():
     return redirect(request.referrer or url_for("home"))
 
 
+# ------------------------------------------ search engines and sharing
+#
+# What a search engine and a link preview can read off a page: the
+# description under a result, the picture and headline WhatsApp shows
+# when somebody shares a link, and the structured data that tells Google
+# this is a charity at a particular address. All of it is built HERE
+# from the same rows and Blocks the page renders, never typed into a
+# template, so it cannot say something the page does not.
+
+
+def jsonld(data):
+    """A schema.org object as the text of a <script type=ld+json>.
+
+    `json.dumps` and then `</` escaped: JSON does not care, but an
+    HTML parser ends the script at the first `</script>` whatever the
+    quoting around it, and an answer somebody typed could hold one.
+    Returned as Markup so the template does not need `|safe`.
+    """
+    return Markup(json.dumps(data, ensure_ascii=False).replace("</", "<\\/"))
+
+
+@app.template_global("page_description")
+def page_description(*candidates):
+    """The first candidate with any words in it, cut to fit a search result.
+
+    Candidates are tried in order — a summary, then the body, then the
+    site-wide fallback — so a template says what it would PREFER and
+    the fallback is explicit rather than an accident of an empty block.
+    Only the first paragraph of a multi-paragraph body is used, and the
+    cut is at a word boundary with an ellipsis, never mid-word.
+    """
+    for text in candidates:
+        first = next(iter(paragraphs_of(text)), "")
+        first = " ".join(first.split())
+        if not first:
+            continue
+        if len(first) <= META_DESCRIPTION_MAX:
+            return first
+        cut = first[:META_DESCRIPTION_MAX - 1].rsplit(" ", 1)[0]
+        return cut.rstrip(",;:—-") + "…"
+    return ""
+
+
+def _preview_file(filename):
+    """The file a link preview should fetch: the 600px thumbnail.
+
+    WhatsApp refuses a preview image over roughly 300KB and shows the
+    large card for anything 300px wide or more; Facebook's large card
+    needs 600. The thumbnail is exactly 600 wide and always under the
+    cap; the full-size upload can be 1600 wide and is not always.
+    """
+    small = thumb_name(filename)
+    if os.path.isfile(os.path.join(UPLOAD_DIR, secure_filename(small))):
+        return small
+    return filename
+
+
+@app.template_global("share_image_url")
+def share_image_url(filename):
+    """Absolute URL of a page's own photograph for a link preview.
+
+    Empty when there is none — base.html then falls back to the logo.
+    Absolute because the previewer is another server, not a browser on
+    this page.
+    """
+    if not filename:
+        return ""
+    return url_for("static", filename="uploads/" + _preview_file(filename),
+                   _external=True)
+
+
+def postal_address(site):
+    """schema.org PostalAddress from the structured address Blocks, or
+    None when the street and postcode are not both filled in — a
+    half-address is worse than none to a search engine."""
+    street = site.get(SITE_STREET_KEY, "").strip()
+    postcode = site.get(SITE_POSTCODE_KEY, "").strip()
+    if not (street and postcode):
+        return None
+    address = {"@type": "PostalAddress", "streetAddress": street,
+               "postalCode": postcode, "addressCountry": "GB"}
+    town = site.get(SITE_TOWN_KEY, "").strip()
+    if town:
+        address["addressLocality"] = town
+    return address
+
+
+def organisation_schema(site, org):
+    """The association as schema.org NGO markup, on every public page.
+
+    Everything in it is read from a Block, so nothing here is invented:
+    no opening hours (`contact_hours` is a sentence, not a timetable),
+    no email address (none is published), no social profiles (none are
+    recorded). Each of those is a field EBWA has to supply first.
+    """
+    name = org.get(ORG_NAME_KEY, "").strip() \
+        or "Enfield Bangladesh Welfare Association"
+    data = {"@context": "https://schema.org", "@type": "NGO",
+            "name": name, "alternateName": "EBWA",
+            "url": url_for("home", _external=True),
+            "logo": url_for("static", filename="img/ebwa-logo.png",
+                            _external=True)}
+    description = page_description(site.get(SITE_DESCRIPTION_KEY, ""))
+    if description:
+        data["description"] = description
+    phone = site.get("site_phone", "").strip()
+    if phone:
+        data["telephone"] = phone
+    address = postal_address(site)
+    if address:
+        data["address"] = address
+    number = org.get(ORG_CHARITY_NO_KEY, "").strip()
+    if number:
+        # GB-CHC is the org-id.guide prefix for the Charity Commission
+        # for England and Wales, and the register page is the one
+        # authoritative "this is us" link a charity has.
+        data["identifier"] = {"@type": "PropertyValue",
+                              "propertyID": "GB-CHC", "value": number}
+        data["sameAs"] = [CHARITY_REGISTER_URL % number]
+    return data
+
+
+@app.template_global("organisation_jsonld")
+def organisation_jsonld(site, org):
+    return jsonld(organisation_schema(site, org))
+
+
+def event_schema(ev, site, org):
+    """One event as schema.org Event markup, for Google's events listing.
+
+    Google needs `name`, `startDate` and `location`. The date is a real
+    column; the time is read from the free-text box with the same
+    parser the day ordering uses, and a time it cannot read leaves a
+    date-only startDate, which Google accepts. A time carries the UK
+    offset for that day, so 6:30 PM in July is not read as 6:30 PM UTC.
+
+    The location is the venue box when it is filled in, as a Place with
+    a name and no address — the text does not say where "the community
+    hall" is, and guessing EBWA's own address for it would put every
+    away-day at the centre. A blank venue means the centre, and so does
+    one that names the centre's own street or postcode ("EBWA Centre,
+    180 High Street"); those get the full address.
+
+    NOT here, because the model does not hold it: an end time, a cost
+    or "free", and a cancelled or postponed state. See CLAUDE.md for
+    whether each is worth a column.
+    """
+    start = ev.event_date.isoformat()
+    minutes = start_minutes(ev.start_time)
+    if minutes is not None:
+        day = ev.event_date
+        start = datetime(day.year, day.month, day.day,
+                         minutes // 60, minutes % 60,
+                         tzinfo=UK_TZ).isoformat()
+    name = org.get(ORG_NAME_KEY, "").strip() \
+        or "Enfield Bangladesh Welfare Association"
+    home = url_for("home", _external=True)
+    venue = (ev.venue or "").strip()
+    location = {"@type": "Place", "name": venue or name}
+    street = site.get(SITE_STREET_KEY, "").strip().lower()
+    postcode = site.get(SITE_POSTCODE_KEY, "").strip().lower()
+    at_centre = not venue or any(
+        part and part in venue.lower() for part in (street, postcode))
+    if at_centre:
+        address = postal_address(site)
+        if address:
+            location["address"] = address
+    data = {"@context": "https://schema.org", "@type": "Event",
+            "name": ev.title, "startDate": start,
+            "eventStatus": "https://schema.org/EventScheduled",
+            "location": location,
+            "organizer": {"@type": "NGO", "name": name, "url": home},
+            "url": url_for("event_detail", slug=ev.slug, _external=True)}
+    description = page_description(ev.summary, ev.description)
+    if description:
+        data["description"] = description
+    if ev.image:
+        data["image"] = url_for("static", filename="uploads/" + ev.image,
+                                _external=True)
+    return data
+
+
 @app.route("/sitemap.xml")
 def sitemap():
     base = request.url_root.rstrip("/")
@@ -5470,7 +5678,9 @@ def event_detail(slug):
     layout, images = rich_content_for("event", ev.id)
     return render_template("event_detail.html", ev=ev, layout=layout,
                            images=images,
-                           paragraphs=paragraphs_of(ev.description))
+                           paragraphs=paragraphs_of(ev.description),
+                           schema=jsonld(event_schema(
+                               ev, blocks_for("site"), blocks_for("org"))))
 
 
 @app.route("/news")
@@ -5656,7 +5866,7 @@ def faq():
             for row in rows],
     }
     return render_template("faq.html", grouped=grouped, count=len(rows),
-                           schema=json.dumps(schema, ensure_ascii=False))
+                           schema=jsonld(schema))
 
 
 @app.route("/our-journey")
@@ -6761,6 +6971,25 @@ def dashboard_attention(flags):
             add("The %s section still has %s of placeholder text."
                 % (group, _plural(n, "block")),
                 url_for("admin_content", group=group), "Edit")
+
+    # The identity a search engine and the footer both read. A blank
+    # charity number means the footer says nothing about registration
+    # and Google cannot tie the site to the register; a postcode that
+    # is not in the address line means the two addresses have drifted.
+    site = blocks_for("site")
+    org = blocks_for("org")
+    if ORG_CHARITY_NO_KEY in org and not org[ORG_CHARITY_NO_KEY].strip():
+        add("The registered charity number is not set, so the footer does "
+            "not state it and search engines cannot match the site to the "
+            "Charity Commission register.",
+            url_for("admin_content", group="org"), "Set it")
+    postcode = site.get(SITE_POSTCODE_KEY, "").strip()
+    if postcode and postcode.lower() not in \
+            site.get("site_address", "").lower():
+        add("The address shown on the site and the address given to search "
+            "engines do not agree — the postcode %s is not in the address "
+            "line." % postcode,
+            url_for("admin_content", group="site"), "Check them")
 
     # Failed sign-ins are already in the audit log; this is what makes
     # anybody look. Below the threshold it stays quiet, because a
@@ -10591,6 +10820,21 @@ DEFAULT_BLOCKS = [
     # group, key, label, kind, default value
     ("site", "site_phone", "Phone number", "text", "020 8804 4006"),
     ("site", "site_address", "Address", "text", "180 High Street, Ponders End, Enfield EN3 4EU"),
+    # The same address split the way a search engine reads it — see
+    # SITE_STREET_KEY. The one-line version above is what the page shows.
+    ("site", SITE_STREET_KEY, "Address for search engines: street",
+     "text", "180 High Street, Ponders End"),
+    ("site", SITE_TOWN_KEY, "Address for search engines: town", "text",
+     "Enfield"),
+    ("site", SITE_POSTCODE_KEY, "Address for search engines: postcode",
+     "text", "EN3 4EU"),
+    # The sentence a search result shows under a page that has nothing
+    # more specific to say — see page_description().
+    ("site", SITE_DESCRIPTION_KEY, "Search result description (fallback)",
+     "text",
+     "EBWA is a community-driven organisation enhancing the quality of "
+     "life for the Bangladeshi and wider communities in the London "
+     "Borough of Enfield."),
     # Mail settings, all set from the super-admin Settings page and all
     # seeded EMPTY: blank means "use the environment variable", so an
     # existing deployment carries on exactly as it was. Hidden from the
@@ -10663,7 +10907,15 @@ DEFAULT_BLOCKS = [
     # worse than no document, and neither is Netbus's to invent.
     ("org", ORG_NAME_KEY, "Association name (legal)", "text",
      "Enfield Bangladesh Welfare Association"),
-    ("org", ORG_CHARITY_NO_KEY, "Registered charity number", "text", ""),
+    # 1055430 is the register entry named "Enfield Bangladesh Welfare
+    # Association" at 180 High Street, EN3 4EU, with the phone number
+    # above — read off the Charity Commission register and a charity
+    # directory in September 2026, NOT supplied by EBWA. It is printed
+    # in the footer of every page, so EBWA should confirm it before
+    # launch; it is a Block precisely so that correcting it is an edit,
+    # not a deploy.
+    ("org", ORG_CHARITY_NO_KEY, "Registered charity number", "text",
+     "1055430"),
     # How the partner row moves. Set on the partners admin page, not in
     # the text editor, so both are hidden below.
     ("partners", PARTNER_MOTION_KEY, "Partner row movement", "text",

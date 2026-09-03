@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% block meta_description %}{{ page_description(c.get('home_hero_text',''), site.get('site_description','')) }}{% endblock %}
+{% block share_image %}{{ share_image_url(c.get('home_hero_image','')) }}{% endblock %}
 {% block content %}
 
 <section class="hero">

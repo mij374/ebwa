@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ title }} — EBWA Gallery{% endblock %}
-{% block meta_description %}{{ description or 'Photographs from EBWA in Enfield.' }}{% endblock %}
+{% block title %}{{ title }} — EBWA gallery{% endblock %}
+{% block meta_description %}{{ page_description(description, 'Photographs from EBWA in Enfield.') }}{% endblock %}
+{% block share_image %}{{ share_image_url(album.cover_image or (photos[0].img.filename if photos else '')) }}{% endblock %}
 {% block content %}
 <section>
   <div class="wrap">

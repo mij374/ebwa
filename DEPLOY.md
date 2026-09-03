@@ -138,6 +138,46 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-09-03 — What a search engine and a shared link can read
+
+**SEED-ONLY: four new Blocks and one changed default, no schema
+change.** `init-db` inserts the missing keys and touches nothing else:
+
+```bash
+cd /opt/ebwa
+git pull
+flask --app app init-db
+flask --app app check-schema
+sudo systemctl restart ebwa
+```
+
+The new Blocks, all in the content editor: `site_street`, `site_town`
+and `site_postcode` (the address split for search engines — Page
+content → Site), and `site_description` (the sentence a search result
+shows under a page with nothing more specific to say). The changed
+default is `org_charity_number`, now 1055430 — the register entry named
+"Enfield Bangladesh Welfare Association" at 180 High Street, EN3 4EU.
+**On a database that already has that Block seeded empty — the demo —
+`init-db` will NOT fill it**, because init-db never overwrites a Block.
+Type it in Page content → Org, or run:
+
+```bash
+sqlite3 instance/ebwa.db "UPDATE block SET value='1055430' WHERE key='org_charity_number' AND value='';"
+```
+
+It prints in the footer of every page and in the Organization
+structured data, so EBWA should confirm the number before launch; it
+was read off the Charity Commission register, not supplied by them.
+
+Nothing here needs an environment variable or a package. Once
+restarted, `/events/<slug>` carries Event JSON-LD and every public
+page carries NGO JSON-LD and Open Graph tags — check one page with
+Google's Rich Results Test and one shared into WhatsApp.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
 ## b4e1904 — 2026-09-02 — Refunds stop counting
 
 **SIX NEW COLUMNS ON `payment`, ONE NEW INDEX, ONE MORE ON

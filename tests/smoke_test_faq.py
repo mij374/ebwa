@@ -67,10 +67,13 @@ def set_flag(name, enabled):
 
 
 def ld_json(html):
-    """The FAQPage block, parsed."""
-    m = re.search(r'<script type="application/ld\+json">(.*?)</script>',
-                  html, re.S)
-    return json.loads(m.group(1)) if m else None
+    """The FAQPage block, parsed — every page also carries the NGO one."""
+    for blob in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>', html, re.S):
+        data = json.loads(blob)
+        if data.get("@type") == "FAQPage":
+            return data
+    return None
 
 
 with app.app_context():

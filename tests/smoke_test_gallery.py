@@ -222,8 +222,9 @@ with app.app_context():
         row.created_at = base - timedelta(hours=i)
     db.session.commit()
     names = [r.filename for r in rows]
+# From <main> onwards: the head's og:image names the cover first.
 order = [m for m in re.findall(r"uploads/([0-9a-f]{32}[^\"']*)",
-                               get("/gallery/seaside-trip"))]
+                               get("/gallery/seaside-trip").split("<main", 1)[1])]
 check("newest photo comes first",
       order[0].replace("-thumb", "") == names[0], str(order[:2]))
 with app.app_context():
@@ -231,7 +232,7 @@ with app.app_context():
     last.sort = -10                        # pin the oldest to the top
     db.session.commit()
 order = [m for m in re.findall(r"uploads/([0-9a-f]{32}[^\"']*)",
-                               get("/gallery/seaside-trip"))]
+                               get("/gallery/seaside-trip").split("<main", 1)[1])]
 check("sort overrides the date",
       order[0].replace("-thumb", "") == names[2], str(order[:2]))
 

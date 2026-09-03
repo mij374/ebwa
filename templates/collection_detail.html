@@ -1,5 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ camp.title }} — EBWA{% endblock %}
+{% block title %}{{ camp.title }} — EBWA collections{% endblock %}
+{% block meta_description %}{{ page_description(camp.description, site.get('site_description','')) }}{% endblock %}
+{% block share_image %}{{ share_image_url(camp.image) }}{% endblock %}
 {% block content %}
 <section>
   <div class="wrap event-detail">

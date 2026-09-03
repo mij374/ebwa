@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title }} — EBWA{% endblock %}
+{% block meta_description %}{{ page_description(page_body, site.get('site_description','')) }}{% endblock %}
 {% block content %}
 <section>
   <div class="wrap legal-page">

@@ -604,7 +604,29 @@ under the figure, because the number gets quoted without its caveat.
 Set EBWA's name and charity number in **Page content → Org**, or the
 period report goes out without them. It says so on screen while they are
 missing, and that note is deliberately not printed — a funding
-application should not carry a message to its own author.
+application should not carry a message to its own author. The same two
+values print in the footer of every public page ("Registered charity
+number 1055430") and go into the structured data a search engine reads,
+so a wrong number there is wrong in three places at once.
+
+## What search engines and shared links see
+
+- Every public page has its own `<title>` and description. Event, news
+  and collection pages describe themselves from their own summary (or
+  first paragraph); the sentence in **Page content → Site → Search
+  result description** is only the fallback.
+- Every page carries Organization (NGO) structured data — legal name,
+  charity number, address, phone, logo — read from the Site and Org
+  Blocks. The address for search engines is the three split fields
+  under Site (street, town, postcode), which must agree with the
+  one-line address shown on the page; the dashboard says so when they
+  do not. Opening hours are not included, because the drop-in times are
+  a sentence rather than a timetable.
+- Each event page carries Event structured data (name, date and time,
+  venue, photo, summary) for Google's events listing.
+- A link shared on WhatsApp or Facebook shows the page's own photograph
+  and headline where it has one, and the logo otherwise.
+- `python tests/smoke_test_seo.py` proves all of it on rendered pages.
 
 ## The written guide at /admin/help
 

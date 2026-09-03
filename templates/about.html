@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% from "_rich_content.html" import rich_content %}
-{% block title %}About us — EBWA{% endblock %}
+{% block title %}About EBWA — Enfield Bangladesh Welfare Association{% endblock %}
+{% block meta_description %}{{ page_description(c.get('about_body',''), site.get('site_description','')) }}{% endblock %}
+{% block share_image %}{{ share_image_url(images[0].filename if images else c.get('about_image','')) }}{% endblock %}
 {% block content %}
 <section>
   <div class="wrap">

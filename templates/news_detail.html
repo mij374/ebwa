@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% from "_rich_content.html" import rich_content %}
-{% block title %}{{ post.title }} — EBWA News{% endblock %}
+{% block title %}{{ post.title }} — EBWA news{% endblock %}
+{% block meta_description %}{{ page_description(post.summary, post.body, site.get('site_description','')) }}{% endblock %}
+{% block share_image %}{{ share_image_url(post.image) }}{% endblock %}
+{% block og_type %}article{% endblock %}
 {% block content %}
 <section>
   <div class="wrap event-detail">

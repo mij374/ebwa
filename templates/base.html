@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}EBWA — Enfield Bangladesh Welfare Association{% endblock %}</title>
-<meta name="description" content="{% block meta_description %}EBWA is a community-driven organisation enhancing the quality of life for the Bangladeshi and wider communities in the London Borough of Enfield.{% endblock %}">
+<meta name="description" content="{% block meta_description %}{{ page_description(site.get('site_description','')) }}{% endblock %}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=asset_version('css/style.css')) }}">
 {#- Busy state for the handful of things that are not instant.
     `defer` so it runs after the page is parsed and after any
@@ -12,7 +12,28 @@
     or broken every form and link behaves exactly as before. -#}
 <script src="{{ url_for('static', filename='js/busy.js', v=asset_version('js/busy.js')) }}" defer></script>
 {% include "_icons.html" %}
-<meta property="og:image" content="{{ url_for('static', filename='img/ebwa-logo.png', _external=True) }}">
+{#- What a link looks like when somebody shares it — on WhatsApp above
+    all, which is how this community passes things round. A page with
+    a photograph of its own overrides `share_image` with the absolute
+    URL of that photo (share_image_url()), and the preview shows the
+    photo and the headline; every other page shows the logo. The title
+    and description are the page's own blocks, rendered again, so the
+    preview can never say something different from the tab. -#}
+{%- set own_photo = self.share_image()|trim %}
+{%- block share_image %}{% endblock %}
+<meta property="og:site_name" content="EBWA — Enfield Bangladesh Welfare Association">
+<meta property="og:type" content="{% block og_type %}website{% endblock %}">
+<meta property="og:locale" content="en_GB">
+<meta property="og:url" content="{{ request.base_url }}">
+<meta property="og:title" content="{{ self.title() }}">
+<meta property="og:description" content="{{ self.meta_description() }}">
+<meta property="og:image" content="{{ own_photo or url_for('static', filename='img/ebwa-logo.png', _external=True) }}">
+<meta name="twitter:card" content="{{ 'summary_large_image' if own_photo else 'summary' }}">
+{#- Who this site belongs to, for a search engine: the association's
+    legal name, charity number, address and phone, read from the same
+    Blocks the footer and the contact page show. Built in app.py. -#}
+<script type="application/ld+json">{{ organisation_jsonld(site, org) }}</script>
+{% block structured_data %}{% endblock %}
 </head>
 <body{% if show_cookie_notice %} class="has-notice"{% endif %}>
 {#- The first thing in the tab order, and the first thing a screen
@@ -159,7 +180,11 @@
       </div>
     </div>
     <div class="foot-bar">
-      <span>© {{ current_year }} Enfield Bangladesh Welfare Association. All rights reserved.</span>
+      {#- The registered-charity line is what the Charity Commission asks
+          a charity to carry on its website, and it prints only when the
+          number is set: a footer saying "registered charity number" and
+          nothing after it would be worse than silence. -#}
+      <span>© {{ current_year }} {{ org.get('org_name','') or 'Enfield Bangladesh Welfare Association' }}.{% if org.get('org_charity_number','')|trim %} Registered charity number {{ org.get('org_charity_number','')|trim }}.{% endif %}</span>
       <span class="foot-legal">
         <a href="{{ url_for('privacy') }}">Privacy notice</a>
         <a href="{{ url_for('terms') }}">Terms of use</a>

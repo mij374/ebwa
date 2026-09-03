@@ -1802,6 +1802,62 @@ Built and maintained by Netbus IT Support.
   - The table grows faster than anything else here, so every query is an
     index seek: `(day)`, `(day, visitor)` for the COUNT(DISTINCT), and
     `(day, path)` for the most-visited list.
+- Search engines and link previews (`# ---- search engines and
+  sharing` in app.py; `tests/smoke_test_seo.py` proves it on RENDERED
+  pages, parsing every JSON-LD block rather than grepping for it):
+  - **Nothing in the structured data is typed into a template.**
+    `organisation_schema()` and `event_schema()` build dicts from the
+    same Blocks and rows the page renders, and `jsonld()` is the one way
+    they reach a page — it escapes `</` so an answer somebody typed
+    cannot end the script tag early. The FAQ schema goes through it too.
+  - **Nothing is invented.** The NGO block carries only what a Block
+    holds: legal name, charity number, the split address, phone, logo.
+    No opening hours (`contact_hours` is a sentence, not a timetable),
+    no email (none is published), no social profiles (none recorded).
+    Each is a field EBWA has to supply first, not a default to guess.
+  - **The charity number is a Block (`org_charity_number`) and prints
+    in the footer of every page** as "Registered charity number N" —
+    the statement the Charity Commission expects a charity to carry.
+    It prints ONLY when set; the dashboard nags while it is empty. The
+    seeded default 1055430 was read off the register, not supplied by
+    EBWA, and is a Block so that correcting it is an edit and not a
+    deploy.
+  - **The address is held twice on purpose**: `site_address` is the
+    line people read, `site_street` / `site_town` / `site_postcode` are
+    what a PostalAddress wants, because nothing in a comma-separated
+    line says which part is the town. The dashboard flags them when the
+    postcode is not in the line. A half-filled split address yields NO
+    address rather than a wrong one.
+  - **Descriptions prefer the page's own words.** `page_description()`
+    takes candidates in order — a summary, then the body, then the
+    `site_description` Block — returns the first paragraph of the first
+    non-empty one, and cuts at a word boundary under
+    `META_DESCRIPTION_MAX`. A template names what it would prefer; the
+    fallback is explicit, never an accident of an empty block.
+  - **The share tags are the page's own blocks rendered again**
+    (`self.title()`, `self.meta_description()` in base.html), so a
+    preview can never say something different from the tab. A page with
+    a photograph overrides `share_image` with `share_image_url()`, which
+    is the 600px THUMBNAIL, absolute: WhatsApp refuses a preview image
+    over about 300KB and the full-size upload can be 1600 wide. No
+    photo means the logo and a small card.
+    - **The head now names a page's cover photograph BEFORE the body
+      does.** A test that counts a filename's occurrences or reads the
+      order of thumbnails off the whole page is counting the og:image
+      tag too — measure inside `<main>`.
+  - **Event markup is per event page, never on the listing.** The time
+    is read with `start_minutes()`, the same parser the day order uses,
+    with the UK offset for that day; an unreadable time gives a
+    date-only startDate. A blank venue — or one naming the centre's own
+    street or postcode — is the centre with its full address; any other
+    venue is a Place with that name and NO guessed address. The model
+    has no end time, cost or cancelled state and the markup says
+    nothing about them; adding a column for any of those is a decision,
+    recorded in the SEO audit, not a default.
+  - Titles: every section page places itself in Enfield ("Events in
+    Enfield — EBWA", "… — EBWA, Enfield"); a long dynamic title (a news
+    headline) keeps the short "— EBWA news" suffix rather than running
+    past what a result shows.
 - Cookies: the site sets exactly two, both first-party and strictly
   necessary — the Flask login session, and `ebwa_notice` recording that
   the footer notice has been read. There is NO analytics, advertising or

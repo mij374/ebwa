@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% from "_rich_content.html" import rich_content %}
-{% block title %}{{ ev.title }} — EBWA Events{% endblock %}
+{% block title %}{{ ev.title }} — EBWA events, Enfield{% endblock %}
+{% block meta_description %}{{ page_description(ev.summary, ev.description, site.get('site_description','')) }}{% endblock %}
+{% block share_image %}{{ share_image_url(ev.image) }}{% endblock %}
+{#- Event markup for Google's events listing, built in the route from
+    the same row this page renders. -#}
+{% block structured_data %}<script type="application/ld+json">{{ schema }}</script>{% endblock %}
 {% block content %}
 <section>
   <div class="wrap event-detail">

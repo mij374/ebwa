@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Contact — EBWA{% endblock %}
+{% block title %}Contact EBWA — Ponders End, Enfield{% endblock %}
+{% block meta_description %}{{ page_description('EBWA, ' ~ site.get('site_address','') ~ '. Call ' ~ site.get('site_phone','') ~ '. ' ~ c.get('contact_intro',''), site.get('site_description','')) }}{% endblock %}
 {% block content %}
 <section>
   <div class="wrap">
