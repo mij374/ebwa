@@ -1039,6 +1039,24 @@ Built and maintained by Netbus IT Support.
       to pin something to the top. The 10s in the content-image sort box
       are a suggested STARTING value, not a convention every row
       follows — `step="10"` would reject a hand-typed 15.
+- **A rich-content detail page gets the FULL `.wrap`, like About.**
+  Event and news pages wrap in `.rich-detail`, not `.event-detail`:
+  the 780px cap on `.event-detail` is a prose reading width from
+  before rich content existed, and with the macro already holding
+  prose to 68ch it did nothing for the words and shrank every
+  photograph — the classic lead measured 287x244 on an event against
+  432x367 on About at 1440, same macro, same preset, same full-size
+  file. Lifted, all three measure identical at every shared viewport.
+  Only the title and the date line keep the 780 measure
+  (`.rich-detail .event-title, .rich-detail .event-meta`).
+  - **The collection page KEEPS `.event-detail`** on purpose: it is
+    hand-built around one photograph and a payment form, and a payment
+    form at 1072px is a new problem. Its image measures 732 wide as it
+    always did.
+  - A single event or story is ONE owner, like About, so its presets
+    are page-scale and a full-width alternating band is 1072x469 by
+    design. Our Journey is the page with MANY owners and stays scoped
+    down — that rule is above and unchanged.
 - **Listing cards are ONE grid and ONE image rule** (`.event-cards`,
   `.event-card img`): the events, news and collections pages and the
   three homepage strips. Measured identical at every shared viewport,

@@ -10,7 +10,11 @@
 {% block structured_data %}<script type="application/ld+json">{{ schema }}</script>{% endblock %}
 {% block content %}
 <section>
-  <div class="wrap event-detail">
+  {#- `rich-detail`, not `event-detail`: this page is one rich-content
+      owner, like About, and gets About's full width so the macro's
+      presets come out page-scale. Only the title and the date line
+      keep the old reading measure. See the rule in the stylesheet. -#}
+  <div class="wrap rich-detail">
     <p class="eyebrow"><a href="{{ url_for('events') }}" class="crumb">← All events</a></p>
     <h1 class="event-title">{{ ev.title }}</h1>
     {#- Before the date and venue, not after the words: somebody who has

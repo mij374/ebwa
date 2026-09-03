@@ -6,7 +6,9 @@
 {% block og_type %}article{% endblock %}
 {% block content %}
 <section>
-  <div class="wrap event-detail">
+  {#- `rich-detail`, as on the event page: full width for the macro,
+      the reading measure kept on the title and date line only. -#}
+  <div class="wrap rich-detail">
     <p class="eyebrow"><a href="{{ url_for('news') }}" class="crumb">← All news</a></p>
     <h1 class="event-title">{{ post.title }}</h1>
     <div class="event-meta">

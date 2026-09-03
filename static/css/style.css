@@ -854,7 +854,18 @@ header{
 .event-card.is-past{opacity:.75}
 
 /* ---------- Event detail ---------- */
+/* 780 is a reading width for PROSE, from before rich content existed.
+   The collection page still lives inside it: that page is hand-built
+   around one photograph and a payment form, and a payment form at
+   1072px would be a new problem. */
 .event-detail{max-width:780px}
+/* The event and news pages do NOT. Each is one rich-content owner,
+   like About, so the macro gets About's full 1072px and its presets
+   come out at the same size on all three pages — measured identical at
+   every shared viewport. The prose inside is already held to 68ch by
+   .rc-text, so lifting the cap moves only the photographs; the title
+   and the date line keep the old measure on their own. */
+.rich-detail .event-title,.rich-detail .event-meta{max-width:780px}
 .event-title{font-size:clamp(30px,4.4vw,46px);font-weight:800;margin-bottom:16px}
 .event-meta{display:flex;flex-wrap:wrap;gap:18px;font-weight:600;font-size:15px;color:var(--ink-soft);margin-bottom:28px}
 .badge-past{background:var(--line);border-radius:999px;padding:2px 12px;font-size:13px}
