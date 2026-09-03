@@ -828,7 +828,12 @@ header{
 .event-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:36px}
 @media (min-width: 921px){
   .event-cards{grid-template-columns:repeat(auto-fit,minmax(276px,1fr))}
-  .event-cards>.event-card:only-child{max-width:calc(50% - 11px)}
+  /* Half the row, and never past 460px: half of 1072 is 525, and at
+     4:3 that is a 392px photograph — a single event made the homepage
+     strip TALLER than three did (885 against 772). 460 gives a 345px
+     photo and a strip within a few pixels of the three-item row.
+     Declared twice: the plain calc for an engine without min(). */
+  .event-cards>.event-card:only-child{max-width:calc(50% - 11px);max-width:min(460px,calc(50% - 11px))}
 }
 .event-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--radius);

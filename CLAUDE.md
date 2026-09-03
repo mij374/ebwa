@@ -1069,13 +1069,20 @@ Built and maintained by Netbus IT Support.
     About is NOT the comparison: its lead is a rich-content figure, and
     matching a card to it would make cards into page-scale bands, the
     mistake the Our Journey rules already warn about.
-  - **A lone card grows to half the row, never the whole of it.**
-    Above 920 the columns are `auto-fit, minmax(276px, 1fr)` and an
-    `:only-child` is capped at `calc(50% - 11px)`: one item is 525px
-    at 1440 rather than 343 in an empty three-column row, two items
-    take half each, three or more sit three across exactly as before.
+  - **A lone card grows to half the row, capped at 460px.** Above 920
+    the columns are `auto-fit, minmax(276px, 1fr)` and an `:only-child`
+    is capped at `min(460px, calc(50% - 11px))`: one item is 460px at
+    1440 rather than 343 in an empty three-column row, two items take
+    half each (525), three or more sit three across exactly as before.
     276 is the minimum that still fits three at 921px (873px of
     content), so nothing moves with three or more at ANY width.
+    - **460, not the full half.** Half of 1072 is 525, and at 4:3 that
+      is a 392px photograph, which made a homepage strip with ONE
+      event taller than one with three (885 against 772). At 460 the
+      photo is 344 and the strip is 836 — the growth and the ratio
+      compound, and this is the number where a lone card is plainly
+      larger than a third without outweighing a full row. The cap is
+      declared twice, plain calc first, for an engine without min().
   - **The cap lives inside the `min-width: 921px` query on purpose.**
     Below it the forced `1fr 1fr` / `1fr` tracks already give a lone
     card its half or its whole, and a percentage max-width resolves
@@ -1084,6 +1091,11 @@ Built and maintained by Netbus IT Support.
   - The homepage strips are designed around three and measure the same
     as before with three; with one or two upcoming events they now grow
     like the listing, which is the same fix for the same emptiness.
+  - **All three strips show at most THREE.** The collections strip
+    used to show every open collection — six of them put two rows on
+    the front page, 2,779px of it on a phone — and now takes the same
+    `limit(3)` and "All collections" link as events and news. The cap
+    is the strip's; /collections still lists all of them.
     The before-and-after figures at every viewport are in the commit
     that made this change.
 - Grid tracks that hold anything unbreakable are `minmax(0,1fr)`, never

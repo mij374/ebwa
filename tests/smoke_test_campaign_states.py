@@ -131,6 +131,29 @@ check("homepage strip shows the open collection", "Seaside trip" in home)
 check("homepage strip does NOT show the completed one",
       "Winter coats" not in home)
 check("nor the hidden one", "Draft appeal" not in home)
+check("the strip links to the full list", 'href="/collections"' in home
+      and "All collections" in home)
+
+# THREE AT MOST, like the event and news strips. Every open collection
+# used to be shown, and six put two full rows on the front page.
+with app.app_context():
+    extra = [Campaign(title="Extra collection %d" % i, slug="extra-%d" % i,
+                      description="Words.", state="open") for i in range(5)]
+    db.session.add_all(extra)
+    db.session.commit()
+home = client.get("/").data.decode("utf-8")
+strip = home.split("Help us get there", 1)[1].split("</section>", 1)[0]
+check("homepage strip shows at most three open collections",
+      strip.count('class="event-card"') == 3,
+      "%d cards" % strip.count('class="event-card"'))
+listing = client.get("/collections").data.decode("utf-8")
+check("the collections page still lists all six",
+      listing.count('href="/collections/extra-') == 5
+      and "Seaside trip" in listing)
+with app.app_context():
+    for c in Campaign.query.filter(Campaign.slug.like("extra-%")).all():
+        db.session.delete(c)
+    db.session.commit()
 
 # ---- the sitemap: both public states, never the hidden one -----------
 xml = client.get("/sitemap.xml").data.decode("utf-8")

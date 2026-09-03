@@ -5412,9 +5412,13 @@ def home():
     if feature_enabled("donations"):
         # OPEN only. The strip is an invitation to give; a finished
         # collection belongs on /collections, where it reads as a record.
+        # THREE, like the event and news strips. Every open collection
+        # used to be shown, and six of them put two full rows on the
+        # front page — 2,779px of it on a phone. The rest are one link
+        # away on /collections, which shows all of them.
         campaigns = (Campaign.query.filter_by(state="open")
                      .order_by(Campaign.created_at.desc(),
-                               Campaign.id.desc()).all())
+                               Campaign.id.desc()).limit(3).all())
     testimonials = (Testimonial.query.filter_by(published=True)
                     .order_by(Testimonial.sort,
                               Testimonial.created_at.desc(),
