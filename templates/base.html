@@ -19,8 +19,13 @@
     photo and the headline; every other page shows the logo. The title
     and description are the page's own blocks, rendered again, so the
     preview can never say something different from the tab. -#}
-{%- set own_photo = self.share_image()|trim %}
-{%- block share_image %}{% endblock %}
+{#- The block is CAPTURED into a variable, never rendered in place. A
+    block renders its content wherever it is declared, so declaring it
+    bare here printed the photograph's URL as text in the head — and a
+    browser meeting text in <head> closes the head early and puts the
+    URL, and every meta after it, at the top of the body. -#}
+{%- set own_photo %}{% block share_image %}{% endblock %}{% endset %}
+{%- set own_photo = own_photo|trim %}
 <meta property="og:site_name" content="EBWA — Enfield Bangladesh Welfare Association">
 <meta property="og:type" content="{% block og_type %}website{% endblock %}">
 <meta property="og:locale" content="en_GB">

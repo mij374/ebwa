@@ -139,6 +139,26 @@ def of_type(blocks, kind):
     return [b for b in blocks if b.get("@type") == kind]
 
 
+def visible_text(html):
+    """What a person would see: tags, scripts, styles and comments gone."""
+    text = re.sub(r"<(script|style)\b.*?</\1>", " ", html, flags=re.S)
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+    return re.sub(r"<[^>]+>", " ", text)
+
+
+def head_text(html):
+    """Bare text in the <head>, which should be nothing but the title.
+
+    A meta tag's content is inside a tag and is not text. Anything else
+    here is a template expression that escaped its tag — and a browser
+    meeting text in <head> closes the head and puts the text, and
+    every tag after it, at the top of the body.
+    """
+    head = html.split("</head>", 1)[0]
+    head = re.sub(r"<title>.*?</title>", " ", head, flags=re.S)
+    return visible_text(head).strip()
+
+
 # ---- A. the helper's own rules
 print("-- descriptions")
 check("first paragraph only",
@@ -184,6 +204,17 @@ for path in PAGES:
           meta(html, "property", "og:url") == HOST + path)
     check("%s: og:image is absolute" % path,
           (meta(html, "property", "og:image") or "").startswith(HOST + "/"))
+    # PRESENCE IS NOT POSITION. The tags above can all be right while a
+    # URL is also printed as text at the top of the page — which is
+    # exactly what a block declared bare in the head did. So: nothing in
+    # the head is text but the title, and no URL is visible anywhere.
+    check("%s: the head holds no bare text" % path, head_text(html) == "",
+          head_text(html)[:80])
+    seen = visible_text(html)
+    check("%s: no image URL is visible on the page" % path,
+          "/static/uploads/" not in seen and "://" not in seen,
+          re.search(r"\S*(?:/static/uploads/|://)\S*", seen).group(0)
+          if re.search(r"/static/uploads/|://", seen) else "")
     check("%s: og:site_name, og:type, twitter:card present" % path,
           all(meta(html, "property", k) for k in ("og:site_name", "og:type"))
           and meta(html, "name", "twitter:card") in ("summary",

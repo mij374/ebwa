@@ -1876,6 +1876,23 @@ Built and maintained by Netbus IT Support.
     is the 600px THUMBNAIL, absolute: WhatsApp refuses a preview image
     over about 300KB and the full-size upload can be 1600 wide. No
     photo means the logo and a small card.
+    - **A BLOCK RENDERS WHERE IT IS DECLARED.** base.html needs the
+      `share_image` block to exist so `self.share_image()` can be
+      called, and declaring it bare in the head printed the photo's
+      URL as text there — and a browser meeting text in `<head>`
+      closes the head early, so the URL AND every og: tag and the
+      JSON-LD after it landed at the top of the body (Chromium put
+      0 of 8 share tags in the head). It is captured with
+      `{% set own_photo %}{% block share_image %}{% endblock %}{% endset %}`
+      and rendered nowhere. Any block that exists only to be read
+      through `self.` must be captured the same way.
+    - **Presence is not position, again.** The smoke test asserted the
+      tags were present and passed while the URL was on the page. It
+      now asserts the head holds no bare text but the title and that
+      no URL is visible anywhere; `tests/check_share_tags.py` asks
+      Chromium the same at every shared viewport, since only a
+      browser can say where a parser put a tag. Both were proved by
+      putting the bug back and watching them fail.
     - **The head now names a page's cover photograph BEFORE the body
       does.** A test that counts a filename's occurrences or reads the
       order of thumbnails off the whole page is counting the og:image
