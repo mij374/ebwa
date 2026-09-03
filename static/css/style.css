@@ -810,14 +810,38 @@ header{
 .card p{font-size:15px;color:var(--ink-soft)}
 
 /* ---------- Event cards ---------- */
+/* ONE grid for every listing card on the site: the events, news and
+   collections pages and the three homepage strips. Three across, two
+   below 920, one below 640 — the media queries at the foot of the file.
+   Above 920 the columns are auto-fit rather than a fixed three, and
+   that is what lets a lone card grow: a single event in a three-column
+   row sat at 343px with two thirds of the row empty, which is what a
+   small charity's events page looks like most weeks. The 276px minimum
+   is the width that still fits THREE at 921px (873px of content,
+   3×276 + 44), so with three or more items nothing moves at any width;
+   with two, each takes half; with one, the track is the full row and
+   the :only-child cap below holds it to half — the width a two-column
+   row would give it, so a lone card looks like a card and not a band.
+   The cap lives in the same media query on purpose: below 920 the
+   forced 1fr 1fr / 1fr tracks already give a lone card its half or
+   its whole, and a 50% cap inside a half-width track would quarter it. */
 .event-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:36px}
+@media (min-width: 921px){
+  .event-cards{grid-template-columns:repeat(auto-fit,minmax(276px,1fr))}
+  .event-cards>.event-card:only-child{max-width:calc(50% - 11px)}
+}
 .event-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--radius);
   overflow:hidden;text-decoration:none;display:flex;flex-direction:column;
   transition:transform .18s ease, box-shadow .18s ease;
 }
 .event-card:hover{transform:translateY(-5px);box-shadow:0 18px 40px rgba(2,56,42,.12)}
-.event-card img{aspect-ratio:16/9;object-fit:cover;width:100%}
+/* 4:3, the shape of a photograph off a phone and of the gallery's
+   album covers. 16:9 cropped a quarter off every landscape upload and
+   showed a 192px letterbox at the widest screen, which read as small
+   beside every other photograph on the site. Six treatments share this
+   one line, so they cannot come apart. */
+.event-card img{aspect-ratio:4/3;object-fit:cover;width:100%}
 .event-card-body{padding:22px 24px}
 /* Either level: a card title is an h3 on the homepage, where it sits
    under a section h2, and an h2 on the listing pages, where the page

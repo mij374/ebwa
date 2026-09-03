@@ -1039,6 +1039,35 @@ Built and maintained by Netbus IT Support.
       to pin something to the top. The 10s in the content-image sort box
       are a suggested STARTING value, not a convention every row
       follows — `step="10"` would reject a hand-typed 15.
+- **Listing cards are ONE grid and ONE image rule** (`.event-cards`,
+  `.event-card img`): the events, news and collections pages and the
+  three homepage strips. Measured identical at every shared viewport,
+  which is the point — a card that reads as small on /events is the
+  same card on the homepage, so fix the rule, never a page.
+  - **The image is 4:3**, the shape of a photograph off a phone and of
+    the gallery's album covers, which it now matches to the pixel
+    (341x255 at 1440). It was 16:9, which cropped a quarter off every
+    landscape upload and showed a 192px letterbox at the widest screen.
+    About is NOT the comparison: its lead is a rich-content figure, and
+    matching a card to it would make cards into page-scale bands, the
+    mistake the Our Journey rules already warn about.
+  - **A lone card grows to half the row, never the whole of it.**
+    Above 920 the columns are `auto-fit, minmax(276px, 1fr)` and an
+    `:only-child` is capped at `calc(50% - 11px)`: one item is 525px
+    at 1440 rather than 343 in an empty three-column row, two items
+    take half each, three or more sit three across exactly as before.
+    276 is the minimum that still fits three at 921px (873px of
+    content), so nothing moves with three or more at ANY width.
+  - **The cap lives inside the `min-width: 921px` query on purpose.**
+    Below it the forced `1fr 1fr` / `1fr` tracks already give a lone
+    card its half or its whole, and a percentage max-width resolves
+    against the TRACK, so the same cap inside a half-width track would
+    quarter the card.
+  - The homepage strips are designed around three and measure the same
+    as before with three; with one or two upcoming events they now grow
+    like the listing, which is the same fix for the same emptiness.
+    The before-and-after figures at every viewport are in the commit
+    that made this change.
 - Grid tracks that hold anything unbreakable are `minmax(0,1fr)`, never
   a bare `1fr`: an `fr` track's automatic minimum is MIN-CONTENT, so one
   item that cannot shrink sizes the track wider than its container and
