@@ -623,7 +623,10 @@ so a wrong number there is wrong in three places at once.
   do not. Opening hours are not included, because the drop-in times are
   a sentence rather than a timetable.
 - Each event page carries Event structured data (name, date and time,
-  venue, photo, summary) for Google's events listing.
+  venue, photo, summary) for Google's events listing. An event set to
+  **Cancelled — still on the website** keeps its page and address, says
+  so at the top with your note, is listed but left off the homepage,
+  and is reported to Google as cancelled rather than vanishing.
 - A link shared on WhatsApp or Facebook shows the page's own photograph
   and headline where it has one, and the logo otherwise.
 - `python tests/smoke_test_seo.py` proves all of it on rendered pages.

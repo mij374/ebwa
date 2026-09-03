@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% from "_rich_content.html" import rich_content %}
-{% block title %}{{ ev.title }} — EBWA events, Enfield{% endblock %}
-{% block meta_description %}{{ page_description(ev.summary, ev.description, site.get('site_description','')) }}{% endblock %}
+{#- "Cancelled:" goes in the TITLE, so the tab, the search result and
+    the WhatsApp preview all say it before anybody taps through. -#}
+{% block title %}{% if ev.is_cancelled %}Cancelled: {% endif %}{{ ev.title }} — EBWA events, Enfield{% endblock %}
+{% block meta_description %}{% if ev.is_cancelled %}This event has been cancelled. {% endif %}{{ page_description(ev.summary, ev.description, site.get('site_description','')) }}{% endblock %}
 {% block share_image %}{{ share_image_url(ev.image) }}{% endblock %}
 {#- Event markup for Google's events listing, built in the route from
     the same row this page renders. -#}
@@ -11,10 +13,22 @@
   <div class="wrap event-detail">
     <p class="eyebrow"><a href="{{ url_for('events') }}" class="crumb">← All events</a></p>
     <h1 class="event-title">{{ ev.title }}</h1>
+    {#- Before the date and venue, not after the words: somebody who has
+        come to check whether Saturday is still on should not have to
+        read to the bottom to find out that it is not. -#}
+    {% if ev.is_cancelled %}
+    <div class="event-cancelled" role="status">
+      <p><strong>This event has been cancelled</strong> and is not going ahead
+        {% if ev.is_past %}as planned{% else %}on {{ ev.event_date.strftime('%A %d %B') }}{% endif %}.</p>
+      {% if ev.cancel_note %}<p>{{ ev.cancel_note }}</p>{% endif %}
+      {% if site.get('site_phone','') %}<p>Any questions, call us on <a href="tel:{{ site.get('site_phone','')|replace(' ','') }}">{{ site.get('site_phone','') }}</a>.</p>{% endif %}
+    </div>
+    {% endif %}
     <div class="event-meta">
       <span>📅 {{ ev.event_date.strftime('%A %d %B %Y') }}</span>
       {% if ev.start_time %}<span>🕐 {{ ev.start_time }}</span>{% endif %}
       {% if ev.venue %}<span>📍 {{ ev.venue }}</span>{% endif %}
+      {% if ev.is_cancelled %}<span class="badge-cancelled">Cancelled</span>{% endif %}
       {% if ev.is_past %}<span class="badge-past">Past event</span>{% endif %}
     </div>
     {{ rich_content(paragraphs, images, layout,

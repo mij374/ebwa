@@ -834,6 +834,18 @@ header{
 .event-title{font-size:clamp(30px,4.4vw,46px);font-weight:800;margin-bottom:16px}
 .event-meta{display:flex;flex-wrap:wrap;gap:18px;font-weight:600;font-size:15px;color:var(--ink-soft);margin-bottom:28px}
 .badge-past{background:var(--line);border-radius:999px;padding:2px 12px;font-size:13px}
+/* Cancelled: the same red as the error flash and the admin's red pill,
+   which already pass AA, and never `--red` on its own. On a card the
+   badge sits on its own line above the title; the photograph goes
+   grey so a cancelled event is read as such from across the page,
+   not only once the badge is found. */
+.badge-cancelled{display:inline-block;background:#FCE9EA;color:#9B1B26;border-radius:999px;padding:2px 12px;font-size:13px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.event-card .badge-cancelled{margin:6px 0 2px}
+.event-card.is-cancelled img{filter:grayscale(1);opacity:.8}
+.event-cancelled{background:#FCE9EA;border-left:4px solid var(--red);border-radius:6px;padding:16px 20px;margin:0 0 24px;max-width:68ch}
+.event-cancelled p{margin:0;color:#7A1520;line-height:1.55}
+.event-cancelled p+p{margin-top:8px}
+.event-cancelled a{color:#7A1520;font-weight:600}
 .event-hero{
   border-radius:var(--radius);margin-bottom:32px;width:100%;
   aspect-ratio:16/7;max-height:440px;object-fit:cover;

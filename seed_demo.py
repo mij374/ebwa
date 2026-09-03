@@ -289,7 +289,7 @@ def seed():
             ev.venue = venue
             ev.summary = summary
             ev.description = description
-            ev.published = True
+            ev.state = "published"
             db.session.add(ev)
         upcoming = sum(1 for e in EVENTS if e[0] >= 0)
         results.append(("events", "%d seeded (%d upcoming, %d past)"

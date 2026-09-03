@@ -56,6 +56,7 @@ from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          login_required, current_user)
 from werkzeug.middleware.proxy_fix import ProxyFix
 from markupsafe import Markup
+from sqlalchemy.orm import validates
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -576,6 +577,23 @@ class Event(db.Model):
     summary = db.Column(db.String(300), default="")       # short line for listing cards
     description = db.Column(db.Text, default="")          # full details, paragraphs
     image = db.Column(db.String(255), default="")         # uploads filename
+    # ON THE SITE, CANCELLED, OR NOT ON THE SITE — three answers, the
+    # same shape as Campaign.state and for the same reason: a tick-box
+    # answered "is it visible?" and "is it happening?" with one tick,
+    # so the only way to say an event was off was to unpublish it, which
+    # took away the page a visitor holding the poster most needs to
+    # find. See EVENT_STATES. `server_default` is the safe value for
+    # rows that exist before the deploy's UPDATE gives them their real
+    # one, exactly as Campaign.state does.
+    state = db.Column(db.String(20), nullable=False, default="published",
+                      server_default="unpublished")
+    # What to tell people when it is cancelled, in the admin's words —
+    # "moved to 12 October", "the hall is flooded" — shown on the page
+    # under the notice. Optional; the notice stands without it.
+    cancel_note = db.Column(db.String(300), default="")
+    # LEGACY. Nothing reads this any more; `state` is the only authority.
+    # Kept in step by the validator below, purely so that a database
+    # opened by hand does not contradict the website.
     published = db.Column(db.Boolean, default=True)
     layout = db.Column(db.String(20), nullable=False, default="classic")
     # A YouTube or Vimeo link, validated on the way in — never raw
@@ -592,9 +610,30 @@ class Event(db.Model):
                                server_default="lead")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # naive UTC
 
+    @validates("state")
+    def _keep_published_in_step(self, _key, value):
+        """The one place the legacy flag is written: whenever state is.
+
+        ONE direction only. A validator on `published` that wrote
+        `state` back would chase this one round in a circle during
+        construction, when neither value has landed yet. So fixtures and
+        code set `state`; `published` follows.
+        """
+        self.published = value in PUBLIC_EVENT_STATES
+        return value
+
     @property
     def is_past(self):
         return self.event_date < date.today()
+
+    @property
+    def is_public(self):
+        """On the website at all — going ahead or cancelled."""
+        return self.state in PUBLIC_EVENT_STATES
+
+    @property
+    def is_cancelled(self):
+        return self.state == "cancelled"
 
 
 class NewsPost(db.Model):
@@ -1397,6 +1436,33 @@ CAMPAIGN_STATE_LABELS = {k: label for k, label, _d in CAMPAIGN_STATES}
 # The two a visitor can reach. Keep the ORDER — open before closed is
 # the order the collections page renders its two sections in.
 PUBLIC_CAMPAIGN_STATES = ("open", "closed")
+
+# ---- event states, the same three-way shape (see Event.state)
+#   published   — on the website, on the events page and promoted on the
+#                 homepage's "Upcoming events" strip.
+#   cancelled   — still on the website at the same address, listed under
+#                 upcoming or past by its date exactly as before, but
+#                 marked CANCELLED on the card and the page, left off the
+#                 homepage strip, and told to Google as EventCancelled.
+#                 What a visitor with the poster in their hand needs to
+#                 find. Unpublishing it instead gives them a 404.
+#   unpublished — not on the website: no card, no page, not in the
+#                 sitemap. What unticking "Published" used to mean.
+# Order matters: it is the order of the admin's dropdown, and the first
+# entry is what a new event gets.
+EVENT_STATES = (
+    ("published", "Published",
+     "On the website and, while it is coming up, on the homepage."),
+    ("cancelled", "Cancelled — still on the website",
+     "The page stays at the same address, marked as cancelled, with "
+     "your note below. Listed but not promoted. Nobody arrives at a "
+     "missing page having seen the poster."),
+    ("unpublished", "Unpublished",
+     "Not on the website at all. A draft, or something you want gone."),
+)
+EVENT_STATE_LABELS = {k: label for k, label, _d in EVENT_STATES}
+# The two a visitor can reach.
+PUBLIC_EVENT_STATES = ("published", "cancelled")
 
 
 class Payment(db.Model):
@@ -5327,8 +5393,10 @@ def filesize_filter(size):
 @app.route("/")
 def home():
     content = blocks_for("home")
+    # PROMOTED, not merely public: a cancelled event stays on the
+    # events page but has no business on the front door.
     upcoming = (Event.query
-                .filter_by(published=True)
+                .filter_by(state="published")
                 .filter(Event.event_date >= date.today())
                 .order_by(Event.event_date.asc(), Event.id.asc())
                 .limit(EVENT_FETCH).all())
@@ -5557,9 +5625,13 @@ def event_schema(ev, site, org):
         address = postal_address(site)
         if address:
             location["address"] = address
+    # A cancelled event KEEPS its startDate and says EventCancelled —
+    # that is what Google asks for, so the listing shows it crossed
+    # through rather than dropping it and leaving the old result live.
     data = {"@context": "https://schema.org", "@type": "Event",
             "name": ev.title, "startDate": start,
-            "eventStatus": "https://schema.org/EventScheduled",
+            "eventStatus": "https://schema.org/EventCancelled"
+            if ev.is_cancelled else "https://schema.org/EventScheduled",
             "location": location,
             "organizer": {"@type": "NGO", "name": name, "url": home},
             "url": url_for("event_detail", slug=ev.slug, _external=True)}
@@ -5586,8 +5658,10 @@ def sitemap():
         ("membership_pay", "membership_fees"), ("contact", None),
         ("privacy", None), ("terms", None)]
     urls = [url_for(e) for e, f in pages if f is None or flags[f]]
+    # Both public states: a cancelled event keeps its page and its
+    # address, which is the whole point of the state.
     urls += [url_for("event_detail", slug=ev.slug) for ev in
-             Event.query.filter_by(published=True).all()]
+             Event.query.filter(Event.state.in_(PUBLIC_EVENT_STATES)).all()]
     albums = GalleryAlbum.query.filter_by(published=True).all()
     urls += [url_for("gallery_album", slug=a.slug) for a in albums]
     if GalleryImage.query.first():
@@ -5660,12 +5734,16 @@ def about():
 @app.route("/events")
 def events():
     today = date.today()
+    # Cancelled events are LISTED here, in whichever section their date
+    # puts them, marked on the card — a visitor checking whether
+    # Saturday is still on must be able to find the answer.
+    public = Event.state.in_(PUBLIC_EVENT_STATES)
     upcoming = events_in_day_order(
-        Event.query.filter_by(published=True)
+        Event.query.filter(public)
         .filter(Event.event_date >= today)
         .order_by(Event.event_date.asc(), Event.id.asc()).all())
     past = events_in_day_order(
-        Event.query.filter_by(published=True)
+        Event.query.filter(public)
         .filter(Event.event_date < today)
         .order_by(Event.event_date.desc(), Event.id.desc())
         .limit(EVENT_FETCH).all(), newest_day_first=True)[:12]
@@ -5674,7 +5752,8 @@ def events():
 
 @app.route("/events/<slug>")
 def event_detail(slug):
-    ev = Event.query.filter_by(slug=slug, published=True).first_or_404()
+    ev = (Event.query.filter_by(slug=slug)
+          .filter(Event.state.in_(PUBLIC_EVENT_STATES)).first_or_404())
     layout, images = rich_content_for("event", ev.id)
     return render_template("event_detail.html", ev=ev, layout=layout,
                            images=images,
@@ -6738,14 +6817,19 @@ def _count(model, *criteria):
     return (q.filter(*criteria) if criteria else q).scalar() or 0
 
 
-def _published_split(model):
-    """(total, drafts) for a model with a `published` flag, in one query."""
-    total, live = db.session.query(
+def _published_split(model, live=None):
+    """(total, drafts) for a model with a `published` flag, in one query.
+
+    `live` is the criterion for "on the site" where that is not the
+    flag — Event, whose three-way `state` replaced it.
+    """
+    if live is None:
+        live = model.published == True                          # noqa: E712
+    total, on = db.session.query(
         db.func.count(model.id),
-        db.func.coalesce(db.func.sum(
-            db.case((model.published == True, 1), else_=0)), 0)  # noqa: E712
+        db.func.coalesce(db.func.sum(db.case((live, 1), else_=0)), 0)
     ).one()
-    return total, total - live
+    return total, total - on
 
 
 def _plural(n, word, plural=None):
@@ -6760,8 +6844,10 @@ def _no_photo_count(model, owner_type):
     """
     attached = (db.select(ContentImage.owner_id)
                 .where(ContentImage.owner_type == owner_type))
+    live = (model.state.in_(PUBLIC_EVENT_STATES) if model is Event
+            else model.published == True)                       # noqa: E712
     return _count(model,
-                  model.published == True,          # noqa: E712
+                  live,
                   db.or_(model.image == "", model.image.is_(None)),
                   model.id.notin_(attached))
 
@@ -6783,14 +6869,24 @@ def dashboard_cards(flags):
     cards = []
     content, people = "Pages and content", "People"
 
-    total, drafts = _published_split(Event)
+    # ONE query for the whole card: total, on the site, upcoming, past
+    # and cancelled are all conditional sums over the same table, and
+    # the page has a query budget that a fourth state must not spend.
+    public = Event.state.in_(PUBLIC_EVENT_STATES)
+
+    def _sum_where(cond):
+        return db.func.coalesce(db.func.sum(db.case((cond, 1), else_=0)), 0)
+    total, on_site, upcoming, past, cancelled = db.session.query(
+        db.func.count(Event.id), _sum_where(public),
+        _sum_where(db.and_(public, Event.event_date >= today)),
+        _sum_where(db.and_(public, Event.event_date < today)),
+        _sum_where(Event.state == "cancelled")).one()
     cards.append(_card(
-        content, "Events", total, url_for("admin_events"), drafts=drafts,
-        note="%d upcoming · %d past"
-             % (_count(Event, Event.event_date >= today,
-                       Event.published == True),                # noqa: E712
-                _count(Event, Event.event_date < today,
-                       Event.published == True))))              # noqa: E712
+        content, "Events", total, url_for("admin_events"),
+        drafts=total - on_site,
+        note="%d upcoming · %d past%s"
+             % (upcoming, past,
+                " · %d cancelled" % cancelled if cancelled else "")))
 
     if flags["news"]:
         total, drafts = _published_split(NewsPost)
@@ -6976,8 +7072,9 @@ def dashboard_attention(flags):
     # charity number means the footer says nothing about registration
     # and Google cannot tie the site to the register; a postcode that
     # is not in the address line means the two addresses have drifted.
-    site = blocks_for("site")
-    org = blocks_for("org")
+    identity = {b.key: b.value for b in Block.query.filter(
+        Block.group.in_(("site", "org"))).all()}   # one query, both groups
+    site = org = identity
     if ORG_CHARITY_NO_KEY in org and not org[ORG_CHARITY_NO_KEY].strip():
         add("The registered charity number is not set, so the footer does "
             "not state it and search engines cannot match the site to the "
@@ -7017,10 +7114,13 @@ def dashboard_attention(flags):
                 % _plural(n, "new membership application"),
                 url_for("admin_membership"), "Review")
 
+    # Both public states: a cancelled event that has passed its date is
+    # on the site under "Past events" exactly as a published one is,
+    # and is just as much a thing to decide about.
     n = _count(Event, Event.event_date < date.today(),
-               Event.published == True)                       # noqa: E712
+               Event.state.in_(PUBLIC_EVENT_STATES))
     if n:
-        add("%s now past — still published, and showing under “Past events”."
+        add("%s now past — still on the website, showing under “Past events”."
             % _plural(n, "event"), url_for("admin_events"), "Review")
 
     for model, owner_type, word, url, on in (
@@ -7399,6 +7499,13 @@ def admin_event_form(event_id=None):
         date_str = request.form.get("event_date", "")
         pasted = body_embed_problem(request.form.get("description", ""),
                                     request.form.get("summary", ""))
+        # A SELECT, as on campaigns, so the unticked-box trap cannot
+        # apply. An unknown value falls back to what the row already
+        # has, never to a default, so a hand-made POST cannot publish a
+        # draft or quietly un-cancel something.
+        state = request.form.get("state", "")
+        if state not in EVENT_STATE_LABELS:
+            state = ev.state if ev else EVENT_STATES[0][0]
         if not title or not date_str:
             flash("Title and date are required.", "error")
         elif pasted:
@@ -7414,7 +7521,10 @@ def admin_event_form(event_id=None):
                 "venue": request.form.get("venue", "").strip(),
                 "summary": request.form.get("summary", "").strip(),
                 "description": request.form.get("description", "").strip(),
-                "published": request.form.get("published") == "on",
+                "state": state,
+                # Kept whatever the state, so switching an event back to
+                # cancelled after a false alarm does not lose the words.
+                "cancel_note": request.form.get("cancel_note", "").strip(),
             }
             changed = [] if is_new else changed_fields(ev, values)
             apply_values(ev, values)
@@ -7436,6 +7546,7 @@ def admin_event_form(event_id=None):
             return redirect(url_for("admin_events"))
 
     return render_template("admin/event_form.html", ev=ev,
+                           event_states=EVENT_STATES,
                            **rich_admin_context("event", ev))
 
 

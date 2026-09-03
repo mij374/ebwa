@@ -148,13 +148,17 @@ client.post("/admin/events/%d/edit" % ev_id, data={
     "title": V["new_title"], "event_date": "2026-09-05",
     "venue": "Elsewhere", "description": "A different SECRETDESCRIPTION plan",
     "start_time": "6:30 PM", "summary": "Community meal",
-    "published": "on"})
+    "state": "published"})
 expect("event: single changed field", last_summary(), ["venue"])
+# The state is a <select> now (published / cancelled / unpublished), so
+# the change to catch is the value moving, not a box going missing.
 client.post("/admin/events/%d/edit" % ev_id, data={
     "title": V["new_title"], "event_date": "2026-09-05",
     "venue": "Elsewhere", "description": "A different SECRETDESCRIPTION plan",
-    "start_time": "6:30 PM", "summary": "Community meal"})
-expect("event: unticking published is caught", last_summary(), ["published"])
+    "start_time": "6:30 PM", "summary": "Community meal",
+    "state": "cancelled"})
+expect("event: cancelling is caught as a state change", last_summary(),
+       ["state"])
 
 # a replaced image counts as a changed field
 client.post("/admin/events/%d/edit" % ev_id, data={

@@ -751,6 +751,41 @@ Built and maintained by Netbus IT Support.
     inside it, so testing for the backdrop element left the gap under a
     wide photo, the space beside a tall one, and the caption looking
     exactly like backdrop but dead to the click.
+- **An event's STATE is three-way (`EVENT_STATES`), not a boolean**,
+  the same shape as a collection's and for the same reason: `published`
+  answered "is it on the site?" and "is it happening?" with one tick, so
+  the only way to say an event was off was to unpublish it — which
+  removed the page a visitor holding the poster most needs to find.
+  - `published` on the site and promoted on the homepage strip •
+    `cancelled` on the site at the SAME ADDRESS, marked on the card and
+    the page with the admin's optional `cancel_note`, listed under
+    upcoming or past by its date, off the homepage, and told to Google
+    as `EventCancelled` with its startDate KEPT • `unpublished` off the
+    site entirely. `PUBLIC_EVENT_STATES` is the pair a visitor can reach.
+  - **Filter on the state you MEAN.** The homepage asks for
+    `state == "published"` (promoted); the events page, the detail
+    route, the sitemap and the dashboard counts ask for the public pair.
+    `Event.published` is LEGACY: nothing reads it, and a `@validates`
+    on `state` keeps it in step — ONE direction only, because a second
+    validator writing `state` back chases the first round in a circle
+    during construction. Fixtures set `state`.
+  - **The automatic past-event split is untouched by the state, and
+    the state is untouched by the date.** A cancelled event is sorted
+    into upcoming or past by its date like any other, keeps its badge
+    in either, and nothing ever changes a state on a schedule: a
+    cancelled event does not become published because the day passed,
+    and a past one is not cancelled because it is over. The past-event
+    dashboard nag counts both public states — a cancelled event that
+    has passed is on the site under "Past events" exactly as a
+    published one is.
+  - "Cancelled:" goes in the `<title>`, so the tab, the search result
+    and the WhatsApp preview say it before anybody taps through, and
+    the notice sits ABOVE the date and venue, not below the words.
+  - The state control is a `<select>`; the selected option must be the
+    row's CURRENT state and an unrecognised value falls back to it,
+    never to a default (`tests/smoke_test_publish_state.py` proves it
+    beside the campaign one). `tests/smoke_test_event_states.py` holds
+    the rest, past-date cases included.
 - Every `<img>` needs its box reserved before the bytes arrive
   (`aspect-ratio` or explicit width/height in the stylesheet), or the
   page reflows as photos load. Check this when adding an image class.

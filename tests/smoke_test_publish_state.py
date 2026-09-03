@@ -137,7 +137,7 @@ with app.app_context():
     live = {
         "event": Event(title="Live event", slug="live-event",
                        event_date=date(2026, 9, 1), description="Words.",
-                       published=True),
+                       state="cancelled"),
         "news": NewsPost(title="Live post", slug="live-post", body="Words.",
                          published_date=date(2026, 4, 1), published=True),
         "milestone": Milestone(title="Live milestone", year=2026,
@@ -163,7 +163,9 @@ client.post("/admin/login", data={"email": "netbus@example.com",
 
 # form name -> (edit url, model, the column that decides visibility)
 FORMS = {
-    "event": ("/admin/events/%d/edit", Event, "published"),
+    # Events are not here either, since the cancelled state arrived:
+    # they carry the same three-way <select> as campaigns and are
+    # checked the same way below.
     "news": ("/admin/news/%d/edit", NewsPost, "published"),
     "milestone": ("/admin/journey/%d/edit", Milestone, "published"),
     "testimonial": ("/admin/testimonials/%d/edit", Testimonial, "published"),
@@ -261,6 +263,45 @@ for junk in ("", "OPEN", "active", "deleted"):
         row = db.session.get(Campaign, IDS["campaign"])
         check("campaign: junk state %r leaves it alone" % junk,
               row.state == "closed", row.state)
+
+# ---- events: the same select, the same risk. An event edited while
+# CANCELLED must stay cancelled when the title is corrected.
+url = "/admin/events/%d/edit" % IDS["event"]
+html = client.get(url).data.decode("utf-8")
+fields = browser_would_post(html)
+check("event: the state field is in the form", "state" in fields,
+      "browser would post %s" % sorted(fields.keys()))
+check("event: the form offers the state the row is actually in",
+      fields.get("state") == "cancelled", str(fields.get("state")))
+
+client.post(url, data=fields, follow_redirects=True)
+with app.app_context():
+    row = db.session.get(Event, IDS["event"])
+    check("event: SAVING WITHOUT TOUCHING ANYTHING KEEPS IT CANCELLED",
+          row.state == "cancelled", row.state)
+
+for state in ("published", "unpublished", "cancelled"):
+    posted = MultiDict([(n, v) for n, v in fields.items(multi=True)
+                        if n != "state"])
+    posted.add("state", state)
+    client.post(url, data=posted, follow_redirects=True)
+    with app.app_context():
+        row = db.session.get(Event, IDS["event"])
+        check("event: the select really does set '%s'" % state,
+              row.state == state, row.state)
+        check("event: and the legacy flag follows it (%s)" % state,
+              row.published is (state != "unpublished"),
+              str(row.published))
+
+for junk in ("", "PUBLISHED", "on", "draft", "deleted"):
+    posted = MultiDict([(n, v) for n, v in fields.items(multi=True)
+                        if n != "state"])
+    posted.add("state", junk)
+    client.post(url, data=posted, follow_redirects=True)
+    with app.app_context():
+        row = db.session.get(Event, IDS["event"])
+        check("event: junk state %r leaves it alone" % junk,
+              row.state == "cancelled", row.state)
 
 # ---- teardown
 with app.app_context():

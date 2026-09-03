@@ -104,7 +104,7 @@ with app.app_context():
         add(Event(), title="Eid party %d" % i, slug="eid-party-%d" % i,
             event_date=FUTURE, image="e%d.jpg" % i, published=True)
     add(Event(), title="Draft event", slug="draft-event",
-        event_date=FUTURE, image="d.jpg", published=False)
+        event_date=FUTURE, image="d.jpg", state="unpublished")
     # Three news posts, one a draft
     for i in range(3):
         add(NewsPost(), title="News %d" % i, slug="news-%d" % i,

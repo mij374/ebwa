@@ -21,7 +21,8 @@
       <td><a href="{{ url_for('admin_event_form', event_id=ev.id) }}">{{ ev.title }}</a></td>
       <td>{{ ev.venue }}</td>
       <td>
-        {% if not ev.published %}<span class="pill pill-grey">Draft</span>
+        {% if ev.state == 'unpublished' %}<span class="pill pill-grey">Unpublished</span>
+        {% elif ev.is_cancelled %}<span class="pill pill-red">Cancelled</span>
         {% elif ev.is_past %}<span class="pill pill-grey">Past</span>
         {% else %}<span class="pill pill-green">Upcoming</span>{% endif %}
       </td>

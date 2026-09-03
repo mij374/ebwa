@@ -84,7 +84,7 @@ with app.app_context():
                      venue="EBWA Centre, 180 High Street, Ponders End",
                      published=True)
     ev_hidden = Event(title="Draft event", slug="draft",
-                      event_date=date(2026, 8, 1), published=False)
+                      event_date=date(2026, 8, 1), state="unpublished")
     post_long = NewsPost(title="New term begins", slug="new-term",
                          published_date=date(2026, 9, 1), summary="",
                          body=LONG_BODY, image="seo-news.jpg",

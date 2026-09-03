@@ -138,6 +138,37 @@ remaining boxes can be ticked on evidence.
 
 ---
 
+## (pending) — 2026-09-03 — Events: cancelled is a state, not an unpublish
+
+**TWO NEW COLUMNS ON `event`, AND A DATA MIGRATION THAT MUST RUN WITH
+THEM.** The `UPDATE` is not optional: without it every existing event is
+`unpublished` — off the website — including the ones coming up.
+
+```bash
+sqlite3 instance/ebwa.db <<'SQL'
+ALTER TABLE event ADD COLUMN state VARCHAR(20) NOT NULL DEFAULT 'unpublished';
+ALTER TABLE event ADD COLUMN cancel_note VARCHAR(300) DEFAULT '';
+UPDATE event SET state = CASE WHEN published THEN 'published' ELSE 'unpublished' END;
+SQL
+flask --app app check-schema     # must be clean
+sudo systemctl restart ebwa
+```
+
+The column default is `unpublished` while the app's own default for a
+new event is `published`, the same split as `Campaign.state`: the ALTER
+is about rows already there, the `UPDATE` gives them their real value,
+and off-the-site is the safe thing for them to be in between. The old
+`published` column stays and is kept in step by the model; nothing
+reads it.
+
+Check afterwards: `/events` lists what it listed before, and an event
+set to "Cancelled — still on the website" in the admin keeps its page
+with the red notice at the top.
+
+- [x] Local
+- [ ] Demo VPS
+- [ ] Production
+
 ## 3be53c2 — 2026-09-03 — What a search engine and a shared link can read
 
 **SEED-ONLY: four new Blocks and one changed default, no schema

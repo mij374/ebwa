@@ -58,11 +58,32 @@
     <small>Leave empty to keep the current photo. JPG, PNG or WebP, max 8&nbsp;MB.</small>
   </div>
 
-  <div class="field field-check">
-    <label>
-      <input type="checkbox" name="published" {{ 'checked' if not ev or ev.published }}>
-      Published (visible on the website)
-    </label>
+  {#- A SELECT, like a collection's state, so there is no unticked-box
+      trap. The selected option is the row's CURRENT state — offering
+      "Published" while editing a cancelled event would un-cancel it the
+      moment somebody fixed a typo in the title. -#}
+  <div class="field">
+    <label for="state">What this event is doing</label>
+    <select id="state" name="state">
+      {% for value, label, _desc in event_states %}
+      <option value="{{ value }}"
+        {{ 'selected' if (ev.state if ev else event_states[0][0]) == value }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <small>
+      {% for value, label, desc in event_states %}
+      <b>{{ label }}</b> — {{ desc }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </small>
+  </div>
+
+  <div class="field">
+    <label for="cancel_note">If cancelled, a note for visitors (optional)</label>
+    <input type="text" id="cancel_note" name="cancel_note" maxlength="300"
+           value="{{ ev.cancel_note if ev else '' }}"
+           placeholder="e.g. Moved to Saturday 12 October — same time, same place">
+    <small>Shown under the cancelled notice on the event's page. Kept
+      whatever the state, so it is still here if you cancel again.</small>
   </div>
 
   <div class="form-actions">
