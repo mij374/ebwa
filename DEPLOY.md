@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-09-03 — Events: cancelled is a state, not an unpublish
+## 0beb44f — 2026-09-03 — Events: cancelled is a state, not an unpublish
 
 **TWO NEW COLUMNS ON `event`, AND A DATA MIGRATION THAT MUST RUN WITH
 THEM.** The `UPDATE` is not optional: without it every existing event is
