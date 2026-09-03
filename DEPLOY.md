@@ -138,7 +138,7 @@ remaining boxes can be ticked on evidence.
 
 ---
 
-## (pending) — 2026-09-03 — What a search engine and a shared link can read
+## 3be53c2 — 2026-09-03 — What a search engine and a shared link can read
 
 **SEED-ONLY: four new Blocks and one changed default, no schema
 change.** `init-db` inserts the missing keys and touches nothing else:
